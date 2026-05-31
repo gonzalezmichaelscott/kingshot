@@ -1,0 +1,120 @@
+// @ts-nocheck
+import { createClient } from '@/lib/supabase/server'
+import { notFound } from 'next/navigation'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Badge } from '@/components/ui/badge'
+import { Shield, Users, Calendar, BarChart3, MessageSquare } from 'lucide-react'
+import Link from 'next/link'
+import { formatPower } from '@/lib/utils'
+
+export default async function AllianceHubPage({ params }: { params: { id: string } }) {
+  const supabase = createClient()
+
+  const { data: alliance } = await supabase
+    .from('alliances')
+    .select('*, kingdoms(name, server_number)')
+    .eq('id', params.id)
+    .single()
+
+  if (!alliance) notFound()
+
+  const kingdom = alliance.kingdoms as any
+
+  const [
+    { count: memberCount },
+    { data: recentEvents },
+    { data: topMembers },
+  ] = await Promise.all([
+    supabase.from('members').select('*', { count: 'exact', head: true }).eq('alliance_id', params.id),
+    supabase.from('events').select('*, event_types(name)').eq('alliance_id', params.id)
+      .order('created_at', { ascending: false }).limit(3),
+    supabase.from('members').select('player_name, power, member_scores(overall_score)')
+      .eq('alliance_id', params.id).order('power', { ascending: false }).limit(5),
+  ])
+
+  const nav = [
+    { href: `/alliances/${params.id}/members`, icon: Users, label: 'Members', count: memberCount },
+    { href: `/alliances/${params.id}/events`, icon: Calendar, label: 'Events' },
+    { href: `/alliances/${params.id}/chat`, icon: MessageSquare, label: 'Chat' },
+    { href: `/alliances/${params.id}/analytics`, icon: BarChart3, label: 'Analytics' },
+  ]
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-6">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Shield className="text-amber-500" size={24} />
+            [{alliance.tag}] {alliance.name}
+          </h1>
+          {kingdom && (
+            <p className="text-slate-400 text-sm mt-1">
+              {kingdom.name} {kingdom.server_number ? `#${kingdom.server_number}` : ''}
+            </p>
+          )}
+        </div>
+        {alliance.kvk_enabled && <Badge variant="green">KVK Active</Badge>}
+      </div>
+
+      {/* Nav cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {nav.map(({ href, icon: Icon, label, count }) => (
+          <Link key={href} href={href}>
+            <Card className="hover:border-amber-500/50 transition-colors text-center py-4">
+              <Icon className="mx-auto text-amber-500 mb-2" size={24} />
+              <p className="font-medium text-sm">{label}</p>
+              {count !== undefined && <p className="text-2xl font-bold mt-1">{count}</p>}
+            </Card>
+          </Link>
+        ))}
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Top players */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Top Members by Power</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {topMembers?.map((m, i) => (
+                <div key={i} className="flex items-center justify-between">
+                  <span className="text-sm font-medium">{m.player_name}</span>
+                  <span className="text-sm text-amber-400">{formatPower(m.power)}</span>
+                </div>
+              ))}
+              {(!topMembers || topMembers.length === 0) && (
+                <p className="text-slate-400 text-sm">No members yet.</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Recent events */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent Events</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {recentEvents?.map(ev => (
+                <Link key={ev.id} href={`/alliances/${params.id}/events/${ev.id}`}>
+                  <div className="flex items-center justify-between p-2 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors">
+                    <span className="text-sm">{ev.name || (ev.event_types as any)?.name}</span>
+                    <Badge variant={ev.status === 'active' ? 'green' : 'default'}>{ev.status}</Badge>
+                  </div>
+                </Link>
+              ))}
+              {(!recentEvents || recentEvents.length === 0) && (
+                <p className="text-slate-400 text-sm">No events yet.</p>
+              )}
+            </div>
+            <Link href={`/alliances/${params.id}/events/new`} className="mt-3 block text-amber-500 hover:text-amber-400 text-sm">
+              + Create event
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  )
+}
