@@ -1,9 +1,10 @@
 // @ts-nocheck
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Crown, Shield, Sword } from 'lucide-react'
+import { Crown, Shield, Sword, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
+import { AddAllianceForm } from '@/components/alliance/AddAllianceForm'
 
 export default async function KingdomPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
@@ -14,6 +15,9 @@ export default async function KingdomPage({ params }: { params: { id: string } }
     .single()
 
   if (!kingdom) notFound()
+
+  const { data: profile } = await supabase.from('user_profiles').select('role').single()
+  const canAddAlliance = ['system_admin', 'kingdom_leader', 'r5'].includes(profile?.role || '')
 
   const alliances = kingdom.alliances as any[]
 
@@ -35,6 +39,11 @@ export default async function KingdomPage({ params }: { params: { id: string } }
         </Link>
       </div>
 
+      {/* Add Alliance */}
+      {canAddAlliance && (
+        <AddAllianceForm kingdomId={kingdom.id} kingdomName={kingdom.name} />
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -55,6 +64,9 @@ export default async function KingdomPage({ params }: { params: { id: string } }
                 </div>
               </Link>
             ))}
+            {(!alliances || alliances.length === 0) && (
+              <p className="text-slate-400 text-sm col-span-3">No alliances yet. Add one above.</p>
+            )}
           </div>
         </CardContent>
       </Card>

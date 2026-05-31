@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { formatPower } from '@/lib/utils'
-import { User, Shield, Calendar, Star } from 'lucide-react'
+import { User, Shield, Calendar, Star, Sword } from 'lucide-react'
+import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 
 interface Props {
   member: any
@@ -28,7 +28,10 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [tab, setTab] = useState<'stats' | 'availability' | 'heroes'>('stats')
+  const [tab, setTab] = useState<'stats' | 'combat' | 'availability' | 'heroes'>('stats')
+
+  const existingCombatStats = (member.member_combat_stats as any[])?.[0]
+  const assignments = member.event_availability || []
 
   async function saveStats() {
     setSaving(true)
@@ -40,8 +43,6 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
-
-  const assignments = member.event_availability || []
 
   return (
     <div className="min-h-screen bg-slate-950 p-4">
@@ -60,16 +61,22 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1">
-          {(['stats', 'availability', 'heroes'] as const).map(t => (
+        <div className="grid grid-cols-4 gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1">
+          {([
+            { key: 'stats', label: 'Stats', icon: Shield },
+            { key: 'combat', label: 'Combat', icon: Sword },
+            { key: 'availability', label: 'Events', icon: Calendar },
+            { key: 'heroes', label: 'Heroes', icon: Star },
+          ] as const).map(({ key, label, icon: Icon }) => (
             <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 py-2 rounded-lg text-sm font-medium capitalize transition-colors ${
-                tab === t ? 'bg-amber-500 text-slate-900' : 'text-slate-400 hover:text-slate-200'
+              key={key}
+              onClick={() => setTab(key)}
+              className={`flex flex-col items-center gap-0.5 py-2 rounded-lg text-xs font-medium transition-colors ${
+                tab === key ? 'bg-amber-500 text-slate-900' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
-              {t}
+              <Icon size={14} />
+              {label}
             </button>
           ))}
         </div>
@@ -80,7 +87,7 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Shield size={18} className="text-amber-500" />
-                My Combat Stats
+                My Stats
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -108,10 +115,18 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
                 />
               </div>
               <Button className="w-full" onClick={saveStats} disabled={saving}>
-                {saving ? 'Saving...' : saved ? 'Saved! ✓' : 'Update Stats'}
+                {saving ? 'Saving…' : saved ? 'Saved! ✓' : 'Update Stats'}
               </Button>
             </CardContent>
           </Card>
+        )}
+
+        {/* Combat Stats Tab */}
+        {tab === 'combat' && (
+          <CombatStatsEditor
+            memberId={member.id}
+            existing={existingCombatStats}
+          />
         )}
 
         {/* Availability Tab */}
@@ -119,9 +134,12 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
           <div className="space-y-4">
             {upcomingEvents.length > 0 ? (
               upcomingEvents.map(ev => (
-                <AvailabilityCard key={ev.id} event={ev} memberId={member.id} existing={
-                  assignments.find((a: any) => a.event_id === ev.id)
-                } />
+                <AvailabilityCard
+                  key={ev.id}
+                  event={ev}
+                  memberId={member.id}
+                  existing={assignments.find((a: any) => a.event_id === ev.id)}
+                />
               ))
             ) : (
               <Card>
@@ -192,11 +210,21 @@ function AvailabilityCard({ event, memberId, existing }: { event: any; memberId:
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Available from (UTC)</label>
-                <Input type="datetime-local" value={form.available_from_utc} onChange={e => setForm(f => ({ ...f, available_from_utc: e.target.value }))} className="text-xs" />
+                <Input
+                  type="datetime-local"
+                  value={form.available_from_utc}
+                  onChange={e => setForm(f => ({ ...f, available_from_utc: e.target.value }))}
+                  className="text-xs"
+                />
               </div>
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Available to (UTC)</label>
-                <Input type="datetime-local" value={form.available_to_utc} onChange={e => setForm(f => ({ ...f, available_to_utc: e.target.value }))} className="text-xs" />
+                <Input
+                  type="datetime-local"
+                  value={form.available_to_utc}
+                  onChange={e => setForm(f => ({ ...f, available_to_utc: e.target.value }))}
+                  className="text-xs"
+                />
               </div>
             </div>
             <div>
@@ -205,12 +233,12 @@ function AvailabilityCard({ event, memberId, existing }: { event: any; memberId:
             </div>
             <div>
               <label className="text-xs text-slate-400 block mb-1">Notes</label>
-              <Input placeholder="Any notes for your leader..." value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+              <Input placeholder="Any notes for your leader…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
           </>
         )}
         <Button className="w-full" size="sm" onClick={save} disabled={saving}>
-          {saving ? 'Saving...' : saved ? 'Saved! ✓' : 'Save Availability'}
+          {saving ? 'Saving…' : saved ? 'Saved! ✓' : 'Save Availability'}
         </Button>
       </CardContent>
     </Card>
@@ -265,7 +293,7 @@ function HeroesTab({ member, heroes }: { member: any; heroes: any[] }) {
             </select>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">Star Level (0-5)</label>
+                <label className="text-xs text-slate-400 block mb-1">Star Level (0–5)</label>
                 <Input type="number" min={0} max={5} value={form.star_level} onChange={e => setForm(f => ({ ...f, star_level: parseInt(e.target.value) || 0 }))} />
               </div>
               <div>

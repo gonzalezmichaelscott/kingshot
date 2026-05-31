@@ -4,7 +4,10 @@ import { notFound } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { formatPower, troopTypeColor, roleColor } from '@/lib/utils'
-import { User, Sword, Star } from 'lucide-react'
+import { User, Sword, Star, Link2 } from 'lucide-react'
+import { MemberEditForm } from '@/components/members/MemberEditForm'
+import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
+import { CopyTokenButton } from '@/components/members/CopyTokenButton'
 
 export default async function MemberProfilePage({ params }: { params: { id: string; memberId: string } }) {
   const supabase = createClient()
@@ -23,38 +26,69 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
 
   if (!member) notFound()
 
+  const { data: profile } = await supabase.from('user_profiles').select('role, id').single()
+  const canEdit = ['system_admin', 'r5', 'r4'].includes(profile?.role || '')
+
   const stats = (member.member_combat_stats as any)?.[0]
   const heroes = (member.member_heroes as any[]) || []
   const scores = (member.member_scores as any)?.[0]
 
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+  const memberLink = `${appUrl}/member/${member.access_token}`
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <User className="text-amber-500" size={24} />
             {member.player_name}
           </h1>
-          {member.game_id && <p className="text-slate-400 text-sm">Game ID: {member.game_id}</p>}
+          {member.game_id && <p className="text-slate-400 text-sm mt-0.5">Game ID: {member.game_id}</p>}
         </div>
         <Badge variant="amber">{member.timezone}</Badge>
       </div>
 
-      {/* Combat Stats */}
-      <div className="grid sm:grid-cols-3 gap-4">
-        {[
-          { label: 'Power', value: formatPower(member.power) },
-          { label: 'Troops', value: formatPower(member.troop_count) },
-          { label: 'March Size', value: formatPower(member.march_size) },
-          { label: 'Rally Cap', value: formatPower(member.rally_capacity) },
-          { label: 'Troop Type', value: stats?.troop_type_primary || '—' },
-        ].map(({ label, value }) => (
-          <div key={label} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-            <p className="text-slate-400 text-xs uppercase tracking-wide">{label}</p>
-            <p className="text-xl font-bold mt-1">{value}</p>
-          </div>
-        ))}
-      </div>
+      {/* Member access link — R4/R5 only */}
+      {canEdit && (
+        <Card>
+          <CardContent className="py-3 flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2 min-w-0">
+              <Link2 size={16} className="text-amber-500 flex-shrink-0" />
+              <p className="text-sm text-slate-400">Member self-service link:</p>
+              <code className="text-xs text-slate-300 bg-slate-800 px-2 py-1 rounded truncate max-w-xs hidden sm:block">
+                {memberLink}
+              </code>
+            </div>
+            <CopyTokenButton token={member.access_token} showUrl />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Edit form — R4/R5/admin */}
+      {canEdit && (
+        <MemberEditForm member={member} />
+      )}
+
+      {/* Read-only stats (when not editing) */}
+      {!canEdit && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          {[
+            { label: 'Power', value: formatPower(member.power) },
+            { label: 'Troops', value: formatPower(member.troop_count) },
+            { label: 'March Size', value: formatPower(member.march_size) },
+            { label: 'Rally Cap', value: formatPower(member.rally_capacity) },
+            { label: 'Troop Type', value: stats?.troop_type_primary || '—' },
+            { label: 'Timezone', value: member.timezone },
+          ].map(({ label, value }) => (
+            <div key={label} className="bg-slate-900 border border-slate-800 rounded-xl p-4">
+              <p className="text-slate-400 text-xs uppercase tracking-wide">{label}</p>
+              <p className="text-lg font-bold mt-1">{value}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Role Scores */}
       {scores && (
@@ -80,10 +114,20 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
         </Card>
       )}
 
-      {/* Battle Report Stats */}
-      {stats && (
+      {/* Combat Stats Editor — R4/R5/admin only */}
+      {canEdit && (
+        <CombatStatsEditor memberId={member.id} existing={stats} />
+      )}
+
+      {/* Read-only combat stats */}
+      {!canEdit && stats && (
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><Sword size={18} className="text-amber-500" />Battle Report Stats</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sword size={18} className="text-amber-500" />
+              Battle Report Stats
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             <div className="table-scroll">
               <table className="w-full min-w-[400px] text-sm">
@@ -108,7 +152,6 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
                   ))}
                 </tbody>
               </table>
-              <p className="text-xs text-slate-500 mt-2">Source: {stats.source}</p>
             </div>
           </CardContent>
         </Card>
@@ -117,7 +160,12 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
       {/* Heroes */}
       {heroes.length > 0 && (
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><Star size={18} className="text-amber-500" />Heroes</CardTitle></CardHeader>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Star size={18} className="text-amber-500" />
+              Heroes
+            </CardTitle>
+          </CardHeader>
           <CardContent>
             <div className="grid sm:grid-cols-2 gap-3">
               {heroes.map((mh: any) => (
@@ -126,7 +174,7 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
                     <span className="font-medium">{mh.heroes?.name}</span>
                     {mh.is_primary && <Badge variant="amber">Primary</Badge>}
                   </div>
-                  <div className="flex gap-3 text-xs text-slate-400">
+                  <div className="flex gap-3 text-xs text-slate-400 flex-wrap">
                     <span>Gen {mh.heroes?.generation}</span>
                     <span className={troopTypeColor(mh.heroes?.troop_type)}>{mh.heroes?.troop_type}</span>
                     <span className={roleColor(mh.heroes?.role)}>{mh.heroes?.role?.replace('_', ' ')}</span>
@@ -140,10 +188,12 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
         </Card>
       )}
 
-      {member.notes && (
+      {member.notes && !canEdit && (
         <Card>
           <CardHeader><CardTitle>Notes</CardTitle></CardHeader>
-          <CardContent><p className="text-slate-300 text-sm whitespace-pre-wrap">{member.notes}</p></CardContent>
+          <CardContent>
+            <p className="text-slate-300 text-sm whitespace-pre-wrap">{member.notes}</p>
+          </CardContent>
         </Card>
       )}
     </div>

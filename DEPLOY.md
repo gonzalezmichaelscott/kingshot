@@ -35,6 +35,10 @@ This guide walks a non-technical user through deploying Kingshot Hub from scratc
 5. Click **Run** (or press Ctrl+Enter)
 6. You should see "Success. No rows returned" — this means the schema ran correctly
 
+### Apply the RLS Patch (Required)
+
+After running `schema.sql`, also run `supabase/rls-patch.sql` the same way. This enables R5 officers to create alliances and update member stats without needing system_admin access.
+
 ### Get Your API Keys
 
 1. In Supabase, go to **Settings → API** (gear icon in sidebar)
