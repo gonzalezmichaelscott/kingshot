@@ -30,7 +30,8 @@ export default async function MemberTokenPage({ params }: { params: { token: str
     .from('events')
     .select('*, event_types(name)')
     .eq('alliance_id', member.alliance_id!)
-    .in('status', ['planning', 'registration'])
+    .in('status', ['planning', 'registration', 'active'])
+    .gte('battle_start_utc', new Date().toISOString())
     .order('battle_start_utc')
 
   return <MemberPortal member={member} heroes={heroes || []} upcomingEvents={upcomingEvents || []} />
