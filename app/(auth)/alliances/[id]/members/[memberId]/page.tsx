@@ -7,6 +7,7 @@ import { formatPower, troopTypeColor, roleColor } from '@/lib/utils'
 import { User, Sword, Star, Link2 } from 'lucide-react'
 import { MemberEditForm } from '@/components/members/MemberEditForm'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
+import { HeroManager } from '@/components/members/HeroManager'
 import { CopyTokenButton } from '@/components/members/CopyTokenButton'
 import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
@@ -40,6 +41,15 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
   const kingdom = (alliance as any)?.kingdoms
 
   const canEdit = canManageAlliance(profile?.role)
+
+  // Full hero catalog for the hero entry form (officers only)
+  const { data: heroCatalog } = canEdit
+    ? await supabase
+        .from('heroes')
+        .select('id, name, generation, troop_type, role, rarity, primary_role, has_widget, expedition_skill_count, expedition_skills')
+        .eq('is_active', true)
+        .order('generation')
+    : { data: [] }
 
   const stats = (member.member_combat_stats as any)?.[0]
   const heroes = (member.member_heroes as any[]) || []
@@ -139,7 +149,7 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
 
       {/* Combat Stats Editor — R4/R5/admin only */}
       {canEdit && (
-        <CombatStatsEditor memberId={member.id} existing={stats} />
+        <CombatStatsEditor memberId={member.id} accessToken={member.access_token} existing={stats} />
       )}
 
       {/* Read-only combat stats */}
@@ -180,16 +190,22 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
         </Card>
       )}
 
-      {/* Heroes */}
-      {heroes.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Star size={18} className="text-amber-500" />
-              Heroes
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
+      {/* Heroes — editable for officers, read-only for everyone else */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Star size={18} className="text-amber-500" />
+            Heroes
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {canEdit ? (
+            <HeroManager
+              accessToken={member.access_token}
+              memberHeroes={heroes}
+              heroes={heroCatalog || []}
+            />
+          ) : heroes.length > 0 ? (
             <div className="grid sm:grid-cols-2 gap-3">
               {heroes.map((mh: any) => (
                 <div key={mh.id} className="bg-slate-800 rounded-lg p-3">
@@ -207,9 +223,11 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
                 </div>
               ))}
             </div>
-          </CardContent>
-        </Card>
-      )}
+          ) : (
+            <p className="text-slate-400 text-sm">No heroes entered yet.</p>
+          )}
+        </CardContent>
+      </Card>
 
       {member.notes && !canEdit && (
         <Card>

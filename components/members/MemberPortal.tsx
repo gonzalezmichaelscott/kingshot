@@ -6,9 +6,9 @@ import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { User, Shield, Calendar, Star, Sword } from 'lucide-react'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
+import { HeroManager } from '@/components/members/HeroManager'
 
 interface Props {
   member: any
@@ -21,10 +21,10 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
   const router = useRouter()
 
   const [stats, setStats] = useState({
-    power: member.power || 0,
-    troop_count: member.troop_count || 0,
-    march_size: member.march_size || 0,
-    rally_capacity: member.rally_capacity || 0,
+    power: member.power || '',
+    troop_count: member.troop_count || '',
+    march_size: member.march_size || '',
+    rally_capacity: member.rally_capacity || '',
     timezone: member.timezone || 'UTC',
   })
   const [saving, setSaving] = useState(false)
@@ -36,14 +36,24 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
 
   async function saveStats() {
     setSaving(true)
+    const payload = {
+      access_token: member.access_token,
+      power: parseInt(String(stats.power)) || 0,
+      troop_count: parseInt(String(stats.troop_count)) || 0,
+      march_size: parseInt(String(stats.march_size)) || 0,
+      rally_capacity: parseInt(String(stats.rally_capacity)) || 0,
+      timezone: stats.timezone || 'UTC',
+    }
     await fetch('/api/member/stats', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ access_token: member.access_token, ...stats }),
+      body: JSON.stringify(payload),
     })
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+    // Re-fetch fresh data from the server rather than trusting local state
+    router.refresh()
   }
 
   return (
@@ -102,9 +112,14 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
                 <div key={key}>
                   <label className="text-sm text-slate-400 block mb-1">{label}</label>
                   <Input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     value={stats[key]}
-                    onChange={e => setStats(s => ({ ...s, [key]: parseInt(e.target.value) || 0 }))}
+                    onChange={e => {
+                      const v = e.target.value.replace(/[^0-9]/g, '')
+                      setStats(s => ({ ...s, [key]: v === '' ? '' : parseInt(v) }))
+                    }}
                   />
                 </div>
               ))}
@@ -127,6 +142,7 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
         {tab === 'combat' && (
           <CombatStatsEditor
             memberId={member.id}
+            accessToken={member.access_token}
             existing={existingCombatStats}
           />
         )}
@@ -156,7 +172,11 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
 
         {/* Heroes Tab */}
         {tab === 'heroes' && (
-          <HeroesTab member={member} heroes={heroes} />
+          <HeroManager
+            accessToken={member.access_token}
+            memberHeroes={member.member_heroes || []}
+            heroes={heroes}
+          />
         )}
       </div>
     </div>
@@ -247,79 +267,3 @@ function AvailabilityCard({ event, memberId, existing }: { event: any; memberId:
   )
 }
 
-function HeroesTab({ member, heroes }: { member: any; heroes: any[] }) {
-  const router = useRouter()
-  const memberHeroes: any[] = member.member_heroes || []
-  const [adding, setAdding] = useState(false)
-  const [form, setForm] = useState({ hero_id: heroes[0]?.id || '', star_level: 0, hero_level: 1, is_primary: false })
-  const [saving, setSaving] = useState(false)
-  const [saved, setSaved] = useState(false)
-
-  async function addHero() {
-    setSaving(true)
-    await fetch('/api/member/heroes', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ access_token: member.access_token, ...form }),
-    })
-    setSaving(false)
-    setSaved(true)
-    setAdding(false)
-    router.refresh()
-    setTimeout(() => setSaved(false), 2000)
-  }
-
-  return (
-    <div className="space-y-3">
-      {memberHeroes.map((mh: any) => (
-        <Card key={mh.id}>
-          <CardContent className="py-3 flex items-center justify-between">
-            <div>
-              <p className="font-medium">{mh.heroes?.name}</p>
-              <p className="text-xs text-slate-400">Gen {mh.heroes?.generation} · ⭐ {mh.star_level} · Lvl {mh.hero_level}</p>
-            </div>
-            {mh.is_primary && <Badge variant="amber">Primary</Badge>}
-          </CardContent>
-        </Card>
-      ))}
-
-      {adding ? (
-        <Card>
-          <CardContent className="py-4 space-y-3">
-            <select
-              value={form.hero_id}
-              onChange={e => setForm(f => ({ ...f, hero_id: e.target.value }))}
-              className="w-full h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-            >
-              {heroes.map(h => (
-                <option key={h.id} value={h.id}>{h.name} (Gen {h.generation})</option>
-              ))}
-            </select>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Star Level (0–5)</label>
-                <Input type="number" min={0} max={5} value={form.star_level} onChange={e => setForm(f => ({ ...f, star_level: parseInt(e.target.value) || 0 }))} />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Hero Level</label>
-                <Input type="number" min={1} max={60} value={form.hero_level} onChange={e => setForm(f => ({ ...f, hero_level: parseInt(e.target.value) || 1 }))} />
-              </div>
-            </div>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={form.is_primary} onChange={e => setForm(f => ({ ...f, is_primary: e.target.checked }))} className="accent-amber-500" />
-              <span className="text-sm">Primary hero</span>
-            </label>
-            <div className="flex gap-2">
-              <Button size="sm" onClick={addHero} disabled={saving}>{saving ? 'Saving…' : saved ? 'Saved!' : 'Save Hero'}</Button>
-              <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
-            </div>
-          </CardContent>
-        </Card>
-      ) : (
-        <Button variant="secondary" className="w-full" onClick={() => setAdding(true)}>
-          <Star size={16} className="mr-2" /> Add Hero
-        </Button>
-      )}
-    </div>
-  )
-}

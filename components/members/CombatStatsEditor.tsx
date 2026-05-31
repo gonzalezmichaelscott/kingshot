@@ -1,7 +1,6 @@
 // @ts-nocheck
 'use client'
 import { useState, useRef } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -42,10 +41,11 @@ const STAT_ROWS = [
 
 interface Props {
   memberId: string
+  accessToken: string
   existing?: any
 }
 
-export function CombatStatsEditor({ memberId, existing }: Props) {
+export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
   const [open, setOpen] = useState(false)
   const [stats, setStats] = useState<StatFields>({
     infantry_attack: existing?.infantry_attack || 0,
@@ -70,7 +70,6 @@ export function CombatStatsEditor({ memberId, existing }: Props) {
   const [ocrConfidence, setOcrConfidence] = useState<Record<string, number>>({})
   const fileRef = useRef<HTMLInputElement>(null)
   const router = useRouter()
-  const supabase = createClient()
 
   function setStat(key: keyof StatFields, value: number | string) {
     setStats(s => ({ ...s, [key]: value }))
@@ -133,17 +132,21 @@ export function CombatStatsEditor({ memberId, existing }: Props) {
     setSaving(true)
     setError('')
 
-    if (existing?.id) {
-      const { error: err } = await supabase
-        .from('member_combat_stats')
-        .update({ ...stats, source: ocrState === 'review' ? 'ocr_verified' : 'manual', updated_at: new Date().toISOString() })
-        .eq('id', existing.id)
-      if (err) { setError(err.message); setSaving(false); return }
-    } else {
-      const { error: err } = await supabase
-        .from('member_combat_stats')
-        .insert({ ...stats, member_id: memberId, source: ocrState === 'review' ? 'ocr_verified' : 'manual' })
-      if (err) { setError(err.message); setSaving(false); return }
+    const res = await fetch('/api/member/combat-stats', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        access_token: accessToken,
+        ...stats,
+        source: ocrState === 'review' ? 'ocr_verified' : 'manual',
+      }),
+    })
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setError(data.error || 'Save failed')
+      setSaving(false)
+      return
     }
 
     setSaving(false)
@@ -151,6 +154,7 @@ export function CombatStatsEditor({ memberId, existing }: Props) {
     setOcrState('idle')
     setOcrConfidence({})
     setTimeout(() => setSaved(false), 2000)
+    // Re-fetch fresh data from the database rather than trusting local state
     router.refresh()
   }
 
@@ -313,11 +317,13 @@ export function CombatStatsEditor({ memberId, existing }: Props) {
                         <td key={stat} className="py-1.5 pr-2">
                           <div className="relative">
                             <Input
-                              type="number"
-                              min={0}
-                              step={0.1}
+                              type="text"
+                              inputMode="decimal"
                               value={stats[key]}
-                              onChange={e => setStat(key, parseFloat(e.target.value) || 0)}
+                              onChange={e => {
+                                const v = e.target.value.replace(/[^0-9.]/g, '')
+                                setStat(key, v === '' ? 0 : parseFloat(v) || 0)
+                              }}
                               className={`h-8 text-xs pr-6 ${conf !== undefined && conf < 0.7 ? 'border-amber-500/50' : ''}`}
                             />
                             {conf !== undefined && (

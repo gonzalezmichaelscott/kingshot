@@ -4,12 +4,28 @@ import { notFound } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { BarChart3, Users, Star, Shield, TrendingUp } from 'lucide-react'
 import { formatPower } from '@/lib/utils'
+import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
+import { requireAllianceAccess } from '@/lib/access'
 
 export default async function AnalyticsPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
 
-  const { data: alliance } = await supabase.from('alliances').select('name, tag').eq('id', params.id).single()
+  await requireAllianceAccess(supabase, params.id)
+
+  const { data: alliance } = await supabase
+    .from('alliances')
+    .select('name, tag, kingdoms(id, name, server_number)')
+    .eq('id', params.id)
+    .single()
   if (!alliance) notFound()
+
+  const kingdom = (alliance as any).kingdoms
+  const breadcrumbs = [
+    { label: 'Kingdoms', href: '/kingdoms' },
+    ...(kingdom ? [{ label: `${kingdom.name}${kingdom.server_number ? ` #${kingdom.server_number}` : ''}`, href: `/kingdoms/${kingdom.id}` }] : []),
+    { label: `[${alliance.tag}] ${alliance.name}`, href: `/alliances/${params.id}` },
+    { label: 'Analytics' },
+  ]
 
   const memberIdQuery = await supabase.from('members').select('id').eq('alliance_id', params.id)
   const memberIds = memberIdQuery.data?.map((m: any) => m.id) || []
@@ -64,6 +80,7 @@ export default async function AnalyticsPage({ params }: { params: { id: string }
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
+      <Breadcrumbs items={breadcrumbs} />
       <h1 className="text-2xl font-bold flex items-center gap-2">
         <BarChart3 className="text-amber-500" size={24} />
         Analytics — [{alliance.tag}] {alliance.name}

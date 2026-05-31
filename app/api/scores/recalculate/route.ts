@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     // Load all members with their data
     const { data: members } = await serviceClient
       .from('members')
-      .select('id, power, troop_count, march_size, rally_capacity, member_combat_stats(*), member_heroes(*, heroes(generation))')
+      .select('id, power, troop_count, march_size, rally_capacity, member_combat_stats(*), member_heroes(*, heroes(*))')
       .eq('alliance_id', allianceId)
 
     if (!members) return NextResponse.json({ updated: 0 })
@@ -43,10 +43,12 @@ export async function POST(request: NextRequest) {
     for (const m of members) {
       const stats = (m.member_combat_stats as any)?.[0]
       const heroData = (m.member_heroes as any[])?.map((mh: any) => ({
-        hero: { generation: mh.heroes?.generation || 1 },
-        starLevel: mh.star_level || 0,
-        widgetLevel: mh.widget_level || 0,
-        expeditionSkillLevels: mh.expedition_skill_levels || {},
+        hero: mh.heroes,
+        star_level: mh.star_level || 0,
+        star_shards: mh.star_shards || 0,
+        widget_level: mh.widget_level || 0,
+        widget_unlocked: mh.widget_unlocked || false,
+        expedition_skill_levels: mh.expedition_skill_levels || {},
       })) || []
 
       const profile = {

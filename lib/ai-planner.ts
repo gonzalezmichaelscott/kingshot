@@ -6,6 +6,51 @@ import type { MemberHeroData, MemberProfile } from '@/lib/scoring'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+const BATTLE_PLANNER_SYSTEM_PROMPT = `You are an expert battle planner for the mobile strategy game Kingshot.
+
+VERIFIED DAMAGE FORMULA (~100% accuracy, community-tested):
+Kills = √Troops × (Attack × Lethality) / (Enemy Defense × Enemy Health) × SkillMod
+
+CRITICAL RULES:
+1. Attack and Lethality are EQUALLY important — they multiply together. Boost whichever is LOWER.
+2. Troop count scales with SQUARE ROOT — 2M troops does NOT deal double the damage of 1M troops.
+3. SkillMod (hero expedition skills) has the BIGGEST influence on battle outcome.
+4. Hero diversity: different effect_op codes MULTIPLY (Chenko 101 + Amane 102 = 2.25x vs 4x same = 2.0x — 12.5% more damage from diversity alone).
+5. Same effect_op codes ADD — diminishing returns on identical heroes.
+6. NEVER reference Conquest skills in battle plans — they are Arena PvP only.
+7. Widget boosts are MULTIPLICATIVE for rally/garrison leaders — prioritize widget-equipped leaders.
+8. JOINERS: only first expedition skill of lead hero applies. Skills 2-4 are invisible when joining.
+9. LEADERS: all expedition skills from all 3 heroes they bring apply.
+
+TROOP COUNTER SYSTEM:
+- Infantry counters Archers: 25-50% bonus damage
+- Archers counter Cavalry: 25-50% bonus damage
+- Cavalry counters Infantry: 25-50% bonus damage
+
+OPTIMAL FORMATIONS:
+- Standard PvP attack rally: 50% Infantry / 20% Cavalry / 30% Archer
+- Amadeus Bear Hunt: 5% Infantry / 25% Cavalry / 70% Archer (min 5,000 infantry to activate his skills)
+- KvK Castle garrison defense: 60% Infantry / 20% Cavalry / 20% Archer
+
+RALLY LEADER SELECTION RULES:
+- Must have march_size >= rally_capacity to fill the rally
+- Offensive widget = highest priority (Amadeus is the ONLY offensive infantry widget in the game)
+- Gen 1-2 attack: Amadeus (offensive widget), Marlin (archer)
+- Gen 3+ attack: Petra (multiplicative whole-rally ATK buff — non-negotiable), Rosa, Long Fei, Vivian, Yang, Ava
+- Zoe NEVER leads attack rallies — her kit is purely defensive
+- Garrison/defense: Zoe, Jabel, Eric, Alcar, Charles (Gen 7)
+
+JOINER OPTIMIZATION:
+- Best attack joiner stack: Chenko (101) + Amane (102) — different effect_ops multiply
+- Best defensive joiner stack: Saul (112) + Gordon (113) + Howard or Quinn (111) — all different ops multiply
+- Enemy damage reduction: Eric (202) + Fahd (201) multiply together
+- Vivian as joiner: unique effect_op 200, amplifies ALL ally damage — very powerful
+- NEVER recommend both Howard AND Quinn — identical effect_op 111, wastes a slot
+- Fewer fuller rallies beat many thin rallies — don't split joiner pool too thin
+
+Return a JSON battle plan with: summary, formations, assignments (each with member_id, player_name, role, squad, formation_recommendation, hero_recommendation, reasoning, is_primary, is_backup, time_window), joiner_stacking_advice, coverage_gaps, backup_plan, warnings.
+Never include markdown code fences in your response — raw JSON only.`
+
 export interface BattlePlanAssignment {
   member_id: string
   player_name: string
@@ -14,6 +59,9 @@ export interface BattlePlanAssignment {
   is_primary: boolean
   is_backup: boolean
   reasoning: string
+  formation_recommendation?: string
+  hero_recommendation?: string
+  time_window?: string
   time_window_start?: string
   time_window_end?: string
 }
@@ -21,8 +69,13 @@ export interface BattlePlanAssignment {
 export interface BattlePlan {
   assignments: BattlePlanAssignment[]
   summary: string
+  formations?: Record<string, string>
+  joiner_stacking_advice?: string
   coverage_gaps: string[]
-  recommendations: string[]
+  backup_plan?: string
+  warnings?: string[]
+  // legacy field retained for older stored plans
+  recommendations?: string[]
 }
 
 async function loadAttendingMembersWithScores(eventId: string) {
@@ -64,9 +117,11 @@ async function loadAttendingMembersWithScores(eventId: string) {
     const stats = m.member_combat_stats?.[0]
     const heroData: MemberHeroData[] = (m.member_heroes || []).map((mh: any) => ({
       hero: mh.heroes,
-      starLevel: mh.star_level,
-      widgetLevel: mh.widget_level,
-      expeditionSkillLevels: mh.expedition_skill_levels || {},
+      star_level: mh.star_level,
+      star_shards: mh.star_shards,
+      widget_level: mh.widget_level,
+      widget_unlocked: mh.widget_unlocked,
+      expedition_skill_levels: mh.expedition_skill_levels || {},
     }))
 
     const profile: MemberProfile = {
@@ -146,31 +201,38 @@ ${members.map(m => `
 INSTRUCTIONS:
 1. Assign every attending member a primary role and squad (if applicable)
 2. Designate backup players for critical roles (rally leaders especially)
-3. Explain WHY each assignment was made — reference specific stats
+3. Explain WHY each assignment was made — reference specific stats AND hero/effect_op synergy
 4. Identify coverage gaps (time windows with insufficient players, missing backups)
 5. For Swordland: fill Squad A and Squad B with 30 members each, 10 substitutes
 6. For KVK Castle Battle: assign castle team, 4 turret teams (N/E/S/W), support roles, and rotation schedule
 7. For Tri Alliance Clash: assign by phase (Seize, Garrison, Temple) with defenders and assault teams
 8. Match march size to rally capacity — don't exceed rally capacity with joiners
 
-Respond ONLY with valid JSON in this exact schema:
+Respond ONLY with valid JSON in this exact schema (raw JSON, no code fences):
 {
+  "summary": "2-3 sentence overview of the plan",
+  "formations": {
+    "attack_standard": "50% Infantry / 20% Cavalry / 30% Archer",
+    "defense_standard": "60% Infantry / 20% Cavalry / 20% Archer"
+  },
   "assignments": [
     {
       "member_id": "uuid",
       "player_name": "name",
-      "role": "role_name",
+      "role": "rally_leader|joiner|garrison|support|backup_leader|backup_joiner",
       "squad": "A|B|castle|north_turret|east_turret|south_turret|west_turret|support|null",
+      "formation_recommendation": "50% Infantry / 20% Cavalry / 30% Archer",
+      "hero_recommendation": "Lead with X (offensive widget); bring Y + Z as lineup",
+      "reasoning": "Specific explanation referencing their stats and hero synergy",
       "is_primary": true,
       "is_backup": false,
-      "reasoning": "Specific explanation referencing their stats",
-      "time_window_start": "ISO datetime or null",
-      "time_window_end": "ISO datetime or null"
+      "time_window": "full_event|12:00-14:00 UTC|etc"
     }
   ],
-  "summary": "Overall plan summary",
-  "coverage_gaps": ["List of identified gaps"],
-  "recommendations": ["Strategic recommendations for leaders"]
+  "joiner_stacking_advice": "Optimal joiner hero combinations for this rally",
+  "coverage_gaps": ["Time windows or roles with insufficient coverage"],
+  "backup_plan": "What happens when primary players rotate out",
+  "warnings": ["Players with missing stats that reduce plan accuracy"]
 }`
 }
 
@@ -180,18 +242,28 @@ async function storeAssignments(eventId: string, plan: BattlePlan) {
   // Clear existing assignments
   await supabase.from('event_assignments').delete().eq('event_id', eventId)
 
-  // Insert new assignments
-  const rows = plan.assignments.map(a => ({
-    event_id: eventId,
-    member_id: a.member_id,
-    role: a.role,
-    squad: a.squad,
-    is_primary: a.is_primary,
-    is_backup: a.is_backup,
-    reasoning: a.reasoning,
-    time_window_start: a.time_window_start || null,
-    time_window_end: a.time_window_end || null,
-  }))
+  // Insert new assignments. The model may return richer fields
+  // (formation_recommendation, hero_recommendation, time_window) than the
+  // event_assignments table has columns for — fold those into `reasoning`.
+  const rows = plan.assignments.map(a => {
+    const extras = [
+      a.hero_recommendation ? `Heroes: ${a.hero_recommendation}` : '',
+      a.formation_recommendation ? `Formation: ${a.formation_recommendation}` : '',
+      a.time_window && !a.time_window_start ? `Window: ${a.time_window}` : '',
+    ].filter(Boolean).join(' · ')
+    const reasoning = [a.reasoning, extras].filter(Boolean).join(' — ')
+    return {
+      event_id: eventId,
+      member_id: a.member_id,
+      role: a.role,
+      squad: a.squad,
+      is_primary: a.is_primary,
+      is_backup: a.is_backup,
+      reasoning,
+      time_window_start: a.time_window_start || null,
+      time_window_end: a.time_window_end || null,
+    }
+  })
 
   await supabase.from('event_assignments').insert(rows)
 
@@ -221,11 +293,7 @@ export async function generateBattlePlan(eventId: string): Promise<BattlePlan> {
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 4000,
-    system: `You are a battle planning assistant for the mobile strategy game Kingshot.
-You analyze player statistics and generate optimized battle assignments.
-Always explain WHY each assignment was made, referencing specific stats.
-Respond only in valid JSON matching the BattlePlan schema provided.
-Never include markdown code fences in your response — raw JSON only.`,
+    system: BATTLE_PLANNER_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
   })
 

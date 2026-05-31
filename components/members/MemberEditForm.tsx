@@ -1,7 +1,6 @@
 // @ts-nocheck
 'use client'
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -25,26 +24,41 @@ export function MemberEditForm({ member }: Props) {
   const [form, setForm] = useState({
     player_name: member.player_name || '',
     game_id: member.game_id || '',
-    power: member.power || 0,
-    troop_count: member.troop_count || 0,
-    march_size: member.march_size || 0,
-    rally_capacity: member.rally_capacity || 0,
+    power: member.power || '',
+    troop_count: member.troop_count || '',
+    march_size: member.march_size || '',
+    rally_capacity: member.rally_capacity || '',
     timezone: member.timezone || 'UTC',
     notes: member.notes || '',
   })
   const router = useRouter()
-  const supabase = createClient()
 
   async function save() {
     setSaving(true)
     setError('')
-    const { error: err } = await supabase
-      .from('members')
-      .update({ ...form, updated_at: new Date().toISOString() })
-      .eq('id', member.id)
+    const res = await fetch('/api/member/profile', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        access_token: member.access_token,
+        player_name: form.player_name,
+        game_id: form.game_id,
+        power: parseInt(String(form.power)) || 0,
+        troop_count: parseInt(String(form.troop_count)) || 0,
+        march_size: parseInt(String(form.march_size)) || 0,
+        rally_capacity: parseInt(String(form.rally_capacity)) || 0,
+        timezone: form.timezone,
+        notes: form.notes,
+      }),
+    })
     setSaving(false)
-    if (err) { setError(err.message); return }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setError(data.error || 'Save failed')
+      return
+    }
     setOpen(false)
+    // Re-fetch fresh data from the database rather than trusting local state
     router.refresh()
   }
 
@@ -102,22 +116,26 @@ export function MemberEditForm({ member }: Props) {
               <label className="text-xs text-slate-400 block mb-1">Game ID</label>
               <Input placeholder="Optional in-game ID" value={form.game_id} onChange={e => setForm(f => ({ ...f, game_id: e.target.value }))} />
             </div>
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">Power</label>
-              <Input type="number" min={0} value={form.power} onChange={e => setForm(f => ({ ...f, power: parseInt(e.target.value) || 0 }))} />
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">Troop Count</label>
-              <Input type="number" min={0} value={form.troop_count} onChange={e => setForm(f => ({ ...f, troop_count: parseInt(e.target.value) || 0 }))} />
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">March Size</label>
-              <Input type="number" min={0} value={form.march_size} onChange={e => setForm(f => ({ ...f, march_size: parseInt(e.target.value) || 0 }))} />
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">Rally Capacity</label>
-              <Input type="number" min={0} value={form.rally_capacity} onChange={e => setForm(f => ({ ...f, rally_capacity: parseInt(e.target.value) || 0 }))} />
-            </div>
+            {([
+              { key: 'power', label: 'Power' },
+              { key: 'troop_count', label: 'Troop Count' },
+              { key: 'march_size', label: 'March Size' },
+              { key: 'rally_capacity', label: 'Rally Capacity' },
+            ] as const).map(({ key, label }) => (
+              <div key={key}>
+                <label className="text-xs text-slate-400 block mb-1">{label}</label>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={form[key]}
+                  onChange={e => {
+                    const v = e.target.value.replace(/[^0-9]/g, '')
+                    setForm(f => ({ ...f, [key]: v === '' ? '' : parseInt(v) }))
+                  }}
+                />
+              </div>
+            ))}
             <div>
               <label className="text-xs text-slate-400 block mb-1">Timezone</label>
               <select

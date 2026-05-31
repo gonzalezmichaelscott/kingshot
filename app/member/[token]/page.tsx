@@ -22,7 +22,7 @@ export default async function MemberTokenPage({ params }: { params: { token: str
 
   const { data: heroes } = await supabase
     .from('heroes')
-    .select('id, name, generation, troop_type, role')
+    .select('id, name, generation, troop_type, role, rarity, primary_role, has_widget, expedition_skill_count, expedition_skills')
     .eq('is_active', true)
     .order('generation')
 
