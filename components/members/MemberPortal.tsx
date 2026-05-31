@@ -1,6 +1,7 @@
 // @ts-nocheck
 'use client'
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,7 +18,7 @@ interface Props {
 
 export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
   const alliance = member.alliances
-  const supabase = createClient()
+  const router = useRouter()
 
   const [stats, setStats] = useState({
     power: member.power || 0,
@@ -35,10 +36,11 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
 
   async function saveStats() {
     setSaving(true)
-    await supabase.from('members').update({
-      ...stats,
-      updated_at: new Date().toISOString(),
-    }).eq('access_token', member.access_token)
+    await fetch('/api/member/stats', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token: member.access_token, ...stats }),
+    })
     setSaving(false)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -246,23 +248,25 @@ function AvailabilityCard({ event, memberId, existing }: { event: any; memberId:
 }
 
 function HeroesTab({ member, heroes }: { member: any; heroes: any[] }) {
-  const supabase = createClient()
+  const router = useRouter()
   const memberHeroes: any[] = member.member_heroes || []
   const [adding, setAdding] = useState(false)
   const [form, setForm] = useState({ hero_id: heroes[0]?.id || '', star_level: 0, hero_level: 1, is_primary: false })
+  const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
   async function addHero() {
-    await supabase.from('member_heroes').upsert({
-      member_id: member.id,
-      hero_id: form.hero_id,
-      star_level: form.star_level,
-      hero_level: form.hero_level,
-      is_primary: form.is_primary,
-    }, { onConflict: 'member_id,hero_id' })
+    setSaving(true)
+    await fetch('/api/member/heroes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ access_token: member.access_token, ...form }),
+    })
+    setSaving(false)
     setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
     setAdding(false)
+    router.refresh()
+    setTimeout(() => setSaved(false), 2000)
   }
 
   return (
@@ -306,7 +310,7 @@ function HeroesTab({ member, heroes }: { member: any; heroes: any[] }) {
               <span className="text-sm">Primary hero</span>
             </label>
             <div className="flex gap-2">
-              <Button size="sm" onClick={addHero}>{saved ? 'Saved!' : 'Save Hero'}</Button>
+              <Button size="sm" onClick={addHero} disabled={saving}>{saving ? 'Saving…' : saved ? 'Saved!' : 'Save Hero'}</Button>
               <Button size="sm" variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
             </div>
           </CardContent>
