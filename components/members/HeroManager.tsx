@@ -13,7 +13,6 @@ const SKILL_LABELS: Record<number, string> = {
   1: 'Skill 1 — Joiner Skill (applies when joining AND leading)',
   2: 'Skill 2 — Leader Only',
   3: 'Skill 3 — Leader Only',
-  4: 'Skill 4 — Widget Skill (unlocked by widget)',
 }
 
 interface Props {
@@ -81,10 +80,11 @@ export function HeroManager({ accessToken, memberHeroes, heroes }: Props) {
   const selectedHero = heroById(form.hero_id)
   const hasWidget = !!selectedHero?.has_widget
   const baseSkillCount = selectedHero?.expedition_skill_count || (hasWidget ? 3 : 2)
-  // Slot 4 (widget skill) only appears once the widget is unlocked
-  const skillSlots = []
-  for (let s = 1; s <= baseSkillCount; s++) skillSlots.push(s)
-  if (hasWidget && form.widget_unlocked) skillSlots.push(4)
+  // Expedition skills are slots 1..3 for Mythic, 1..2 for Epic. The widget is
+  // captured separately by the "Widget Level" field above — it is NOT a skill
+  // slot, so there is no slot 4 here.
+  const skillSlots: number[] = []
+  for (let s = 1; s <= Math.min(baseSkillCount, 3); s++) skillSlots.push(s)
 
   function skillName(slot: number): string {
     const sk = (selectedHero?.expedition_skills as any[])?.find(s => s.slot === slot)

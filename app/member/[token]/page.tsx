@@ -12,13 +12,20 @@ export default async function MemberTokenPage({ params }: { params: { token: str
       *,
       alliances(name, tag),
       member_combat_stats(*),
-      member_heroes(*, heroes(*)),
       event_availability(*, events(*, event_types(name)))
     `)
     .eq('access_token', params.token)
     .single()
 
   if (!member) notFound()
+
+  // Fetch the member's saved heroes explicitly (rather than relying on the
+  // deeply-nested embed in the member query) so they always load and display.
+  const { data: memberHeroes } = await supabase
+    .from('member_heroes')
+    .select('*, heroes(*)')
+    .eq('member_id', member.id)
+    .order('is_primary', { ascending: false })
 
   const { data: heroes } = await supabase
     .from('heroes')
@@ -28,11 +35,18 @@ export default async function MemberTokenPage({ params }: { params: { token: str
 
   const { data: upcomingEvents } = await supabase
     .from('events')
-    .select('*, event_types(name)')
+    .select('*, event_types(name, slug)')
     .eq('alliance_id', member.alliance_id!)
     .in('status', ['planning', 'registration', 'active'])
     .gte('battle_start_utc', new Date().toISOString())
     .order('battle_start_utc')
 
-  return <MemberPortal member={member} heroes={heroes || []} upcomingEvents={upcomingEvents || []} />
+  return (
+    <MemberPortal
+      member={member}
+      memberHeroes={memberHeroes || []}
+      heroes={heroes || []}
+      upcomingEvents={upcomingEvents || []}
+    />
+  )
 }

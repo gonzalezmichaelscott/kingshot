@@ -2,7 +2,6 @@
 'use client'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -12,11 +11,12 @@ import { HeroManager } from '@/components/members/HeroManager'
 
 interface Props {
   member: any
+  memberHeroes: any[]
   heroes: any[]
   upcomingEvents: any[]
 }
 
-export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
+export function MemberPortal({ member, memberHeroes, heroes, upcomingEvents }: Props) {
   const alliance = member.alliances
   const router = useRouter()
 
@@ -155,7 +155,7 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
                 <AvailabilityCard
                   key={ev.id}
                   event={ev}
-                  memberId={member.id}
+                  accessToken={member.access_token}
                   existing={assignments.find((a: any) => a.event_id === ev.id)}
                 />
               ))
@@ -174,7 +174,7 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
         {tab === 'heroes' && (
           <HeroManager
             accessToken={member.access_token}
-            memberHeroes={member.member_heroes || []}
+            memberHeroes={memberHeroes}
             heroes={heroes}
           />
         )}
@@ -183,30 +183,83 @@ export function MemberPortal({ member, heroes, upcomingEvents }: Props) {
   )
 }
 
-function AvailabilityCard({ event, memberId, existing }: { event: any; memberId: string; existing: any }) {
-  const supabase = createClient()
+// Returns the inclusive UTC hour window [start, end] a member can pick within,
+// based on the event type. The R4/R5 coordinator already sets the event date.
+function eventWindow(slug: string | undefined, battleStartUtc: string | null) {
+  if (slug === 'kvk_castle_battle') return { start: 12, end: 17 } // 5-hour castle window
+  if (slug === 'tri_alliance_clash') {
+    const h = battleStartUtc ? new Date(battleStartUtc).getUTCHours() : 0
+    return { start: h, end: h + 1 } // single 1-hour event window
+  }
+  // swordland_showdown and any other event: full 24-hour day
+  return { start: 0, end: 23 }
+}
+
+const fmtHour = (h: number) => `${String(h % 24).padStart(2, '0')}:00`
+
+function AvailabilityCard({ event, accessToken, existing }: { event: any; accessToken: string; existing: any }) {
+  const router = useRouter()
+  const slug = event.event_types?.slug
+  const { start, end } = eventWindow(slug, event.battle_start_utc)
+
+  // Build the event's calendar date (in UTC) for constructing timestamps
+  const baseDate = event.battle_start_utc ? new Date(event.battle_start_utc) : new Date()
+  const y = baseDate.getUTCFullYear()
+  const mo = baseDate.getUTCMonth()
+  const da = baseDate.getUTCDate()
+  const tsForHour = (h: number) => new Date(Date.UTC(y, mo, da, h, 0, 0)).toISOString()
+
+  const fromHours: number[] = []
+  for (let h = start; h <= end - 1; h++) fromHours.push(h)
+
+  const existingFrom = existing?.available_from_utc ? new Date(existing.available_from_utc).getUTCHours() : null
+  const existingTo = existing?.available_to_utc ? new Date(existing.available_to_utc).getUTCHours() : null
+
   const [form, setForm] = useState({
     will_attend: existing?.will_attend ?? false,
-    available_from_utc: existing?.available_from_utc?.slice(0, 16) || '',
-    available_to_utc: existing?.available_to_utc?.slice(0, 16) || '',
+    from_hour: existingFrom ?? start,
+    to_hour: existingTo ?? Math.min(start + 1, end),
     squad_preference: existing?.squad_preference || '',
     notes: existing?.notes || '',
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
+
+  // "To" options are always after the selected "from" hour, within the window
+  const toHours: number[] = []
+  for (let h = form.from_hour + 1; h <= end; h++) toHours.push(h)
 
   async function save() {
     setSaving(true)
-    await supabase.from('event_availability').upsert({
-      event_id: event.id,
-      member_id: memberId,
-      ...form,
-      available_from_utc: form.available_from_utc || null,
-      available_to_utc: form.available_to_utc || null,
-    }, { onConflict: 'event_id,member_id' })
+    setError('')
+    const fromH = form.from_hour
+    let toH = form.to_hour
+    if (toH <= fromH) toH = Math.min(fromH + 1, end)
+
+    const res = await fetch('/api/member/availability', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        access_token: accessToken,
+        event_id: event.id,
+        will_attend: form.will_attend,
+        available_from_utc: form.will_attend ? tsForHour(fromH) : null,
+        available_to_utc: form.will_attend ? tsForHour(toH) : null,
+        squad_preference: form.squad_preference,
+        notes: form.notes,
+      }),
+    })
     setSaving(false)
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      setError(d.error || 'Save failed')
+      return
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+    // Re-fetch so the saved attendance state persists on reload
+    router.refresh()
   }
 
   return (
@@ -214,10 +267,12 @@ function AvailabilityCard({ event, memberId, existing }: { event: any; memberId:
       <CardHeader>
         <CardTitle className="text-base">{event.name || event.event_types?.name}</CardTitle>
         {event.battle_start_utc && (
-          <p className="text-sm text-slate-400">{new Date(event.battle_start_utc).toLocaleString()}</p>
+          <p className="text-sm text-slate-400">
+            Battle starts {fmtHour(new Date(event.battle_start_utc).getUTCHours())} UTC
+          </p>
         )}
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
         <label className="flex items-center gap-3 cursor-pointer">
           <input
             type="checkbox"
@@ -227,38 +282,55 @@ function AvailabilityCard({ event, memberId, existing }: { event: any; memberId:
           />
           <span className="font-medium">I will attend</span>
         </label>
+
         {form.will_attend && (
           <>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Available from (UTC)</label>
-                <Input
-                  type="datetime-local"
-                  value={form.available_from_utc}
-                  onChange={e => setForm(f => ({ ...f, available_from_utc: e.target.value }))}
-                  className="text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Available to (UTC)</label>
-                <Input
-                  type="datetime-local"
-                  value={form.available_to_utc}
-                  onChange={e => setForm(f => ({ ...f, available_to_utc: e.target.value }))}
-                  className="text-xs"
-                />
-              </div>
-            </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Squad preference (A/B)</label>
-              <Input placeholder="A or B" value={form.squad_preference} onChange={e => setForm(f => ({ ...f, squad_preference: e.target.value }))} />
+              <p className="text-xs text-slate-400 mb-2">
+                Select the UTC hours you're available
+                {slug === 'kvk_castle_battle' ? ' within the battle window (12:00–17:00 UTC)' : ''}.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Available from (UTC)</label>
+                  <select
+                    value={form.from_hour}
+                    onChange={e => {
+                      const nf = parseInt(e.target.value)
+                      setForm(f => ({ ...f, from_hour: nf, to_hour: f.to_hour <= nf ? Math.min(nf + 1, end) : f.to_hour }))
+                    }}
+                    className="w-full h-11 px-3 bg-slate-800 border border-slate-700 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    {fromHours.map(h => <option key={h} value={h}>{fmtHour(h)} UTC</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 block mb-1">Available to (UTC)</label>
+                  <select
+                    value={form.to_hour}
+                    onChange={e => setForm(f => ({ ...f, to_hour: parseInt(e.target.value) }))}
+                    className="w-full h-11 px-3 bg-slate-800 border border-slate-700 rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  >
+                    {toHours.map(h => <option key={h} value={h}>{fmtHour(h)} UTC</option>)}
+                  </select>
+                </div>
+              </div>
             </div>
+
+            {slug === 'swordland_showdown' && (
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Squad preference (A/B)</label>
+                <Input placeholder="A or B" value={form.squad_preference} onChange={e => setForm(f => ({ ...f, squad_preference: e.target.value }))} />
+              </div>
+            )}
             <div>
               <label className="text-xs text-slate-400 block mb-1">Notes</label>
               <Input placeholder="Any notes for your leader…" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
             </div>
           </>
         )}
+
+        {error && <p className="text-red-400 text-sm">{error}</p>}
         <Button className="w-full" size="sm" onClick={save} disabled={saving}>
           {saving ? 'Saving…' : saved ? 'Saved! ✓' : 'Save Availability'}
         </Button>
