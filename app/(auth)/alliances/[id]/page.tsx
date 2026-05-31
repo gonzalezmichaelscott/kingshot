@@ -6,13 +6,17 @@ import { Badge } from '@/components/ui/badge'
 import { Shield, Users, Calendar, BarChart3, MessageSquare } from 'lucide-react'
 import Link from 'next/link'
 import { formatPower } from '@/lib/utils'
+import { requireAllianceAccess } from '@/lib/access'
+import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 
 export default async function AllianceHubPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
 
+  await requireAllianceAccess(supabase, params.id)
+
   const { data: alliance } = await supabase
     .from('alliances')
-    .select('*, kingdoms(name, server_number)')
+    .select('*, kingdoms(id, name, server_number)')
     .eq('id', params.id)
     .single()
 
@@ -39,8 +43,16 @@ export default async function AllianceHubPage({ params }: { params: { id: string
     { href: `/alliances/${params.id}/analytics`, icon: BarChart3, label: 'Analytics' },
   ]
 
+  const breadcrumbs = [
+    { label: 'Kingdoms', href: '/kingdoms' },
+    ...(kingdom ? [{ label: `${kingdom.name}${kingdom.server_number ? ` #${kingdom.server_number}` : ''}`, href: `/kingdoms/${kingdom.id}` }] : []),
+    { label: `[${alliance.tag}] ${alliance.name}` },
+  ]
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
+      <Breadcrumbs items={breadcrumbs} />
+
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">

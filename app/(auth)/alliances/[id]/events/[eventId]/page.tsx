@@ -5,20 +5,27 @@ import { SwordlandEvent } from '@/components/events/SwordlandEvent'
 import { KvkCastleEvent } from '@/components/events/KvkCastleEvent'
 import { TriAllianceEvent } from '@/components/events/TriAllianceEvent'
 import { GenericEventPage } from '@/components/events/GenericEventPage'
+import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
+import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
+import { BackButton } from '@/components/nav/BackButton'
 
 export default async function EventDetailPage({ params }: { params: { id: string; eventId: string } }) {
   const supabase = createClient()
 
+  const { profile } = await requireAllianceAccess(supabase, params.id)
+
   const { data: event } = await supabase
     .from('events')
-    .select('*, event_types(*), alliances(name, tag)')
+    .select('*, event_types(*), alliances(name, tag, kingdoms(id, name, server_number))')
     .eq('id', params.eventId)
     .single()
 
   if (!event) notFound()
 
-  const { data: profile } = await supabase.from('user_profiles').select('role, id').single()
-  const canManage = ['r5', 'r4', 'system_admin'].includes(profile?.role || '')
+  const alliance = event.alliances as any
+  const kingdom = alliance?.kingdoms
+
+  const canManage = canManageAlliance(profile?.role)
 
   const [
     { data: availability },
@@ -31,6 +38,15 @@ export default async function EventDetailPage({ params }: { params: { id: string
   ])
 
   const slug = (event.event_types as any)?.slug
+  const eventName = event.name || (event.event_types as any)?.name
+
+  const breadcrumbs = [
+    { label: 'Kingdoms', href: '/kingdoms' },
+    ...(kingdom ? [{ label: `${kingdom.name}${kingdom.server_number ? ` #${kingdom.server_number}` : ''}`, href: `/kingdoms/${kingdom.id}` }] : []),
+    { label: `[${alliance?.tag}] ${alliance?.name}`, href: `/alliances/${params.id}` },
+    { label: 'Events', href: `/alliances/${params.id}/events` },
+    { label: eventName || 'Event' },
+  ]
 
   const props = {
     event,
@@ -40,10 +56,31 @@ export default async function EventDetailPage({ params }: { params: { id: string
     allianceId: params.id,
     canManage,
     userId: profile?.id,
+    breadcrumbs,
   }
 
-  if (slug === 'swordland_showdown') return <SwordlandEvent {...props} />
-  if (slug === 'kvk_castle_battle') return <KvkCastleEvent {...props} />
-  if (slug === 'tri_alliance_clash') return <TriAllianceEvent {...props} />
-  return <GenericEventPage {...props} />
+  if (slug === 'swordland_showdown') return (
+    <>
+      <div className="max-w-5xl mx-auto"><Breadcrumbs items={breadcrumbs} /><BackButton href={`/alliances/${params.id}/events`} /></div>
+      <SwordlandEvent {...props} />
+    </>
+  )
+  if (slug === 'kvk_castle_battle') return (
+    <>
+      <div className="max-w-5xl mx-auto"><Breadcrumbs items={breadcrumbs} /><BackButton href={`/alliances/${params.id}/events`} /></div>
+      <KvkCastleEvent {...props} />
+    </>
+  )
+  if (slug === 'tri_alliance_clash') return (
+    <>
+      <div className="max-w-5xl mx-auto"><Breadcrumbs items={breadcrumbs} /><BackButton href={`/alliances/${params.id}/events`} /></div>
+      <TriAllianceEvent {...props} />
+    </>
+  )
+  return (
+    <>
+      <div className="max-w-5xl mx-auto"><Breadcrumbs items={breadcrumbs} /><BackButton href={`/alliances/${params.id}/events`} /></div>
+      <GenericEventPage {...props} />
+    </>
+  )
 }

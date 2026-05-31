@@ -1,13 +1,21 @@
 // @ts-nocheck
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Crown, Shield, Sword, Plus } from 'lucide-react'
+import { Crown, Shield, Sword } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { AddAllianceForm } from '@/components/alliance/AddAllianceForm'
+import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
+import { BackButton } from '@/components/nav/BackButton'
 
 export default async function KingdomPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
+
+  const { data: { user } } = await supabase.auth.getUser()
+  const { data: profile } = user
+    ? await supabase.from('user_profiles').select('role').eq('id', user.id).single()
+    : { data: null }
+
   const { data: kingdom } = await supabase
     .from('kingdoms')
     .select('*, alliances(id, name, tag, kvk_enabled)')
@@ -16,13 +24,20 @@ export default async function KingdomPage({ params }: { params: { id: string } }
 
   if (!kingdom) notFound()
 
-  const { data: profile } = await supabase.from('user_profiles').select('role').single()
   const canAddAlliance = ['system_admin', 'kingdom_leader', 'r5'].includes(profile?.role || '')
 
   const alliances = kingdom.alliances as any[]
 
+  const breadcrumbs = [
+    { label: 'Kingdoms', href: '/kingdoms' },
+    { label: `${kingdom.name}${kingdom.server_number ? ` #${kingdom.server_number}` : ''}` },
+  ]
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <Breadcrumbs items={breadcrumbs} />
+      <BackButton href="/kingdoms" />
+
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Crown className="text-amber-500" size={24} />
@@ -39,7 +54,6 @@ export default async function KingdomPage({ params }: { params: { id: string } }
         </Link>
       </div>
 
-      {/* Add Alliance */}
       {canAddAlliance && (
         <AddAllianceForm kingdomId={kingdom.id} kingdomName={kingdom.name} />
       )}

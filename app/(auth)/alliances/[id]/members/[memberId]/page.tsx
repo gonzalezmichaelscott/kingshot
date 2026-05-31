@@ -8,9 +8,14 @@ import { User, Sword, Star, Link2 } from 'lucide-react'
 import { MemberEditForm } from '@/components/members/MemberEditForm'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { CopyTokenButton } from '@/components/members/CopyTokenButton'
+import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
+import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
+import { BackButton } from '@/components/nav/BackButton'
 
 export default async function MemberProfilePage({ params }: { params: { id: string; memberId: string } }) {
   const supabase = createClient()
+
+  const { profile } = await requireAllianceAccess(supabase, params.id)
 
   const { data: member } = await supabase
     .from('members')
@@ -26,8 +31,15 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
 
   if (!member) notFound()
 
-  const { data: profile } = await supabase.from('user_profiles').select('role, id').single()
-  const canEdit = ['system_admin', 'r5', 'r4'].includes(profile?.role || '')
+  const { data: alliance } = await supabase
+    .from('alliances')
+    .select('name, tag, kingdoms(id, name, server_number)')
+    .eq('id', params.id)
+    .single()
+
+  const kingdom = (alliance as any)?.kingdoms
+
+  const canEdit = canManageAlliance(profile?.role)
 
   const stats = (member.member_combat_stats as any)?.[0]
   const heroes = (member.member_heroes as any[]) || []
@@ -36,8 +48,19 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   const memberLink = `${appUrl}/member/${member.access_token}`
 
+  const breadcrumbs = [
+    { label: 'Kingdoms', href: '/kingdoms' },
+    ...(kingdom ? [{ label: `${kingdom.name}${kingdom.server_number ? ` #${kingdom.server_number}` : ''}`, href: `/kingdoms/${kingdom.id}` }] : []),
+    { label: `[${alliance?.tag}] ${alliance?.name}`, href: `/alliances/${params.id}` },
+    { label: 'Members', href: `/alliances/${params.id}/members` },
+    { label: member.player_name },
+  ]
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <Breadcrumbs items={breadcrumbs} />
+      <BackButton href={`/alliances/${params.id}/members`} />
+
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>

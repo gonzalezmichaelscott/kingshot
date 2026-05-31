@@ -23,9 +23,12 @@ export function Sidebar({ allianceId, role }: SidebarProps) {
 
   const allianceBase = allianceId ? `/alliances/${allianceId}` : null
 
+  // kingdom_leader and system_admin can browse kingdoms; regular members stay within their alliance
+  const canBrowseKingdoms = ['system_admin', 'kingdom_leader', 'r5', 'r4'].includes(role || '')
+
   const navItems = [
     { href: '/dashboard', label: 'Dashboard', icon: Home },
-    { href: '/kingdoms', label: 'Kingdoms', icon: Crown },
+    ...(canBrowseKingdoms ? [{ href: '/kingdoms', label: 'Kingdoms', icon: Crown }] : []),
     ...(allianceBase ? [
       { href: `${allianceBase}`, label: 'Alliance Hub', icon: Shield },
       { href: `${allianceBase}/members`, label: 'Members', icon: Users },

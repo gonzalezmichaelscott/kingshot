@@ -5,6 +5,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Calendar, Plus } from 'lucide-react'
 import Link from 'next/link'
+import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
+import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 
 const statusColor: Record<string, 'green' | 'amber' | 'blue' | 'default'> = {
   active: 'green',
@@ -16,11 +18,17 @@ const statusColor: Record<string, 'green' | 'amber' | 'blue' | 'default'> = {
 export default async function EventsListPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
 
-  const { data: alliance } = await supabase.from('alliances').select('name, tag').eq('id', params.id).single()
+  const { profile } = await requireAllianceAccess(supabase, params.id)
+
+  const { data: alliance } = await supabase
+    .from('alliances')
+    .select('name, tag, kingdoms(id, name, server_number)')
+    .eq('id', params.id)
+    .single()
   if (!alliance) notFound()
 
-  const { data: profile } = await supabase.from('user_profiles').select('role').single()
-  const canCreate = ['r5', 'r4', 'system_admin'].includes(profile?.role || '')
+  const kingdom = (alliance as any).kingdoms
+  const canCreate = canManageAlliance(profile?.role)
 
   const { data: events } = await supabase
     .from('events')
@@ -31,8 +39,17 @@ export default async function EventsListPage({ params }: { params: { id: string 
   const active = events?.filter(e => e.status !== 'completed') || []
   const completed = events?.filter(e => e.status === 'completed') || []
 
+  const breadcrumbs = [
+    { label: 'Kingdoms', href: '/kingdoms' },
+    ...(kingdom ? [{ label: `${kingdom.name}${kingdom.server_number ? ` #${kingdom.server_number}` : ''}`, href: `/kingdoms/${kingdom.id}` }] : []),
+    { label: `[${alliance.tag}] ${alliance.name}`, href: `/alliances/${params.id}` },
+    { label: 'Events' },
+  ]
+
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      <Breadcrumbs items={breadcrumbs} />
+
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Calendar className="text-amber-500" size={24} />

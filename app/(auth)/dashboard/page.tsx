@@ -19,16 +19,12 @@ export default async function DashboardPage() {
     .eq('id', user.id)
     .single()
 
-  if (!profile) {
-    return (
-      <div className="max-w-lg mx-auto mt-20 text-center">
-        <h1 className="text-2xl font-bold mb-4">Welcome to Kingshot Hub</h1>
-        <p className="text-slate-400 mb-6">Your account is set up but not linked to an alliance yet.</p>
-        <Link href="/alliances/new" className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-medium px-6 py-3 rounded-lg inline-block">
-          Register your Alliance
-        </Link>
-      </div>
-    )
+  if (!profile) redirect('/join')
+
+  // Members without an alliance go to the join page
+  const memberRoles = ['member', null, undefined]
+  if (memberRoles.includes(profile.role) && !profile.alliance_id) {
+    redirect('/join')
   }
 
   const alliance = profile.alliances as any

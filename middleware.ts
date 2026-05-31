@@ -56,6 +56,9 @@ export async function middleware(request: NextRequest) {
     }
   }
 
+  // Expose pathname to server components via header
+  supabaseResponse.headers.set('x-pathname', pathname)
+
   return supabaseResponse
 }
 
