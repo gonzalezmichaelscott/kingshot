@@ -11,8 +11,7 @@ export default async function MemberTokenPage({ params }: { params: { token: str
     .select(`
       *,
       alliances(name, tag),
-      member_combat_stats(*),
-      event_availability(*, events(*, event_types(name)))
+      member_combat_stats(*)
     `)
     .eq('access_token', params.token)
     .single()
@@ -26,6 +25,12 @@ export default async function MemberTokenPage({ params }: { params: { token: str
     .select('*, heroes(*)')
     .eq('member_id', member.id)
     .order('is_primary', { ascending: false })
+
+  // Fetch saved event availability explicitly so previous responses always load.
+  const { data: memberAvailability } = await supabase
+    .from('event_availability')
+    .select('*')
+    .eq('member_id', member.id)
 
   const { data: heroes } = await supabase
     .from('heroes')
@@ -45,6 +50,7 @@ export default async function MemberTokenPage({ params }: { params: { token: str
     <MemberPortal
       member={member}
       memberHeroes={memberHeroes || []}
+      memberAvailability={memberAvailability || []}
       heroes={heroes || []}
       upcomingEvents={upcomingEvents || []}
     />

@@ -24,7 +24,9 @@ export default async function KingdomPage({ params }: { params: { id: string } }
 
   if (!kingdom) notFound()
 
-  const canAddAlliance = ['system_admin', 'kingdom_leader', 'r5'].includes(profile?.role || '')
+  // Alliance creation now flows through onboarding + System Admin approval.
+  // Direct creation here is System Admin only (matches the alliances RLS write policy).
+  const canAddAlliance = profile?.role === 'system_admin'
 
   const alliances = kingdom.alliances as any[]
 

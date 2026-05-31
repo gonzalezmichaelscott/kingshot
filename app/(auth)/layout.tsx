@@ -3,11 +3,14 @@ import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
 import { createClient } from '@/lib/supabase/server'
 import { Sidebar } from '@/components/nav/Sidebar'
+import { isMemberRole } from '@/lib/access'
+
+// Backend page prefixes that R3-and-below may NOT access
+const BACKEND_PREFIXES = ['/alliances', '/admin', '/kingdoms']
 
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
-
   if (!user) redirect('/')
 
   const { data: profile } = await supabase
@@ -16,14 +19,16 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
     .eq('id', user.id)
     .single()
 
-  // Members (and accounts with no role yet) without an alliance go to /join
-  const noAllianceRoles = ['member', null, undefined]
-  const currentPath = headers().get('x-pathname') || ''
-  const needsAlliance = noAllianceRoles.includes(profile?.role) && !profile?.alliance_id
-  const onJoinPage = currentPath.startsWith('/join') || currentPath.startsWith('/alliances/new')
+  const path = headers().get('x-pathname') || ''
+  const onOnboarding = path.startsWith('/onboarding')
 
-  if (needsAlliance && !onJoinPage) {
-    redirect('/join')
+  // No alliance yet (and not system_admin) → onboarding
+  if (!profile?.alliance_id && profile?.role !== 'system_admin') {
+    if (!onOnboarding) redirect('/onboarding')
+  } else if (isMemberRole(profile?.role)) {
+    // R3, R2, R1 cannot access the Alliance Hub backend
+    const onBackend = BACKEND_PREFIXES.some(p => path === p || path.startsWith(p + '/'))
+    if (onBackend) redirect('/dashboard')
   }
 
   return (

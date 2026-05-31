@@ -12,11 +12,12 @@ import { HeroManager } from '@/components/members/HeroManager'
 interface Props {
   member: any
   memberHeroes: any[]
+  memberAvailability: any[]
   heroes: any[]
   upcomingEvents: any[]
 }
 
-export function MemberPortal({ member, memberHeroes, heroes, upcomingEvents }: Props) {
+export function MemberPortal({ member, memberHeroes, memberAvailability, heroes, upcomingEvents }: Props) {
   const alliance = member.alliances
   const router = useRouter()
 
@@ -32,7 +33,7 @@ export function MemberPortal({ member, memberHeroes, heroes, upcomingEvents }: P
   const [tab, setTab] = useState<'stats' | 'combat' | 'availability' | 'heroes'>('stats')
 
   const existingCombatStats = (member.member_combat_stats as any[])?.[0]
-  const assignments = member.event_availability || []
+  const assignments = memberAvailability || []
 
   async function saveStats() {
     setSaving(true)
@@ -332,7 +333,7 @@ function AvailabilityCard({ event, accessToken, existing }: { event: any; access
 
         {error && <p className="text-red-400 text-sm">{error}</p>}
         <Button className="w-full" size="sm" onClick={save} disabled={saving}>
-          {saving ? 'Saving…' : saved ? 'Saved! ✓' : 'Save Availability'}
+          {saving ? 'Saving…' : saved ? 'Saved! ✓' : existing ? 'Update Availability' : 'Save Availability'}
         </Button>
       </CardContent>
     </Card>

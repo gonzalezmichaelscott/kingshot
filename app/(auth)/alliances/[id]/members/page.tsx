@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { formatPower } from '@/lib/utils'
 import { AddMemberButton } from '@/components/members/AddMemberButton'
 import { CopyTokenButton } from '@/components/members/CopyTokenButton'
+import { PendingProfileRequests } from '@/components/members/PendingProfileRequests'
 import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 
@@ -26,6 +27,16 @@ export default async function MembersPage({ params }: { params: { id: string } }
   const kingdom = (alliance as any).kingdoms
 
   const canManage = canManageAlliance(profile?.role)
+
+  // Pending R1/R2/R3 join requests for this alliance (R4/R5 approve these here;
+  // R4/R5 rank requests go to the System Admin approvals portal instead)
+  const { data: pendingRequests } = canManage ? await supabase
+    .from('profile_requests')
+    .select('*')
+    .eq('alliance_id', params.id)
+    .eq('status', 'pending')
+    .in('requested_role', ['r1', 'r2', 'r3'])
+    .order('created_at', { ascending: false }) : { data: [] }
 
   const { data: members } = await supabase
     .from('members')
@@ -48,9 +59,14 @@ export default async function MembersPage({ params }: { params: { id: string } }
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Users className="text-amber-500" size={24} />
           Members — [{alliance.tag}] {alliance.name}
+          {canManage && (pendingRequests?.length || 0) > 0 && (
+            <Badge variant="amber">{pendingRequests.length} pending</Badge>
+          )}
         </h1>
         {canManage && <AddMemberButton allianceId={params.id} />}
       </div>
+
+      {canManage && <PendingProfileRequests requests={pendingRequests || []} />}
 
       <Card>
         <CardContent className="pt-4">

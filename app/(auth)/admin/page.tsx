@@ -3,7 +3,8 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Shield, Star, Calendar, BarChart3, Globe } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Shield, Star, Calendar, BarChart3, Globe, Inbox } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function AdminPage() {
@@ -13,6 +14,12 @@ export default async function AdminPage() {
 
   const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
   if (profile?.role !== 'system_admin') redirect('/dashboard')
+
+  const [{ count: kReq }, { count: rReq }] = await Promise.all([
+    supabase.from('kingdom_creation_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
+    supabase.from('profile_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending').in('requested_role', ['r4', 'r5']),
+  ])
+  const pendingCount = (kReq || 0) + (rReq || 0)
 
   const adminSections = [
     { href: '/admin/heroes', icon: Star, label: 'Hero Database', desc: 'Add, edit, and manage the hero roster' },
@@ -27,6 +34,23 @@ export default async function AdminPage() {
         <Shield className="text-amber-500" size={24} />
         System Admin
       </h1>
+
+      {/* Pending Approvals — highlighted */}
+      <Link href="/admin/approvals">
+        <Card className="hover:border-amber-500/50 transition-colors border-amber-500/40">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Inbox size={18} className="text-amber-500" />
+              Pending Approvals
+              {pendingCount > 0 && <Badge variant="amber">{pendingCount}</Badge>}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-slate-400">Review new kingdom/alliance registrations and R4/R5 rank requests</p>
+          </CardContent>
+        </Card>
+      </Link>
+
       <div className="grid sm:grid-cols-2 gap-4">
         {adminSections.map(({ href, icon: Icon, label, desc }) => (
           <Link key={href} href={href}>

@@ -9,7 +9,8 @@ import { MemberEditForm } from '@/components/members/MemberEditForm'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { HeroManager } from '@/components/members/HeroManager'
 import { CopyTokenButton } from '@/components/members/CopyTokenButton'
-import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
+import { RoleAssigner } from '@/components/members/RoleAssigner'
+import { requireAllianceAccess, canManageAlliance, assignableRoles } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { BackButton } from '@/components/nav/BackButton'
 
@@ -50,6 +51,12 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
         .eq('is_active', true)
         .order('generation')
     : { data: [] }
+
+  // Current role of the member's linked account (for the role dropdown)
+  const { data: linkedProfile } = (canEdit && member.linked_user_id)
+    ? await supabase.from('user_profiles').select('role').eq('id', member.linked_user_id).single()
+    : { data: null }
+  const assignable = assignableRoles(profile?.role)
 
   const stats = (member.member_combat_stats as any)?.[0]
   const heroes = (member.member_heroes as any[]) || []
@@ -102,6 +109,16 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
       {/* Edit form — R4/R5/admin */}
       {canEdit && (
         <MemberEditForm member={member} />
+      )}
+
+      {/* Role assignment — R4/R5/admin */}
+      {canEdit && (
+        <RoleAssigner
+          memberId={member.id}
+          linkedUserId={member.linked_user_id}
+          currentRole={linkedProfile?.role || null}
+          assignable={assignable}
+        />
       )}
 
       {/* Read-only stats (when not editing) */}
