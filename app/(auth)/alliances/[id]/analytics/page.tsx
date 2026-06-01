@@ -2,10 +2,10 @@
 import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { BarChart3, Users, Star, Shield, TrendingUp } from 'lucide-react'
-import { formatPower } from '@/lib/utils'
+import { BarChart3, Users, Star, Shield, TrendingUp, Sword } from 'lucide-react'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { requireAllianceAccess } from '@/lib/access'
+import { AnalyticsCharts } from '@/components/analytics/AnalyticsCharts'
 
 export default async function AnalyticsPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
@@ -34,26 +34,29 @@ export default async function AnalyticsPage({ params }: { params: { id: string }
     { data: membersRaw },
     { data: eventsRaw },
     { data: scoresRaw },
+    { data: combatStatsRaw },
   ] = await Promise.all([
-    supabase.from('members').select('id, player_name, power, march_size, rally_capacity, member_combat_stats(id), member_heroes(id)').eq('alliance_id', params.id),
-    supabase.from('events').select('id, status, created_at, event_availability(member_id, will_attend)').eq('alliance_id', params.id).gte('created_at', new Date(Date.now() - 30 * 24 * 3600 * 1000).toISOString()),
+    supabase.from('members').select('id, player_name, power, march_size, rally_capacity, timezone, member_combat_stats(id, troop_type_primary), member_heroes(id)').eq('alliance_id', params.id),
+    supabase.from('events').select('id, status, created_at, battle_start_utc, event_availability(member_id, will_attend)').eq('alliance_id', params.id).order('created_at', { ascending: true }),
     supabase.from('member_scores').select('*, members(player_name)').in('member_id', memberIds).order('rally_leader_score', { ascending: false }),
+    supabase.from('member_combat_stats').select('troop_type_primary').in('member_id', memberIds),
   ])
 
-  const members = membersRaw as any[]
-  const events = eventsRaw as any[]
-  const scores = scoresRaw as any[]
+  const members = (membersRaw as any[]) || []
+  const events = (eventsRaw as any[]) || []
+  const scores = (scoresRaw as any[]) || []
 
-  const total = members?.length || 0
-  const withStats = members?.filter((m: any) => m.member_combat_stats?.length > 0).length || 0
-  const withHeroes = members?.filter((m: any) => m.member_heroes?.length > 0).length || 0
-  const withPower = members?.filter((m: any) => m.power > 0).length || 0
+  const total = members.length
+  const withStats = members.filter(m => m.member_combat_stats?.length > 0).length
+  const withHeroes = members.filter(m => m.member_heroes?.length > 0).length
+  const withPower = members.filter(m => m.power > 0).length
+  const withMarch = members.filter(m => m.march_size > 0).length
 
   const readinessScore = total > 0
     ? Math.round(((withStats + withHeroes + withPower) / (total * 3)) * 100)
     : 0
 
-  const completedEvents = events?.filter(e => e.status === 'completed') || []
+  const completedEvents = events.filter(e => e.status === 'completed')
   const participationRate = completedEvents.length > 0 && total > 0
     ? Math.round(
         completedEvents.reduce((sum, ev) => {
@@ -63,20 +66,76 @@ export default async function AnalyticsPage({ params }: { params: { id: string }
       )
     : 0
 
-  const topRallyLeaders = scores?.slice(0, 10) || []
-  const topJoiners = [...(scores || [])].sort((a, b) => b.joiner_score - a.joiner_score).slice(0, 10)
+  const topRallyLeaders = scores.slice(0, 10).map(s => ({
+    name: ((s.members as any)?.player_name || '').slice(0, 12),
+    score: Number((s.rally_leader_score || 0).toFixed(2)),
+  }))
 
+  const topJoiners = [...scores]
+    .sort((a, b) => b.joiner_score - a.joiner_score)
+    .slice(0, 10)
+    .map(s => ({
+      name: ((s.members as any)?.player_name || '').slice(0, 12),
+      score: Number((s.joiner_score || 0).toFixed(2)),
+    }))
+
+  // Power distribution buckets (in millions)
   const powerBuckets = [0, 50, 100, 200, 300, 500, 1000].map((min, i, arr) => {
     const max = arr[i + 1] || Infinity
-    const count = members?.filter(m => {
-      const p = m.power / 1_000_000
+    const count = members.filter(m => {
+      const p = (m.power || 0) / 1_000_000
       return p >= min && p < max
-    }).length || 0
+    }).length
     return { label: max === Infinity ? `${min}M+` : `${min}–${max}M`, count }
   }).filter(b => b.count > 0)
 
-  // Timezone coverage (UTC hours)
+  // Troop type distribution
+  const troopCounts = { Infantry: 0, Cavalry: 0, Archer: 0, Mixed: 0 }
+  ;(combatStatsRaw as any[] || []).forEach(s => {
+    const t = s.troop_type_primary
+    if (t === 'infantry') troopCounts.Infantry++
+    else if (t === 'cavalry') troopCounts.Cavalry++
+    else if (t === 'archer') troopCounts.Archer++
+    else troopCounts.Mixed++
+  })
+  const troopDistribution = Object.entries(troopCounts).map(([name, value]) => ({ name, value }))
+
+  // Event participation trend (last 10 events)
+  const participationData = completedEvents.slice(-10).map(ev => {
+    const attending = (ev.event_availability as any[])?.filter(a => a.will_attend).length || 0
+    const rate = total > 0 ? Math.round(attending / total * 100) : 0
+    const d = new Date(ev.battle_start_utc || ev.created_at)
+    return {
+      label: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
+      rate,
+    }
+  })
+
+  // Timezone coverage: count members available at each UTC hour based on their timezone offset
   const tzCoverage = Array.from({ length: 24 }, (_, h) => ({ hour: h, count: 0 }))
+  members.forEach(m => {
+    if (!m.timezone) return
+    try {
+      // Use the member's timezone to figure out which UTC hours they're likely online
+      // Assume members are online from 18:00-23:00 in their local time
+      const now = new Date()
+      const localMidnight = new Date(now.toLocaleString('en-US', { timeZone: m.timezone }))
+      const offsetMs = now.getTime() - localMidnight.getTime()
+      const offsetHours = Math.round(offsetMs / 3_600_000) % 24
+      // Prime time: 18:00-23:00 local → convert to UTC
+      for (let localH = 18; localH <= 22; localH++) {
+        const utcH = ((localH - offsetHours) + 24) % 24
+        tzCoverage[utcH].count++
+      }
+    } catch {
+      // Invalid timezone — skip
+    }
+  })
+
+  const heroCompletionPct = total > 0 ? Math.round(withHeroes / total * 100) : 0
+  const avgHeroCount = total > 0
+    ? (members.reduce((sum, m) => sum + (m.member_heroes?.length || 0), 0) / total).toFixed(1)
+    : '0'
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -92,7 +151,7 @@ export default async function AnalyticsPage({ params }: { params: { id: string }
           { label: 'Alliance Readiness', value: `${readinessScore}%`, icon: Shield, color: readinessScore > 70 ? 'text-green-400' : readinessScore > 40 ? 'text-amber-400' : 'text-red-400' },
           { label: 'Total Members', value: total, icon: Users, color: 'text-blue-400' },
           { label: '30-Day Participation', value: `${participationRate}%`, icon: TrendingUp, color: 'text-amber-400' },
-          { label: 'Combat Stats Coverage', value: `${total > 0 ? Math.round(withStats / total * 100) : 0}%`, icon: BarChart3, color: 'text-green-400' },
+          { label: 'Hero Completion', value: `${heroCompletionPct}%`, icon: Star, color: 'text-purple-400' },
         ].map(({ label, value, icon: Icon, color }) => (
           <Card key={label}>
             <CardContent className="pt-4">
@@ -111,6 +170,7 @@ export default async function AnalyticsPage({ params }: { params: { id: string }
           <div className="space-y-3">
             {[
               { label: 'Power entered', count: withPower, total },
+              { label: 'March size entered', count: withMarch, total },
               { label: 'Heroes entered', count: withHeroes, total },
               { label: 'Combat stats (battle report)', count: withStats, total },
             ].map(({ label, count, total: t }) => (
@@ -131,70 +191,33 @@ export default async function AnalyticsPage({ params }: { params: { id: string }
         </CardContent>
       </Card>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Top Rally Leaders */}
+      {/* Hero summary */}
+      <div className="grid grid-cols-2 gap-4">
         <Card>
-          <CardHeader><CardTitle>Top Rally Leaders</CardTitle></CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {topRallyLeaders.map((s, i) => (
-                <div key={s.id} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500 w-5">{i + 1}</span>
-                    <span className="text-sm font-medium">{(s.members as any)?.player_name}</span>
-                  </div>
-                  <span className="text-sm text-amber-400 font-mono">{s.rally_leader_score.toFixed(2)}</span>
-                </div>
-              ))}
-              {topRallyLeaders.length === 0 && <p className="text-slate-400 text-sm">No score data yet.</p>}
-            </div>
+          <CardContent className="pt-4">
+            <Star className="text-purple-400 mb-2" size={20} />
+            <p className="text-2xl font-bold">{heroCompletionPct}%</p>
+            <p className="text-xs text-slate-400 mt-1">Members with heroes entered</p>
           </CardContent>
         </Card>
-
-        {/* Top Joiners */}
         <Card>
-          <CardHeader><CardTitle>Top Joiners</CardTitle></CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {topJoiners.map((s, i) => (
-                <div key={s.id} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500 w-5">{i + 1}</span>
-                    <span className="text-sm font-medium">{(s.members as any)?.player_name}</span>
-                  </div>
-                  <span className="text-sm text-blue-400 font-mono">{s.joiner_score.toFixed(2)}</span>
-                </div>
-              ))}
-              {topJoiners.length === 0 && <p className="text-slate-400 text-sm">No score data yet.</p>}
-            </div>
+          <CardContent className="pt-4">
+            <Sword className="text-amber-400 mb-2" size={20} />
+            <p className="text-2xl font-bold">{avgHeroCount}</p>
+            <p className="text-xs text-slate-400 mt-1">Avg heroes per member</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Power Distribution */}
-      {powerBuckets.length > 0 && (
-        <Card>
-          <CardHeader><CardTitle>Power Distribution</CardTitle></CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {powerBuckets.map(bucket => (
-                <div key={bucket.label} className="flex items-center gap-3">
-                  <span className="text-xs text-slate-400 w-20 text-right">{bucket.label}</span>
-                  <div className="flex-1 h-6 bg-slate-800 rounded overflow-hidden relative">
-                    <div
-                      className="h-full bg-amber-500/70 rounded transition-all"
-                      style={{ width: `${(bucket.count / total) * 100}%` }}
-                    />
-                    <span className="absolute inset-0 flex items-center px-2 text-xs font-medium">
-                      {bucket.count} members
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      {/* Charts (client component) */}
+      <AnalyticsCharts
+        powerBuckets={powerBuckets}
+        troopDistribution={troopDistribution}
+        participationData={participationData}
+        tzCoverage={tzCoverage}
+        topRallyLeaders={topRallyLeaders}
+        topJoiners={topJoiners}
+      />
     </div>
   )
 }

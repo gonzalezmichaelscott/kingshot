@@ -9,6 +9,7 @@ import { formatPower } from '@/lib/utils'
 import { AddMemberButton } from '@/components/members/AddMemberButton'
 import { CopyTokenButton } from '@/components/members/CopyTokenButton'
 import { PendingProfileRequests } from '@/components/members/PendingProfileRequests'
+import { RemoveMemberButton } from '@/components/members/RemoveMemberButton'
 import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 
@@ -28,8 +29,6 @@ export default async function MembersPage({ params }: { params: { id: string } }
 
   const canManage = canManageAlliance(profile?.role)
 
-  // Pending R1/R2/R3 join requests for this alliance (R4/R5 approve these here;
-  // R4/R5 rank requests go to the System Admin approvals portal instead)
   const { data: pendingRequests } = canManage ? await supabase
     .from('profile_requests')
     .select('*')
@@ -51,6 +50,8 @@ export default async function MembersPage({ params }: { params: { id: string } }
     { label: 'Members' },
   ]
 
+  const allianceName = `[${alliance.tag}] ${alliance.name}`
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <Breadcrumbs items={breadcrumbs} />
@@ -58,7 +59,7 @@ export default async function MembersPage({ params }: { params: { id: string } }
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Users className="text-amber-500" size={24} />
-          Members — [{alliance.tag}] {alliance.name}
+          Members — {allianceName}
           {canManage && (pendingRequests?.length || 0) > 0 && (
             <Badge variant="amber">{pendingRequests.length} pending</Badge>
           )}
@@ -81,7 +82,8 @@ export default async function MembersPage({ params }: { params: { id: string } }
                   <th className="text-right py-2 pr-4">Rally Cap</th>
                   <th className="text-left py-2 pr-4">Troop Type</th>
                   <th className="text-right py-2 pr-4">Score</th>
-                  {canManage && <th className="py-2">Link</th>}
+                  {canManage && <th className="py-2 text-center">Link</th>}
+                  {canManage && <th className="py-2 text-center">Actions</th>}
                 </tr>
               </thead>
               <tbody>
@@ -110,6 +112,26 @@ export default async function MembersPage({ params }: { params: { id: string } }
                       {canManage && (
                         <td className="py-2 text-center">
                           <CopyTokenButton token={m.access_token} />
+                        </td>
+                      )}
+                      {canManage && (
+                        <td className="py-2 text-center">
+                          <div className="flex items-center justify-center gap-1">
+                            {/* Remove from alliance (keeps record) */}
+                            <RemoveMemberButton
+                              memberId={m.id}
+                              playerName={m.player_name}
+                              allianceName={allianceName}
+                              mode="remove"
+                            />
+                            {/* Delete record entirely */}
+                            <RemoveMemberButton
+                              memberId={m.id}
+                              playerName={m.player_name}
+                              allianceName={allianceName}
+                              mode="delete"
+                            />
+                          </div>
                         </td>
                       )}
                     </tr>

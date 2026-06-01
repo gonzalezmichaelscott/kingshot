@@ -13,6 +13,7 @@ import { RoleAssigner } from '@/components/members/RoleAssigner'
 import { requireAllianceAccess, canManageAlliance, assignableRoles } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { BackButton } from '@/components/nav/BackButton'
+import { LeaveAllianceButton } from '@/components/members/LeaveAllianceButton'
 
 export default async function MemberProfilePage({ params }: { params: { id: string; memberId: string } }) {
   const supabase = createClient()
@@ -87,7 +88,16 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
           </h1>
           {member.game_id && <p className="text-slate-400 text-sm mt-0.5">Game ID: {member.game_id}</p>}
         </div>
-        <Badge variant="amber">{member.timezone}</Badge>
+        <div className="flex items-center gap-3 flex-wrap">
+          <Badge variant="amber">{member.timezone}</Badge>
+          {canEdit && (
+            <LeaveAllianceButton
+              memberId={member.id}
+              allianceName={`[${alliance?.tag}] ${alliance?.name}`}
+              redirectTo={`/alliances/${params.id}/members`}
+            />
+          )}
+        </div>
       </div>
 
       {/* Member access link — R4/R5 only */}

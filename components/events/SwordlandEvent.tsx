@@ -4,7 +4,7 @@ import { AssignmentsTable } from './AssignmentsTable'
 import { BattlePlanButton } from './BattlePlanButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Users, Shield } from 'lucide-react'
 
 interface Props {
   event: any
@@ -26,6 +26,9 @@ export function SwordlandEvent({ event, availability, assignments, members, alli
   const plan = event.battle_plan as any
   const gaps = plan?.coverage_gaps || []
   const recommendations = plan?.recommendations || []
+  const warnings = plan?.warnings || []
+  const joinerAdvice = plan?.joiner_stacking_advice
+  const backupPlan = plan?.backup_plan
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -96,6 +99,34 @@ export function SwordlandEvent({ event, availability, assignments, members, alli
                 </ul>
               </div>
             )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Joiner stacking advice */}
+      {joinerAdvice && (
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-blue-400"><Users size={18} />Joiner Stacking Advice</CardTitle></CardHeader>
+          <CardContent><p className="text-slate-300 text-sm">{joinerAdvice}</p></CardContent>
+        </Card>
+      )}
+
+      {/* Backup plan */}
+      {backupPlan && (
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2"><Shield size={18} className="text-slate-400" />Backup Plan</CardTitle></CardHeader>
+          <CardContent><p className="text-slate-300 text-sm">{backupPlan}</p></CardContent>
+        </Card>
+      )}
+
+      {/* Warnings */}
+      {warnings.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2 text-red-400"><AlertTriangle size={18} />Warnings</CardTitle></CardHeader>
+          <CardContent>
+            <ul className="text-sm space-y-1 list-disc list-inside text-red-300">
+              {warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+            </ul>
           </CardContent>
         </Card>
       )}

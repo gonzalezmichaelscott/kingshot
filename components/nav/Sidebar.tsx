@@ -5,20 +5,24 @@ import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import {
   Home, Users, Calendar, MessageSquare, BarChart3,
-  Shield, Settings, Crown, Menu, X, LogOut, Sword
+  Shield, Settings, Crown, Menu, X, LogOut, Sword, Timer
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { isBackendRole } from '@/lib/access'
+import { ChatPanel } from '@/components/chat/ChatPanel'
 
 interface SidebarProps {
   allianceId?: string
   role?: string | null
+  userId?: string
+  allianceName?: string
 }
 
-export function Sidebar({ allianceId, role }: SidebarProps) {
+export function Sidebar({ allianceId, role, userId, allianceName }: SidebarProps) {
   const [open, setOpen] = useState(false)
+  const [chatOpen, setChatOpen] = useState(false)
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
@@ -53,7 +57,7 @@ export function Sidebar({ allianceId, role }: SidebarProps) {
     <>
       {/* Mobile hamburger */}
       <button
-        className="fixed top-4 left-4 z-50 lg:hidden bg-slate-800 p-2 rounded-lg"
+        className="fixed top-3 left-4 z-50 lg:hidden bg-slate-800 p-2 rounded-lg"
         onClick={() => setOpen(!open)}
       >
         {open ? <X size={20} /> : <Menu size={20} />}
@@ -97,10 +101,32 @@ export function Sidebar({ allianceId, role }: SidebarProps) {
               {label}
             </Link>
           ))}
+
+          {/* Rally Timer — opens in new tab */}
+          <a
+            href="/rally-timer"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={() => setOpen(false)}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+          >
+            <Timer size={18} />
+            Rally Timer ↗
+          </a>
         </nav>
 
-        {/* Logout */}
-        <div className="p-3 border-t border-slate-800">
+        {/* Bottom: Chat button + Logout */}
+        <div className="p-3 border-t border-slate-800 space-y-1">
+          {/* Chat button — visible to ALL roles if they have an alliance */}
+          {allianceId && userId && (
+            <button
+              onClick={() => { setChatOpen(true); setOpen(false) }}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 w-full transition-colors"
+            >
+              <MessageSquare size={18} className="text-amber-500" />
+              Alliance Chat
+            </button>
+          )}
           <button
             onClick={handleLogout}
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 w-full transition-colors"
@@ -110,6 +136,18 @@ export function Sidebar({ allianceId, role }: SidebarProps) {
           </button>
         </div>
       </aside>
+
+      {/* Chat slide-out panel */}
+      {allianceId && userId && (
+        <ChatPanel
+          allianceId={allianceId}
+          allianceName={allianceName || 'Alliance'}
+          currentUserId={userId}
+          currentUserRole={role || ''}
+          open={chatOpen}
+          onClose={() => setChatOpen(false)}
+        />
+      )}
     </>
   )
 }

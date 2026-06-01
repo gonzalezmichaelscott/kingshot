@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { User, Shield, Calendar, Star, Sword } from 'lucide-react'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { HeroManager } from '@/components/members/HeroManager'
+import { LeaveAllianceButton } from '@/components/members/LeaveAllianceButton'
 
 interface Props {
   member: any
@@ -61,16 +62,26 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
     <div className="min-h-screen bg-slate-950 p-4">
       <div className="max-w-lg mx-auto space-y-5">
         {/* Header */}
-        <div className="flex items-center gap-3 pt-4">
-          <div className="w-12 h-12 bg-amber-500/20 rounded-full flex items-center justify-center">
-            <User className="text-amber-500" size={24} />
+        <div className="flex items-start justify-between gap-3 pt-4">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-amber-500/20 rounded-full flex items-center justify-center flex-shrink-0">
+              <User className="text-amber-500" size={24} />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold">{member.player_name}</h1>
+              <p className="text-slate-400 text-sm">
+                [{alliance?.tag}] {alliance?.name}
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold">{member.player_name}</h1>
-            <p className="text-slate-400 text-sm">
-              [{alliance?.tag}] {alliance?.name}
-            </p>
-          </div>
+          {alliance && (
+            <LeaveAllianceButton
+              memberId={member.id}
+              allianceName={`[${alliance.tag}] ${alliance.name}`}
+              accessToken={member.access_token}
+              redirectTo="/onboarding"
+            />
+          )}
         </div>
 
         {/* Tabs */}
