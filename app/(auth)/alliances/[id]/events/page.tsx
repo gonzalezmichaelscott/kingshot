@@ -32,7 +32,7 @@ export default async function EventsListPage({ params }: { params: { id: string 
 
   const { data: events } = await supabase
     .from('events')
-    .select('*, event_types(name, slug), is_custom, status')
+    .select('*, event_types(name, slug), is_custom, status, battle_end_utc')
     .eq('alliance_id', params.id)
     .order('battle_start_utc', { ascending: false })
 
@@ -109,9 +109,15 @@ function EventRow({ ev, allianceId }: { ev: any; allianceId: string }) {
             )}
           </div>
           <p className="text-sm text-slate-400 mt-0.5">
-            {ev.battle_start_utc
-              ? new Date(ev.battle_start_utc).toLocaleString()
-              : 'Date TBD'}
+            {ev.battle_start_utc ? (
+              ev.is_custom && ev.battle_end_utc ? (
+                <>
+                  {new Date(ev.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })}
+                  {' — '}
+                  {new Date(ev.battle_end_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })} UTC
+                </>
+              ) : new Date(ev.battle_start_utc).toLocaleString()
+            ) : 'Date TBD'}
           </p>
         </div>
         <div className="flex items-center gap-3">

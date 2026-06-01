@@ -144,6 +144,9 @@ function EditForm({ event, onDone }: { event: any; onDone: () => void }) {
     battle_start_utc: event.battle_start_utc
       ? new Date(event.battle_start_utc).toISOString().slice(0, 16)
       : '',
+    battle_end_utc: event.battle_end_utc
+      ? new Date(event.battle_end_utc).toISOString().slice(0, 16)
+      : '',
     custom_instructions: event.custom_instructions || '',
     status: event.status || 'planning',
   })
@@ -159,6 +162,7 @@ function EditForm({ event, onDone }: { event: any; onDone: () => void }) {
       .update({
         name: form.name || null,
         battle_start_utc: form.battle_start_utc || null,
+        battle_end_utc: form.battle_end_utc || null,
         custom_instructions: form.custom_instructions,
         custom_instructions_html: parseMarkdownToHtml(form.custom_instructions),
         custom_images: images,
@@ -202,13 +206,23 @@ function EditForm({ event, onDone }: { event: any; onDone: () => void }) {
         <label className="text-xs text-slate-400 block mb-1">Event Name</label>
         <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Event name (required)" />
       </div>
-      <div>
-        <label className="text-xs text-slate-400 block mb-1">Date & Time (UTC)</label>
-        <Input
-          type="datetime-local"
-          value={form.battle_start_utc}
-          onChange={e => setForm(f => ({ ...f, battle_start_utc: e.target.value }))}
-        />
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs text-slate-400 block mb-1">Start Date & Time (UTC)</label>
+          <Input
+            type="datetime-local"
+            value={form.battle_start_utc}
+            onChange={e => setForm(f => ({ ...f, battle_start_utc: e.target.value }))}
+          />
+        </div>
+        <div>
+          <label className="text-xs text-slate-400 block mb-1">End Date & Time (UTC) <span className="text-slate-500">(optional)</span></label>
+          <Input
+            type="datetime-local"
+            value={form.battle_end_utc}
+            onChange={e => setForm(f => ({ ...f, battle_end_utc: e.target.value }))}
+          />
+        </div>
       </div>
       <div>
         <label className="text-xs text-slate-400 block mb-1">Status</label>
@@ -228,6 +242,7 @@ function EditForm({ event, onDone }: { event: any; onDone: () => void }) {
           value={form.custom_instructions}
           onChange={v => setForm(f => ({ ...f, custom_instructions: v }))}
           rows={12}
+          uploadFolder={`events/${event.id}`}
         />
       </div>
       {/* Image upload */}
@@ -272,6 +287,38 @@ function EditForm({ event, onDone }: { event: any; onDone: () => void }) {
   )
 }
 
+function InlineImageLightbox({ html }: { html: string }) {
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
+
+  function handleClick(e: React.MouseEvent<HTMLDivElement>) {
+    const target = e.target as HTMLElement
+    if (target.tagName === 'IMG' && (target as HTMLImageElement).dataset.lightbox) {
+      setLightboxSrc((target as HTMLImageElement).src)
+    }
+  }
+
+  return (
+    <>
+      <div
+        className="text-sm text-slate-200 leading-relaxed prose-invert"
+        dangerouslySetInnerHTML={{ __html: html }}
+        onClick={handleClick}
+      />
+      {lightboxSrc && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <img src={lightboxSrc} className="max-w-full max-h-full rounded-lg shadow-2xl" alt="Enlarged view" />
+          <button className="absolute top-4 right-4 text-white bg-black/50 rounded-full p-1" onClick={() => setLightboxSrc(null)}>
+            <X size={22} />
+          </button>
+        </div>
+      )}
+    </>
+  )
+}
+
 export function CustomEventDetail({ event, canManage, allianceId, memberId, memberAttendance, accessToken }: Props) {
   const [editing, setEditing] = useState(false)
   const images: Image[] = (event.custom_images as Image[]) || []
@@ -295,7 +342,15 @@ export function CustomEventDetail({ event, canManage, allianceId, memberId, memb
           {event.battle_start_utc && (
             <p className="flex items-center gap-1.5 text-slate-400 text-sm">
               <Calendar size={13} />
-              {new Date(event.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC' })} UTC
+              {event.battle_end_utc ? (
+                <>
+                  {new Date(event.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  {' — '}
+                  {new Date(event.battle_end_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} UTC
+                </>
+              ) : (
+                <>{new Date(event.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC' })} UTC</>
+              )}
             </p>
           )}
         </div>
@@ -327,10 +382,7 @@ export function CustomEventDetail({ event, canManage, allianceId, memberId, memb
                 <CardTitle className="text-base">Battle Plan / Instructions</CardTitle>
               </CardHeader>
               <CardContent>
-                <div
-                  className="text-sm text-slate-200 leading-relaxed prose-invert"
-                  dangerouslySetInnerHTML={{ __html: html }}
-                />
+                <InlineImageLightbox html={html} />
               </CardContent>
             </Card>
           ) : (

@@ -31,6 +31,7 @@ export default async function MembersPage({ params }: { params: { id: string } }
   const kingdom = (alliance as any).kingdoms
 
   const canManage = canManageAlliance(profile?.role)
+  const isAdmin = profile?.role === 'system_admin'
 
   const { data: pendingRequests } = canManage ? await supabase
     .from('profile_requests')
@@ -156,20 +157,22 @@ export default async function MembersPage({ params }: { params: { id: string } }
                       {canManage && (
                         <td className="py-2 text-center">
                           <div className="flex items-center justify-center gap-1">
-                            {/* Remove from alliance (keeps record) */}
+                            {/* Remove from alliance (R4/R5/admin) — keeps record intact */}
                             <RemoveMemberButton
                               memberId={m.id}
                               playerName={m.player_name}
                               allianceName={allianceName}
                               mode="remove"
                             />
-                            {/* Delete record entirely */}
-                            <RemoveMemberButton
-                              memberId={m.id}
-                              playerName={m.player_name}
-                              allianceName={allianceName}
-                              mode="delete"
-                            />
+                            {/* Delete profile permanently — system_admin only */}
+                            {isAdmin && (
+                              <RemoveMemberButton
+                                memberId={m.id}
+                                playerName={m.player_name}
+                                allianceName={allianceName}
+                                mode="delete"
+                              />
+                            )}
                           </div>
                         </td>
                       )}

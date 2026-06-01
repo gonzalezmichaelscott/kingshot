@@ -20,7 +20,10 @@ export function KvkChatSection({ kingdomId, currentUserId, currentUserRole, alli
   const [initialized, setInitialized] = useState(false)
   const [translating, setTranslating] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const supabase = createClient()
+  // Stable client reference — avoids creating multiple GoTrue clients across renders
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (!supabaseRef.current) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
   const canDelete = ['r5', 'r4', 'system_admin'].includes(currentUserRole)
   const hasTranslate = !!(process.env.NEXT_PUBLIC_GOOGLE_TRANSLATE_KEY)
 

@@ -16,7 +16,7 @@ import { EditNameButton } from '@/components/members/EditNameButton'
 import { requireAllianceAccess, canManageAlliance, assignableRoles } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { BackButton } from '@/components/nav/BackButton'
-import { LeaveAllianceButton } from '@/components/members/LeaveAllianceButton'
+import { RemoveMemberButton } from '@/components/members/RemoveMemberButton'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 
 export default async function MemberProfilePage({ params }: { params: { id: string; memberId: string } }) {
@@ -47,6 +47,7 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
   const kingdom = (alliance as any)?.kingdoms
 
   const canEdit = canManageAlliance(profile?.role)
+  const isAdmin = profile?.role === 'system_admin'
 
   // Full hero catalog for the hero entry form (officers only)
   const { data: heroCatalog } = canEdit
@@ -141,11 +142,26 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
         <div className="flex items-center gap-3 flex-wrap">
           <Badge variant="amber">{member.timezone}</Badge>
           {canEdit && (
-            <LeaveAllianceButton
-              memberId={member.id}
-              allianceName={`[${alliance?.tag}] ${alliance?.name}`}
-              redirectTo={`/alliances/${params.id}/members`}
-            />
+            <div className="flex items-center gap-2">
+              {/* Remove from alliance — R4/R5/admin */}
+              <RemoveMemberButton
+                memberId={member.id}
+                playerName={member.player_name}
+                allianceName={`[${alliance?.tag}] ${alliance?.name}`}
+                mode="remove"
+                redirectTo={`/alliances/${params.id}/members`}
+              />
+              {/* Delete profile permanently — system_admin only */}
+              {isAdmin && (
+                <RemoveMemberButton
+                  memberId={member.id}
+                  playerName={member.player_name}
+                  allianceName={`[${alliance?.tag}] ${alliance?.name}`}
+                  mode="delete"
+                  redirectTo={`/alliances/${params.id}/members`}
+                />
+              )}
+            </div>
           )}
         </div>
       </div>

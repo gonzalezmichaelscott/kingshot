@@ -18,7 +18,10 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
   const [sending, setSending] = useState(false)
   const [translating, setTranslating] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
-  const supabase = createClient()
+  // Stable client reference — avoids creating multiple GoTrue clients across renders
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (!supabaseRef.current) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
 
   const canDelete = ['r5', 'r4', 'system_admin'].includes(currentUser?.role || '')
 

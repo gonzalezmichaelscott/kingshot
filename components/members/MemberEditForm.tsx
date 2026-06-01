@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Edit2, Save, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Edit2, Save, X, ChevronDown, ChevronUp, RefreshCw, Loader2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 const TROOP_TYPES = ['infantry', 'cavalry', 'archer', 'mixed'] as const
@@ -21,6 +21,8 @@ export function MemberEditForm({ member }: Props) {
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [fetchingPlayer, setFetchingPlayer] = useState(false)
+  const [fetchMsg, setFetchMsg] = useState('')
   const [form, setForm] = useState({
     player_name: member.player_name || '',
     game_id: member.game_id || '',
@@ -32,6 +34,26 @@ export function MemberEditForm({ member }: Props) {
     notes: member.notes || '',
   })
   const router = useRouter()
+
+  async function fetchFromGame() {
+    if (!form.game_id.trim()) return
+    setFetchingPlayer(true)
+    setFetchMsg('')
+    try {
+      const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(form.game_id.trim())}`)
+      if (!res.ok) { setFetchMsg('Player not found.'); return }
+      const json = await res.json()
+      if (json.data?.name) {
+        setForm(f => ({ ...f, player_name: json.data.name }))
+        setFetchMsg('Name updated from game data.')
+      }
+    } catch {
+      setFetchMsg('Fetch failed.')
+    } finally {
+      setFetchingPlayer(false)
+      setTimeout(() => setFetchMsg(''), 3000)
+    }
+  }
 
   async function save() {
     setSaving(true)
@@ -112,9 +134,28 @@ export function MemberEditForm({ member }: Props) {
               <label className="text-xs text-slate-400 block mb-1">Player Name</label>
               <Input value={form.player_name} onChange={e => setForm(f => ({ ...f, player_name: e.target.value }))} />
             </div>
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">Game ID</label>
-              <Input placeholder="Optional in-game ID" value={form.game_id} onChange={e => setForm(f => ({ ...f, game_id: e.target.value }))} />
+            <div className="sm:col-span-2">
+              <label className="text-xs text-slate-400 block mb-1">Player ID (optional) — in-game numeric ID shown under governor name</label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="e.g. 123456789"
+                  value={form.game_id}
+                  onChange={e => setForm(f => ({ ...f, game_id: e.target.value.replace(/[^0-9]/g, '') }))}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={!form.game_id.trim() || fetchingPlayer}
+                  onClick={fetchFromGame}
+                  title="Fetch governor name from game"
+                >
+                  {fetchingPlayer ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                  <span className="ml-1 hidden sm:inline">Fetch from game</span>
+                </Button>
+              </div>
+              {fetchMsg && <p className="text-xs text-amber-400 mt-1">{fetchMsg}</p>}
             </div>
             {([
               { key: 'power', label: 'Power' },

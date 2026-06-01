@@ -33,12 +33,27 @@ export default async function DashboardPage() {
       .eq('alliance_id', allianceId)
       .maybeSingle()
 
-    const { data: events } = await supabase
+    // Fetch upcoming AND currently-active custom events (within 7-day window)
+    const dashSevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const { data: rawDashEvents } = await supabase
       .from('events')
-      .select('*, event_types(name)')
+      .select('*, event_types(name), is_custom, battle_end_utc')
       .eq('alliance_id', allianceId)
       .in('status', ['planning', 'registration', 'active'])
+      .gte('battle_start_utc', dashSevenDaysAgo)
       .order('battle_start_utc', { ascending: true })
+    const dashNow = new Date()
+    const events = (rawDashEvents || []).filter((ev: any) => {
+      const start = ev.battle_start_utc ? new Date(ev.battle_start_utc) : null
+      if (!start) return true
+      if (start >= dashNow) return true
+      if (ev.is_custom) {
+        if (ev.battle_end_utc) return new Date(ev.battle_end_utc) >= dashNow
+        const sevenDaysAfterStart = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000)
+        return sevenDaysAfterStart >= dashNow
+      }
+      return false
+    })
 
     const { data: assignments } = member ? await supabase
       .from('event_assignments')

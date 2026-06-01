@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { User, Shield, Calendar, Star, Sword, Copy, Check } from 'lucide-react'
+import { User, Shield, Calendar, Star, Sword, Copy, Check, Trash2, AlertTriangle } from 'lucide-react'
 import { parseMarkdownToHtml } from '@/components/ui/RichTextEditor'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { HeroManager } from '@/components/members/HeroManager'
@@ -255,7 +255,80 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
             />
           </SectionErrorBoundary>
         )}
+
+        {/* Danger Zone */}
+        <DeleteProfileSection memberId={member.id} accessToken={member.access_token} playerName={member.player_name} />
       </div>
+    </div>
+  )
+}
+
+function DeleteProfileSection({ memberId, accessToken, playerName }: { memberId: string; accessToken: string; playerName: string }) {
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const router = useRouter()
+
+  async function handleDelete() {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/member/delete-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: accessToken }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error || 'Delete failed')
+      }
+      router.push('/onboarding')
+    } catch (e: any) {
+      setError(e.message)
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="mt-8 border-t border-red-900/30 pt-6">
+      <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">Danger Zone</p>
+      {!open ? (
+        <button
+          onClick={() => setOpen(true)}
+          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-red-400 border border-red-800/40 hover:bg-red-900/20 transition-colors"
+        >
+          <Trash2 size={14} />
+          Delete My Profile
+        </button>
+      ) : (
+        <div className="bg-red-950/30 border border-red-800/40 rounded-xl p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="text-red-400 flex-shrink-0 mt-0.5" size={18} />
+            <div>
+              <p className="font-semibold text-slate-100 text-sm">Delete My Profile?</p>
+              <p className="text-xs text-slate-400 mt-1">
+                This will permanently delete your profile and all your data including stats, heroes, and assignments. This cannot be undone.
+              </p>
+            </div>
+          </div>
+          {error && <p className="text-red-400 text-xs">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setOpen(false)}
+              className="px-3 py-1.5 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={loading}
+              className="px-3 py-1.5 rounded-lg text-xs bg-red-600 hover:bg-red-700 text-white font-medium disabled:opacity-50 transition-colors"
+            >
+              {loading ? 'Deleting…' : 'Yes, delete permanently'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -621,7 +694,15 @@ function CustomEventCard({ event, accessToken, existing }: { event: any; accessT
             <CardTitle className="text-base">{event.name || 'Custom Event'}</CardTitle>
             {event.battle_start_utc && (
               <p className="text-sm text-slate-400 mt-0.5">
-                {new Date(event.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC' })} UTC
+                {event.battle_end_utc ? (
+                  <>
+                    {new Date(event.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })}
+                    {' — '}
+                    {new Date(event.battle_end_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })} UTC
+                  </>
+                ) : (
+                  <>{new Date(event.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC' })} UTC</>
+                )}
               </p>
             )}
           </div>

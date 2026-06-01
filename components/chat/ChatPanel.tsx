@@ -25,7 +25,10 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
   const bottomRef = useRef<HTMLDivElement>(null)
   const topRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  const supabase = createClient()
+  // Stable client reference — avoids creating multiple GoTrue clients across renders
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
+  if (!supabaseRef.current) supabaseRef.current = createClient()
+  const supabase = supabaseRef.current
 
   const canDelete = ['r5', 'r4', 'system_admin'].includes(currentUserRole || '')
   const hasTranslate = typeof window !== 'undefined' && !!(process.env.NEXT_PUBLIC_GOOGLE_TRANSLATE_KEY)

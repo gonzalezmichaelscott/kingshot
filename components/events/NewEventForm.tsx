@@ -1,6 +1,6 @@
 // @ts-nocheck
 'use client'
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,6 +17,8 @@ export function NewEventForm({ allianceId, eventTypes }: Props) {
   const router = useRouter()
   const supabase = createClient()
   const [isCustom, setIsCustom] = useState(false)
+  // Stable temp folder for image uploads before the event is saved
+  const uploadFolderRef = useRef(`temp/${typeof crypto !== 'undefined' ? crypto.randomUUID() : Date.now()}`)
 
   // Standard event form
   const [form, setForm] = useState({
@@ -31,6 +33,7 @@ export function NewEventForm({ allianceId, eventTypes }: Props) {
   const [customForm, setCustomForm] = useState({
     name: '',
     battle_start_utc: '',
+    battle_end_utc: '',
     custom_instructions: '',
     visibility: 'all' as 'all' | 'r4_plus' | 'specific',
     status: 'planning' as 'planning' | 'registration',
@@ -72,7 +75,7 @@ export function NewEventForm({ allianceId, eventTypes }: Props) {
       event_type_id: null,
       name: customForm.name,
       battle_start_utc: customForm.battle_start_utc || null,
-      battle_end_utc: null,
+      battle_end_utc: customForm.battle_end_utc || null,
       notes: null,
       created_by: user?.id,
       status: customForm.status,
@@ -174,13 +177,23 @@ export function NewEventForm({ allianceId, eventTypes }: Props) {
               onChange={e => setCustomForm(f => ({ ...f, name: e.target.value }))}
             />
           </div>
-          <div>
-            <label className="text-sm text-slate-400 block mb-1">Date & Time (UTC)</label>
-            <Input
-              type="datetime-local"
-              value={customForm.battle_start_utc}
-              onChange={e => setCustomForm(f => ({ ...f, battle_start_utc: e.target.value }))}
-            />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm text-slate-400 block mb-1">Start Date & Time (UTC) <span className="text-red-400">*</span></label>
+              <Input
+                type="datetime-local"
+                value={customForm.battle_start_utc}
+                onChange={e => setCustomForm(f => ({ ...f, battle_start_utc: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-sm text-slate-400 block mb-1">End Date & Time (UTC) <span className="text-slate-500">(optional)</span></label>
+              <Input
+                type="datetime-local"
+                value={customForm.battle_end_utc}
+                onChange={e => setCustomForm(f => ({ ...f, battle_end_utc: e.target.value }))}
+              />
+            </div>
           </div>
           <div>
             <label className="text-sm text-slate-400 block mb-1">Battle Plan / Instructions</label>
@@ -192,6 +205,7 @@ export function NewEventForm({ allianceId, eventTypes }: Props) {
               onChange={v => setCustomForm(f => ({ ...f, custom_instructions: v }))}
               rows={10}
               placeholder="## Overview&#10;Describe the event...&#10;&#10;## Instructions&#10;- Step 1&#10;- Step 2&#10;"
+              uploadFolder={uploadFolderRef.current}
             />
           </div>
           <div>

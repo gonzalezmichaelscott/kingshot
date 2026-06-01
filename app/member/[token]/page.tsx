@@ -61,13 +61,33 @@ export default async function MemberTokenPage({ params }: { params: { token: str
     .eq('is_active', true)
     .order('generation')
 
-  const { data: upcomingEvents } = await supabase
+  // Fetch events: upcoming OR currently active custom events (started but end date not yet passed)
+  // Use 7 days ago as cutoff so we capture recently-started events without a set end date
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const nowIso = new Date().toISOString()
+  const { data: rawEvents } = await supabase
     .from('events')
-    .select('*, event_types(name, slug), is_custom, custom_instructions_html, custom_images')
+    .select('*, event_types(name, slug), is_custom, custom_instructions_html, custom_images, battle_end_utc')
     .eq('alliance_id', member.alliance_id!)
     .in('status', ['planning', 'registration', 'active'])
-    .gte('battle_start_utc', new Date().toISOString())
+    .gte('battle_start_utc', sevenDaysAgo)
     .order('battle_start_utc')
+
+  // Client-side filter: keep upcoming events AND custom events still within their active window
+  const now = new Date()
+  const upcomingEvents = (rawEvents || []).filter(ev => {
+    const start = ev.battle_start_utc ? new Date(ev.battle_start_utc) : null
+    if (!start) return true
+    // Future events always show
+    if (start >= now) return true
+    // Past-start custom events: show until end date (or 7 days after start if no end date)
+    if (ev.is_custom) {
+      if (ev.battle_end_utc) return new Date(ev.battle_end_utc) >= now
+      const sevenDaysAfterStart = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000)
+      return sevenDaysAfterStart >= now
+    }
+    return false
+  })
 
   // Load member's battle assignments with instructions
   const { data: memberAssignments } = await supabase
