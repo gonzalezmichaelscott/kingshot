@@ -27,40 +27,76 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
   if (!supabaseRef.current) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
+  // Live ref to current messages so the realtime callback never reads a stale closure
+  const messagesRef = useRef(messages)
+  useEffect(() => { messagesRef.current = messages }, [messages])
+
+  // Unique channel name per component instance so multiple tabs/mounts don't collide
+  const channelIdRef = useRef<string>(`chat:${allianceId}:${Math.random().toString(36).slice(2)}`)
+
   const canDelete = ['r5', 'r4', 'system_admin'].includes(currentUser?.role || '')
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Realtime subscription — starts on mount, unsubscribes on unmount
+  // Realtime subscription — starts on mount, unsubscribes on unmount.
+  // Self-heals: resubscribes on CLOSED/TIMED_OUT.
   useEffect(() => {
-    const channel = supabase
-      .channel(`chat:${allianceId}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `alliance_id=eq.${allianceId}` },
-        async (payload) => {
-          const { data } = await supabase
-            .from('chat_messages')
-            .select('*, user_profiles(display_name, role)')
-            .eq('id', payload.new.id)
-            .single()
-          if (data) setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, data])
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'chat_messages', filter: `alliance_id=eq.${allianceId}` },
-        (payload) => {
-          setMessages(prev => prev.filter(m => m.id !== payload.old.id))
-        }
-      )
-      .subscribe((status, err) => {
-        console.log('[ChatRoom] Realtime status:', status, err ?? '')
-      })
+    let channel: ReturnType<typeof supabase.channel> | null = null
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+    let cancelled = false
 
-    return () => { supabase.removeChannel(channel) }
+    const addMessage = (data: any) => {
+      // Dedupe against the live ref (avoids stale closure) before appending
+      if (!data) return
+      if (messagesRef.current.some(m => m.id === data.id)) return
+      setMessages(prev => (prev.some(m => m.id === data.id) ? prev : [...prev, data]))
+    }
+
+    const subscribe = () => {
+      if (cancelled) return
+      channel = supabase
+        .channel(channelIdRef.current, { config: { broadcast: { self: false } } })
+        .on(
+          'postgres_changes',
+          { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `alliance_id=eq.${allianceId}` },
+          async (payload) => {
+            const { data } = await supabase
+              .from('chat_messages')
+              .select('*, user_profiles(display_name, role)')
+              .eq('id', payload.new.id)
+              .single()
+            addMessage(data)
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: 'DELETE', schema: 'public', table: 'chat_messages', filter: `alliance_id=eq.${allianceId}` },
+          (payload) => {
+            setMessages(prev => prev.filter(m => m.id !== payload.old.id))
+          }
+        )
+        .subscribe((status, err) => {
+          console.log('[ChatRoom] Realtime status:', status, err ?? '')
+          if ((status === 'CLOSED' || status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') && !cancelled) {
+            if (reconnectTimer) clearTimeout(reconnectTimer)
+            reconnectTimer = setTimeout(() => {
+              if (cancelled) return
+              if (channel) supabase.removeChannel(channel)
+              subscribe()
+            }, 2000)
+          }
+        })
+    }
+
+    subscribe()
+
+    return () => {
+      cancelled = true
+      if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (channel) supabase.removeChannel(channel)
+    }
   }, [allianceId])
 
   async function sendMessage(e: React.FormEvent) {
@@ -111,7 +147,10 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
   }
 
   function formatTime(ts: string) {
-    return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    // Deterministic UTC formatting — identical on server and client, so the
+    // server-rendered timestamp matches client hydration (no #425/#418/#423).
+    const d = new Date(ts)
+    return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`
   }
 
   function showError(msg: string) {
