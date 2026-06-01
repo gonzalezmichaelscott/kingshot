@@ -65,13 +65,20 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
     e.preventDefault()
     if (!content.trim()) return
     setSending(true)
-    await supabase.from('chat_messages').insert({
+    const text = content.trim()
+    setContent('')
+    const { data: inserted } = await supabase.from('chat_messages').insert({
       alliance_id: allianceId,
       author_id: currentUser?.id,
-      content: content.trim(),
-    })
-    setContent('')
+      content: text,
+    }).select().single()
     setSending(false)
+    if (inserted) {
+      setMessages(prev => [...prev, {
+        ...inserted,
+        user_profiles: { display_name: currentUser?.display_name, role: currentUser?.role },
+      }])
+    }
   }
 
   async function translate(messageId: string, text: string) {
