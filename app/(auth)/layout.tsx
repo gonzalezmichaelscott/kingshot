@@ -52,7 +52,10 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
         <div className="flex-1" />
         <UtcClock />
       </div>
-      <main className="flex-1 lg:ml-64 p-4 lg:p-6 pt-14">
+      {/* pt-14 must NOT be paired with a lg:p-* shorthand — responsive shorthands
+           override all four sides and would reduce padding-top to 24px on desktop,
+           hiding content behind the 48px-tall top bar. Split into axis-specific classes. */}
+      <main className="flex-1 lg:ml-64 px-4 lg:px-6 pb-4 lg:pb-6 pt-14">
         {children}
       </main>
     </div>

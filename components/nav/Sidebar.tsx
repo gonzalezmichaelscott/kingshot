@@ -55,9 +55,10 @@ export function Sidebar({ allianceId, role, userId, allianceName }: SidebarProps
 
   return (
     <>
-      {/* Mobile hamburger */}
+      {/* Mobile hamburger — z-[51] keeps it above the clock bar div (z-50) which
+           appears later in the DOM and would otherwise paint over this button. */}
       <button
-        className="fixed top-3 left-4 z-50 lg:hidden bg-slate-800 p-2 rounded-lg"
+        className="fixed top-3 left-4 z-[51] lg:hidden bg-slate-800 p-2 rounded-lg"
         onClick={() => setOpen(!open)}
       >
         {open ? <X size={20} /> : <Menu size={20} />}
