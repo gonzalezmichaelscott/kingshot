@@ -4,6 +4,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { calculateRoleScores, calculateHeroScore, calculateEffectiveTroopStrength, TIER_MULTIPLIERS } from '@/lib/scoring'
 import type { MemberHeroData, MemberProfile, TroopData } from '@/lib/scoring'
 import { generateMemberInstructions } from '@/lib/member-instructions'
+import { findOrCreateKingdomKvkEvent } from '@/lib/kvk'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -320,6 +321,126 @@ function extractJSON(text: string): string {
   const end = text.lastIndexOf('}')
   if (start === -1 || end === -1) throw new Error('No JSON found in response')
   return text.slice(start, end + 1)
+}
+
+/**
+ * Load every member across the participating alliances, scored with the KVK
+ * Castle weights. Availability windows are folded in when an anchor event exists;
+ * members without an availability row are treated as available for the whole event.
+ */
+async function loadKingdomMembersWithScores(allianceIds: string[], eventType: any, eventId?: string) {
+  const supabase = createServiceClient()
+  const weights = eventType.scoring_weights as Record<string, Record<string, number>>
+
+  const { data: rawMembers } = await supabase
+    .from('members')
+    .select(`
+      *,
+      member_combat_stats (*),
+      member_heroes ( *, heroes (*) ),
+      member_scores (*)
+    `)
+    .in('alliance_id', allianceIds)
+
+  const availabilityMap: Record<string, any> = {}
+  if (eventId) {
+    const { data: avail } = await supabase
+      .from('event_availability')
+      .select('*')
+      .eq('event_id', eventId)
+    for (const a of avail || []) availabilityMap[a.member_id] = a
+  }
+
+  return (rawMembers || []).map(m => {
+    const stats = (m.member_combat_stats as any)?.[0]
+    const heroData: MemberHeroData[] = (m.member_heroes || []).map((mh: any) => ({
+      hero: mh.heroes,
+      star_level: mh.star_level,
+      star_shards: mh.star_shards,
+      widget_level: mh.widget_level,
+      widget_unlocked: mh.widget_unlocked,
+      expedition_skill_levels: mh.expedition_skill_levels || {},
+    }))
+    const troopData: TroopData | null = m.troop_data || null
+
+    const profile: MemberProfile = {
+      id: m.id,
+      power: m.power || 0,
+      troopCount: m.troop_count || 0,
+      marchSize: m.march_size || 0,
+      rallyCapacity: m.rally_capacity || 0,
+      primaryTroopType: (stats?.troop_type_primary || 'mixed') as any,
+      heroes: heroData,
+      troopData,
+      combatStats: {
+        infantryAttack: stats?.infantry_attack || 0,
+        infantryDefense: stats?.infantry_defense || 0,
+        infantryHealth: stats?.infantry_health || 0,
+        infantryLethality: stats?.infantry_lethality || 0,
+        cavalryAttack: stats?.cavalry_attack || 0,
+        cavalryDefense: stats?.cavalry_defense || 0,
+        cavalryHealth: stats?.cavalry_health || 0,
+        cavalryLethality: stats?.cavalry_lethality || 0,
+        archerAttack: stats?.archer_attack || 0,
+        archerDefense: stats?.archer_defense || 0,
+        archerHealth: stats?.archer_health || 0,
+        archerLethality: stats?.archer_lethality || 0,
+      },
+    }
+
+    const scores = calculateRoleScores(profile, weights)
+    const heroScore = calculateHeroScore(heroData)
+    const effectiveStrength = troopData ? calculateEffectiveTroopStrength(troopData) : (m.troop_count || 0)
+    const a = availabilityMap[m.id]
+
+    return {
+      member_id: m.id,
+      player_name: m.player_name,
+      power: m.power,
+      march_size: m.march_size,
+      rally_capacity: m.rally_capacity,
+      troop_count: m.troop_count,
+      effective_troop_strength: Math.round(effectiveStrength),
+      troop_type: stats?.troop_type_primary || 'unknown',
+      troop_data: troopData,
+      hero_score: heroScore,
+      scores,
+      available_from: a?.available_from_utc || null,
+      available_to: a?.available_to_utc || null,
+      squad_preference: a?.squad_preference || null,
+    }
+  })
+}
+
+/**
+ * Generate a kingdom-wide KVK Castle battle plan combining ALL members from ALL
+ * participating alliances, and store the assignments against the kingdom's anchor
+ * KVK event. Returns the plan and the anchor event id.
+ */
+export async function generateKingdomKvkBattlePlan(kingdomId: string): Promise<{ plan: BattlePlan; eventId: string }> {
+  const { event, allianceIds, eventType } = await findOrCreateKingdomKvkEvent(kingdomId, true)
+
+  if (!eventType) throw new Error('KVK Castle Battle event type is not configured. Run the schema seed data.')
+  if (allianceIds.length === 0) throw new Error('No alliances have KVK enabled for this kingdom.')
+  if (!event) throw new Error('Could not create the kingdom KVK event.')
+
+  const members = await loadKingdomMembersWithScores(allianceIds, eventType, event.id)
+  if (members.length === 0) throw new Error('No members found across the participating alliances.')
+
+  const prompt = buildPlanningPrompt(members, event)
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-5',
+    max_tokens: 4000,
+    system: BATTLE_PLANNER_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: prompt }],
+  })
+
+  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  const plan: BattlePlan = JSON.parse(extractJSON(text))
+
+  await storeAssignments(event.id, plan, event)
+  return { plan, eventId: event.id }
 }
 
 export async function generateBattlePlan(eventId: string): Promise<BattlePlan> {

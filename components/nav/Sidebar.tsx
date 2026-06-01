@@ -18,9 +18,10 @@ interface SidebarProps {
   role?: string | null
   userId?: string
   allianceName?: string
+  kingdomId?: string
 }
 
-export function Sidebar({ allianceId, role, userId, allianceName }: SidebarProps) {
+export function Sidebar({ allianceId, role, userId, allianceName, kingdomId }: SidebarProps) {
   const [open, setOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
   const pathname = usePathname()
@@ -42,6 +43,9 @@ export function Sidebar({ allianceId, role, userId, allianceName }: SidebarProps
       { href: `${allianceBase}/chat`, label: 'Chat', icon: MessageSquare },
       { href: `${allianceBase}/board`, label: 'Board', icon: MessageSquare },
       { href: `${allianceBase}/analytics`, label: 'Analytics', icon: BarChart3 },
+    ] : []),
+    ...(backend && kingdomId ? [
+      { href: `/kingdoms/${kingdomId}/kvk`, label: 'KVK Command', icon: Sword },
     ] : []),
     ...(role === 'system_admin' ? [
       { href: '/admin', label: 'Admin', icon: Settings },

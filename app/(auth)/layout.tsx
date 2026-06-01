@@ -32,20 +32,24 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
     if (onBackend) redirect('/dashboard')
   }
 
-  // Fetch alliance name for the chat panel label
+  // Fetch alliance name (chat label) + kingdom id (KVK Command sidebar link)
   let allianceName = 'Alliance'
+  let kingdomId: string | undefined
   if (profile?.alliance_id) {
     const { data: allianceData } = await supabase
       .from('alliances')
-      .select('name, tag')
+      .select('name, tag, kingdom_id')
       .eq('id', profile.alliance_id)
       .single()
-    if (allianceData) allianceName = `[${allianceData.tag}] ${allianceData.name}`
+    if (allianceData) {
+      allianceName = `[${allianceData.tag}] ${allianceData.name}`
+      kingdomId = allianceData.kingdom_id || undefined
+    }
   }
 
   return (
     <div className="flex min-h-screen">
-      <Sidebar allianceId={profile?.alliance_id || undefined} role={profile?.role} userId={user.id} allianceName={allianceName} />
+      <Sidebar allianceId={profile?.alliance_id || undefined} role={profile?.role} userId={user.id} allianceName={allianceName} kingdomId={kingdomId} />
       {/* Top bar: UTC clock always visible — z-50 keeps it above the sidebar overlay (z-40).
            On mobile, pl-12 leaves room for the hamburger button that sits at left-4. */}
       <div className="fixed top-0 right-0 z-50 flex items-center gap-3 pr-4 pl-12 lg:pl-4 h-12 bg-slate-950/90 backdrop-blur-sm border-b border-slate-800/60 lg:left-64 left-0">

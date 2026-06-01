@@ -3,16 +3,17 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Shield, Users, Calendar, BarChart3, MessageSquare } from 'lucide-react'
+import { Shield, Users, Calendar, BarChart3, MessageSquare, Sword } from 'lucide-react'
 import Link from 'next/link'
 import { formatPower } from '@/lib/utils'
 import { requireAllianceAccess } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
+import { KvkToggle } from '@/components/alliance/KvkToggle'
 
 export default async function AllianceHubPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
 
-  await requireAllianceAccess(supabase, params.id)
+  const { profile } = await requireAllianceAccess(supabase, params.id)
 
   const { data: alliance } = await supabase
     .from('alliances')
@@ -67,6 +68,30 @@ export default async function AllianceHubPage({ params }: { params: { id: string
         </div>
         {alliance.kvk_enabled && <Badge variant="green">KVK Active</Badge>}
       </div>
+
+      {/* KVK participation toggle + command link */}
+      <KvkToggle
+        allianceId={params.id}
+        initialEnabled={!!alliance.kvk_enabled}
+        canToggle={['r5', 'system_admin'].includes(profile?.role || '')}
+      />
+
+      {kingdom ? (
+        <Link
+          href={`/kingdoms/${kingdom.id}/kvk`}
+          className="flex items-center justify-between gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 transition-colors px-4 py-3"
+        >
+          <span className="flex items-center gap-2 text-sm font-medium text-amber-400">
+            <Sword size={16} />
+            KVK Command — {kingdom.name}
+          </span>
+          <span className="text-amber-400 text-sm">→</span>
+        </Link>
+      ) : (
+        <div className="rounded-xl border border-slate-800 bg-slate-900/50 px-4 py-3 text-sm text-slate-400">
+          Join a kingdom first to access KVK coordination.
+        </div>
+      )}
 
       {/* Nav cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
