@@ -291,7 +291,7 @@ export async function generateBattlePlan(eventId: string): Promise<BattlePlan> {
   const prompt = buildPlanningPrompt(members, event)
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-5',
     max_tokens: 4000,
     system: BATTLE_PLANNER_SYSTEM_PROMPT,
     messages: [{ role: 'user', content: prompt }],
