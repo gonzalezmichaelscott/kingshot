@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createServiceClient } from '@/lib/supabase/server'
 import { calculateRoleScores, calculateHeroScore, calculateEffectiveTroopStrength, TIER_MULTIPLIERS } from '@/lib/scoring'
 import type { MemberHeroData, MemberProfile, TroopData } from '@/lib/scoring'
+import { generateMemberInstructions } from '@/lib/member-instructions'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -269,11 +270,15 @@ Respond ONLY with valid JSON in this exact schema (raw JSON, no code fences):
 }`
 }
 
-async function storeAssignments(eventId: string, plan: BattlePlan) {
+async function storeAssignments(eventId: string, plan: BattlePlan, event: any) {
   const supabase = createServiceClient()
 
   // Clear existing assignments
   await supabase.from('event_assignments').delete().eq('event_id', eventId)
+
+  const eventName = event.name || event.event_types?.name || 'Battle Event'
+  const eventStartUtc = event.battle_start_utc || null
+  const now = new Date().toISOString()
 
   // Insert new assignments. The model may return richer fields
   // (formation_recommendation, hero_recommendation, time_window) than the
@@ -285,6 +290,7 @@ async function storeAssignments(eventId: string, plan: BattlePlan) {
       a.time_window && !a.time_window_start ? `Window: ${a.time_window}` : '',
     ].filter(Boolean).join(' · ')
     const reasoning = [a.reasoning, extras].filter(Boolean).join(' — ')
+    const memberInstructions = generateMemberInstructions(a, plan, eventName, eventStartUtc)
     return {
       event_id: eventId,
       member_id: a.member_id,
@@ -295,6 +301,8 @@ async function storeAssignments(eventId: string, plan: BattlePlan) {
       reasoning,
       time_window_start: a.time_window_start || null,
       time_window_end: a.time_window_end || null,
+      member_instructions: memberInstructions,
+      instruction_generated_at: now,
     }
   })
 
@@ -333,7 +341,7 @@ export async function generateBattlePlan(eventId: string): Promise<BattlePlan> {
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
   const plan: BattlePlan = JSON.parse(extractJSON(text))
 
-  await storeAssignments(eventId, plan)
+  await storeAssignments(eventId, plan, event)
   return plan
 }
 

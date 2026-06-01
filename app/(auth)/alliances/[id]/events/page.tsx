@@ -32,7 +32,7 @@ export default async function EventsListPage({ params }: { params: { id: string 
 
   const { data: events } = await supabase
     .from('events')
-    .select('*, event_types(name, slug)')
+    .select('*, event_types(name, slug), is_custom, status')
     .eq('alliance_id', params.id)
     .order('battle_start_utc', { ascending: false })
 
@@ -94,11 +94,20 @@ export default async function EventsListPage({ params }: { params: { id: string 
 }
 
 function EventRow({ ev, allianceId }: { ev: any; allianceId: string }) {
+  const displayStatus = ev.status === 'registration' && ev.is_custom ? 'published' : ev.status
+  const displayStatusLabel = ev.is_custom && ev.status === 'registration' ? 'Published' : ev.status
   return (
     <Link href={`/alliances/${allianceId}/events/${ev.id}`}>
       <div className="flex items-center justify-between p-4 bg-slate-900 border border-slate-800 rounded-xl hover:border-amber-500/50 transition-colors">
         <div>
-          <p className="font-medium">{ev.name || ev.event_types?.name}</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="font-medium">{ev.name || ev.event_types?.name}</p>
+            {ev.is_custom && (
+              <span className="text-[10px] bg-purple-500/20 text-purple-400 border border-purple-500/30 px-1.5 py-0.5 rounded font-medium">
+                Custom
+              </span>
+            )}
+          </div>
           <p className="text-sm text-slate-400 mt-0.5">
             {ev.battle_start_utc
               ? new Date(ev.battle_start_utc).toLocaleString()
@@ -106,8 +115,8 @@ function EventRow({ ev, allianceId }: { ev: any; allianceId: string }) {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-500">{ev.event_types?.name}</span>
-          <Badge variant={statusColor[ev.status] || 'default'}>{ev.status}</Badge>
+          {!ev.is_custom && <span className="text-xs text-slate-500">{ev.event_types?.name}</span>}
+          <Badge variant={statusColor[displayStatus] || 'default'}>{displayStatusLabel}</Badge>
         </div>
       </div>
     </Link>

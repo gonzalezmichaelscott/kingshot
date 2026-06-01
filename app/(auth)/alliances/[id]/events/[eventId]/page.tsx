@@ -5,6 +5,9 @@ import { SwordlandEvent } from '@/components/events/SwordlandEvent'
 import { KvkCastleEvent } from '@/components/events/KvkCastleEvent'
 import { TriAllianceEvent } from '@/components/events/TriAllianceEvent'
 import { GenericEventPage } from '@/components/events/GenericEventPage'
+import { BattlePlansTab } from '@/components/events/BattlePlansTab'
+import { EventPageWrapper } from '@/components/events/EventPageWrapper'
+import { CustomEventDetail } from '@/components/events/CustomEventDetail'
 import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { BackButton } from '@/components/nav/BackButton'
@@ -48,6 +51,13 @@ export default async function EventDetailPage({ params }: { params: { id: string
     { label: eventName || 'Event' },
   ]
 
+  const nav = (
+    <div className="max-w-5xl mx-auto">
+      <Breadcrumbs items={breadcrumbs} />
+      <BackButton href={`/alliances/${params.id}/events`} />
+    </div>
+  )
+
   const props = {
     event,
     availability: availability || [],
@@ -59,28 +69,47 @@ export default async function EventDetailPage({ params }: { params: { id: string
     breadcrumbs,
   }
 
-  if (slug === 'swordland_showdown') return (
-    <>
-      <div className="max-w-5xl mx-auto"><Breadcrumbs items={breadcrumbs} /><BackButton href={`/alliances/${params.id}/events`} /></div>
-      <SwordlandEvent {...props} />
-    </>
-  )
-  if (slug === 'kvk_castle_battle') return (
-    <>
-      <div className="max-w-5xl mx-auto"><Breadcrumbs items={breadcrumbs} /><BackButton href={`/alliances/${params.id}/events`} /></div>
-      <KvkCastleEvent {...props} />
-    </>
-  )
-  if (slug === 'tri_alliance_clash') return (
-    <>
-      <div className="max-w-5xl mx-auto"><Breadcrumbs items={breadcrumbs} /><BackButton href={`/alliances/${params.id}/events`} /></div>
-      <TriAllianceEvent {...props} />
-    </>
-  )
+  // Custom events: show custom detail page directly
+  if ((event as any).is_custom) {
+    return (
+      <>
+        {nav}
+        <div className="max-w-5xl mx-auto">
+          <CustomEventDetail
+            event={event}
+            canManage={canManage}
+            allianceId={params.id}
+          />
+        </div>
+      </>
+    )
+  }
+
+  // Standard events: wrap with Battle Plans tab
+  const eventComponent =
+    slug === 'swordland_showdown' ? <SwordlandEvent {...props} /> :
+    slug === 'kvk_castle_battle' ? <KvkCastleEvent {...props} /> :
+    slug === 'tri_alliance_clash' ? <TriAllianceEvent {...props} /> :
+    <GenericEventPage {...props} />
+
   return (
     <>
-      <div className="max-w-5xl mx-auto"><Breadcrumbs items={breadcrumbs} /><BackButton href={`/alliances/${params.id}/events`} /></div>
-      <GenericEventPage {...props} />
+      {nav}
+      <div className="max-w-5xl mx-auto">
+        <EventPageWrapper
+          hasPlan={(assignments || []).length > 0}
+          battlePlans={
+            <BattlePlansTab
+              event={event}
+              assignments={assignments || []}
+              canManage={canManage}
+              allianceId={params.id}
+            />
+          }
+        >
+          {eventComponent}
+        </EventPageWrapper>
+      </div>
     </>
   )
 }

@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { User, Shield, Calendar, Star, Sword } from 'lucide-react'
+import { User, Shield, Calendar, Star, Sword, Copy, Check } from 'lucide-react'
+import { parseMarkdownToHtml } from '@/components/ui/RichTextEditor'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { HeroManager } from '@/components/members/HeroManager'
 import { TroopDataEditor } from '@/components/members/TroopDataEditor'
@@ -34,9 +35,10 @@ interface Props {
   memberAvailability: any[]
   heroes: any[]
   upcomingEvents: any[]
+  memberAssignments?: any[]
 }
 
-export function MemberPortal({ member, memberHeroes, memberAvailability, heroes, upcomingEvents }: Props) {
+export function MemberPortal({ member, memberHeroes, memberAvailability, heroes, upcomingEvents, memberAssignments = [] }: Props) {
   const alliance = member.alliances
   const router = useRouter()
 
@@ -200,15 +202,38 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
         {/* Availability Tab */}
         {tab === 'availability' && (
           <div className="space-y-4">
+            {/* Battle assignments at top */}
+            {memberAssignments.length > 0 && (
+              <div className="space-y-3">
+                {memberAssignments.map((a: any) => (
+                  <AssignmentCard key={a.id} assignment={a} />
+                ))}
+              </div>
+            )}
+
             {upcomingEvents.length > 0 ? (
-              upcomingEvents.map(ev => (
-                <AvailabilityCard
-                  key={ev.id}
-                  event={ev}
-                  accessToken={member.access_token}
-                  existing={assignments.find((a: any) => a.event_id === ev.id)}
-                />
-              ))
+              upcomingEvents.map(ev => {
+                const isCustom = (ev as any).is_custom
+                if (isCustom) {
+                  return (
+                    <CustomEventCard
+                      key={ev.id}
+                      event={ev}
+                      accessToken={member.access_token}
+                      existing={assignments.find((a: any) => a.event_id === ev.id)}
+                    />
+                  )
+                }
+                return (
+                  <AvailabilityCard
+                    key={ev.id}
+                    event={ev}
+                    accessToken={member.access_token}
+                    existing={assignments.find((a: any) => a.event_id === ev.id)}
+                    assignment={memberAssignments.find((a: any) => a.event_id === ev.id)}
+                  />
+                )
+              })
             ) : (
               <Card>
                 <CardContent className="py-8 text-center">
@@ -278,7 +303,7 @@ function eventWindow(slug: string | undefined, battleStartUtc: string | null) {
 
 const fmtHour = (h: number) => `${String(h % 24).padStart(2, '0')}:00`
 
-function AvailabilityCard({ event, accessToken, existing }: { event: any; accessToken: string; existing: any }) {
+function AvailabilityCard({ event, accessToken, existing, assignment }: { event: any; accessToken: string; existing: any; assignment?: any }) {
   const router = useRouter()
   const slug = event.event_types?.slug
   const { start, end } = eventWindow(slug, event.battle_start_utc)
@@ -415,6 +440,231 @@ function AvailabilityCard({ event, accessToken, existing }: { event: any; access
         <Button className="w-full" size="sm" onClick={save} disabled={saving}>
           {saving ? 'Saving…' : saved ? 'Saved! ✓' : existing ? 'Update Availability' : 'Save Availability'}
         </Button>
+
+        {/* Inline assignment card if plan exists */}
+        {assignment?.member_instructions && (
+          <MemberAssignmentInline assignment={assignment} />
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function roleBadgeStyle(role: string) {
+  if (role.includes('leader')) return 'bg-amber-500 text-slate-900'
+  if (role.includes('joiner')) return 'bg-blue-500 text-white'
+  if (role.includes('garrison') || role.includes('castle') || role.includes('turret') || role.includes('defender'))
+    return 'bg-green-600 text-white'
+  return 'bg-slate-600 text-slate-200'
+}
+
+function MemberAssignmentInline({ assignment }: { assignment: any }) {
+  const [copied, setCopied] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const role = assignment.role?.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+
+  function copy() {
+    navigator.clipboard.writeText(assignment.member_instructions || assignment.reasoning || '')
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <div className="border border-amber-500/30 rounded-xl overflow-hidden">
+      <div className="bg-amber-500/10 p-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Sword size={13} className="text-amber-500" />
+          <span className="text-sm font-semibold text-amber-400">Your Assignment</span>
+          <span className={`text-xs px-2 py-0.5 rounded font-semibold ${roleBadgeStyle(assignment.role)}`}>
+            {role}
+          </span>
+          {assignment.squad && (
+            <span className="text-xs text-slate-400">Squad {assignment.squad}</span>
+          )}
+        </div>
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="text-xs text-amber-400 hover:text-amber-300"
+        >
+          {expanded ? 'Hide' : 'View full instructions'}
+        </button>
+      </div>
+      {expanded && (
+        <div className="p-3 bg-slate-900 border-t border-amber-500/20">
+          <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
+            {assignment.member_instructions || assignment.reasoning}
+          </pre>
+          <button
+            onClick={copy}
+            className="mt-3 flex items-center gap-1.5 text-xs text-slate-400 hover:text-amber-400 transition-colors"
+          >
+            {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+            {copied ? 'Copied!' : 'Copy My Assignment'}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AssignmentCard({ assignment }: { assignment: any }) {
+  const [copied, setCopied] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const role = assignment.role?.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+  const eventName = assignment.events?.name || assignment.events?.event_types?.name || 'Event'
+  const eventDate = assignment.events?.battle_start_utc
+    ? new Date(assignment.events.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' UTC'
+    : null
+
+  function copy() {
+    navigator.clipboard.writeText(assignment.member_instructions || assignment.reasoning || '')
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  return (
+    <Card className="border-amber-500/20">
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-xs px-2 py-0.5 rounded font-semibold ${roleBadgeStyle(assignment.role)}`}>
+                {role}
+              </span>
+              {assignment.squad && (
+                <span className="text-xs text-slate-400">Squad {assignment.squad}</span>
+              )}
+              {assignment.is_backup && (
+                <span className="text-xs text-slate-500 border border-slate-600 px-1.5 py-0.5 rounded">Backup</span>
+              )}
+            </div>
+            <p className="font-semibold mt-1">{eventName}</p>
+            {eventDate && <p className="text-xs text-slate-400">{eventDate}</p>}
+          </div>
+          <Sword size={16} className="text-amber-500 flex-shrink-0 mt-1" />
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0 space-y-2">
+        {assignment.reasoning && !expanded && (
+          <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{assignment.reasoning}</p>
+        )}
+        <button
+          onClick={() => setExpanded(e => !e)}
+          className="text-xs text-amber-400 hover:text-amber-300 transition-colors"
+        >
+          {expanded ? 'Hide instructions' : 'View full assignment instructions'}
+        </button>
+        {expanded && (
+          <div className="bg-slate-900 rounded-lg p-3 border border-slate-800">
+            <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
+              {assignment.member_instructions || assignment.reasoning || 'No instructions available.'}
+            </pre>
+            <button
+              onClick={copy}
+              className="mt-3 flex items-center gap-1.5 text-xs text-slate-400 hover:text-amber-400 transition-colors"
+            >
+              {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
+              {copied ? 'Copied!' : 'Copy My Assignment'}
+            </button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function CustomEventCard({ event, accessToken, existing }: { event: any; accessToken: string; existing: any }) {
+  const router = useRouter()
+  const [willAttend, setWillAttend] = useState(existing?.will_attend ?? false)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [showFull, setShowFull] = useState(false)
+
+  const html = event.custom_instructions_html || ''
+  const status = event.status
+
+  async function toggleAttend(attend: boolean) {
+    setSaving(true)
+    await fetch('/api/member/availability', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        access_token: accessToken,
+        event_id: event.id,
+        will_attend: attend,
+        available_from_utc: null,
+        available_to_utc: null,
+      }),
+    })
+    setWillAttend(attend)
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+    router.refresh()
+  }
+
+  return (
+    <Card className="border-purple-500/20">
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className="text-[10px] bg-purple-500/20 text-purple-400 border border-purple-500/30 px-1.5 py-0.5 rounded font-medium">
+                Custom
+              </span>
+              {status === 'registration' && (
+                <span className="text-[10px] bg-green-500/20 text-green-400 border border-green-500/30 px-1.5 py-0.5 rounded font-medium">
+                  Published
+                </span>
+              )}
+            </div>
+            <CardTitle className="text-base">{event.name || 'Custom Event'}</CardTitle>
+            {event.battle_start_utc && (
+              <p className="text-sm text-slate-400 mt-0.5">
+                {new Date(event.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC' })} UTC
+              </p>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {html && (
+          <>
+            {!showFull ? (
+              <button
+                onClick={() => setShowFull(true)}
+                className="text-xs text-purple-400 hover:text-purple-300 transition-colors"
+              >
+                View full instructions →
+              </button>
+            ) : (
+              <div>
+                <div
+                  className="text-sm text-slate-200 leading-relaxed bg-slate-900 rounded-lg p-3 border border-slate-800"
+                  dangerouslySetInnerHTML={{ __html: html }}
+                />
+                <button
+                  onClick={() => setShowFull(false)}
+                  className="mt-2 text-xs text-slate-400 hover:text-slate-300"
+                >
+                  Hide
+                </button>
+              </div>
+            )}
+          </>
+        )}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={willAttend}
+            disabled={saving}
+            onChange={e => toggleAttend(e.target.checked)}
+            className="w-5 h-5 rounded accent-amber-500"
+          />
+          <span className="text-sm font-medium">
+            {saved ? 'Saved!' : willAttend ? "I'll attend" : 'Mark as attending'}
+          </span>
+        </label>
       </CardContent>
     </Card>
   )

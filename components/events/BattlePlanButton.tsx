@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Sword, Loader2 } from 'lucide-react'
 
-export function BattlePlanButton({ eventId, onSuccess }: { eventId: string; onSuccess?: () => void }) {
+export function BattlePlanButton({ eventId, onSuccess, label }: { eventId: string; onSuccess?: () => void; label?: string }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
@@ -35,7 +35,7 @@ export function BattlePlanButton({ eventId, onSuccess }: { eventId: string; onSu
     <div className="space-y-2">
       <Button onClick={generate} disabled={loading} size="lg" className="w-full sm:w-auto">
         {loading ? <Loader2 size={18} className="mr-2 animate-spin" /> : <Sword size={18} className="mr-2" />}
-        {loading ? 'Generating AI Plan...' : success ? 'Plan Generated!' : 'Generate Battle Plan'}
+        {loading ? 'Generating AI Plan...' : success ? 'Plan Generated!' : (label || 'Generate Battle Plan')}
       </Button>
       {error && <p className="text-red-400 text-sm">{error}</p>}
     </div>

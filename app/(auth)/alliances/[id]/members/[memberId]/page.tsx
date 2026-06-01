@@ -89,6 +89,14 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
   const scores = (member.member_scores as any)?.[0]
   const nameHistory = Array.isArray((member as any).name_history) ? (member as any).name_history : []
 
+  // Battle assignments for this member
+  const { data: memberAssignments } = await supabase
+    .from('event_assignments')
+    .select('*, events(name, battle_start_utc, event_types(name), status)')
+    .eq('member_id', params.memberId)
+    .order('created_at', { ascending: false })
+    .limit(10)
+
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   const memberLink = `${appUrl}/member/${member.access_token}`
 
@@ -206,6 +214,53 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
             </div>
           ))}
         </div>
+      )}
+
+      {/* Battle Assignments */}
+      {memberAssignments && memberAssignments.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Sword size={18} className="text-amber-500" />
+              Battle Assignments
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {memberAssignments.map((a: any) => {
+              const role = (a.role || '').replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
+              const evName = a.events?.name || a.events?.event_types?.name || 'Event'
+              const evDate = a.events?.battle_start_utc
+                ? new Date(a.events.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' }) + ' UTC'
+                : null
+              return (
+                <details key={a.id} className="bg-slate-800 rounded-xl overflow-hidden">
+                  <summary className="flex items-center justify-between gap-3 p-3 cursor-pointer hover:bg-slate-750 list-none">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-xs px-2 py-0.5 rounded font-semibold ${
+                        a.role?.includes('leader') ? 'bg-amber-500 text-slate-900' :
+                        a.role?.includes('joiner') ? 'bg-blue-500 text-white' :
+                        'bg-slate-600 text-slate-200'
+                      }`}>{role}</span>
+                      {a.squad && <span className="text-xs text-slate-400">Squad {a.squad}</span>}
+                      {a.is_backup && <span className="text-xs text-slate-500">(backup)</span>}
+                    </div>
+                    <div className="text-right min-w-0">
+                      <p className="text-sm font-medium truncate">{evName}</p>
+                      {evDate && <p className="text-xs text-slate-400">{evDate}</p>}
+                    </div>
+                  </summary>
+                  {a.member_instructions && (
+                    <div className="px-3 pb-3 border-t border-slate-700">
+                      <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono leading-relaxed mt-2">
+                        {a.member_instructions}
+                      </pre>
+                    </div>
+                  )}
+                </details>
+              )
+            })}
+          </CardContent>
+        </Card>
       )}
 
       {/* Role Scores */}

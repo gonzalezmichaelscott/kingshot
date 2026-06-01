@@ -63,11 +63,17 @@ export default async function MemberTokenPage({ params }: { params: { token: str
 
   const { data: upcomingEvents } = await supabase
     .from('events')
-    .select('*, event_types(name, slug)')
+    .select('*, event_types(name, slug), is_custom, custom_instructions_html, custom_images')
     .eq('alliance_id', member.alliance_id!)
     .in('status', ['planning', 'registration', 'active'])
     .gte('battle_start_utc', new Date().toISOString())
     .order('battle_start_utc')
+
+  // Load member's battle assignments with instructions
+  const { data: memberAssignments } = await supabase
+    .from('event_assignments')
+    .select('*, events(name, battle_start_utc, event_types(name))')
+    .eq('member_id', member.id)
 
   return (
     <>
@@ -84,6 +90,7 @@ export default async function MemberTokenPage({ params }: { params: { token: str
         memberAvailability={memberAvailability || []}
         heroes={heroes || []}
         upcomingEvents={upcomingEvents || []}
+        memberAssignments={memberAssignments || []}
       />
     </>
   )

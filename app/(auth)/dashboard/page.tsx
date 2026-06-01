@@ -43,10 +43,45 @@ export default async function DashboardPage() {
     const { data: assignments } = member ? await supabase
       .from('event_assignments')
       .select('*, events(name, battle_start_utc, event_types(name))')
-      .eq('member_id', member.id) : { data: [] }
+      .eq('member_id', member.id)
+      .order('created_at', { ascending: false }) : { data: [] }
+
+    // New custom events published in last 7 days
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+    const { data: newCustomEvents } = allianceId ? await supabase
+      .from('events')
+      .select('id, name, battle_start_utc')
+      .eq('alliance_id', allianceId)
+      .eq('is_custom', true)
+      .eq('status', 'registration')
+      .gte('created_at', sevenDaysAgo)
+      .order('created_at', { ascending: false }) : { data: [] }
 
     return (
       <div className="max-w-3xl mx-auto space-y-6">
+        {/* New custom event notification banners */}
+        {newCustomEvents && newCustomEvents.length > 0 && (
+          <div className="space-y-2">
+            {newCustomEvents.map((ev: any) => (
+              <Link
+                key={ev.id}
+                href={`/alliances/${allianceId}/events/${ev.id}`}
+                className="flex items-center justify-between gap-3 p-3 bg-purple-950/50 border border-purple-700/50 rounded-xl hover:border-purple-500 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xs bg-purple-500/30 text-purple-300 px-1.5 py-0.5 rounded font-medium">New Event</span>
+                  <span className="text-sm font-medium">{ev.name}</span>
+                </div>
+                {ev.battle_start_utc && (
+                  <span className="text-xs text-slate-400 flex-shrink-0">
+                    {new Date(ev.battle_start_utc).toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })} UTC
+                  </span>
+                )}
+              </Link>
+            ))}
+          </div>
+        )}
+
         {/* Profile card */}
         <Card>
           <CardContent className="pt-5 flex items-center gap-4 flex-wrap">
@@ -66,28 +101,35 @@ export default async function DashboardPage() {
 
         {/* My Assignments */}
         <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><Swords size={18} className="text-amber-500" />My Assignments</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-center gap-2"><Swords size={18} className="text-amber-500" />My Battle Assignments</CardTitle></CardHeader>
           <CardContent>
             {assignments && assignments.length > 0 ? (
               <div className="space-y-3">
                 {assignments.map((a: any) => (
-                  <div key={a.id} className="bg-slate-800 rounded-lg p-3">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <p className="font-medium">{a.events?.name || a.events?.event_types?.name}</p>
-                      {a.events?.battle_start_utc && <span className="text-xs text-slate-400">{new Date(a.events.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC' })} UTC</span>}
-                    </div>
-                    <div className="flex gap-2 flex-wrap mt-1.5">
-                      <Badge variant="amber">{a.role}</Badge>
-                      {a.squad && <Badge variant="blue">Squad {a.squad}</Badge>}
-                      {a.is_backup && <Badge variant="default">Backup</Badge>}
-                    </div>
-                    {a.reasoning && <p className="text-sm text-slate-300 mt-2">{a.reasoning}</p>}
-                    {(a.time_window_start || a.time_window_end) && (
-                      <p className="text-xs text-slate-400 mt-1">
-                        Window: {a.time_window_start ? new Date(a.time_window_start).toLocaleString(undefined, { timeZone: 'UTC' }) : '—'} → {a.time_window_end ? new Date(a.time_window_end).toLocaleString(undefined, { timeZone: 'UTC' }) : '—'} UTC
-                      </p>
+                  <details key={a.id} className="bg-slate-800 rounded-xl overflow-hidden">
+                    <summary className="list-none p-3 cursor-pointer hover:bg-slate-750">
+                      <div className="flex items-center justify-between flex-wrap gap-2">
+                        <p className="font-medium">{a.events?.name || a.events?.event_types?.name}</p>
+                        {a.events?.battle_start_utc && <span className="text-xs text-slate-400">{new Date(a.events.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC' })} UTC</span>}
+                      </div>
+                      <div className="flex gap-2 flex-wrap mt-1.5">
+                        <Badge variant="amber">{(a.role || '').replace(/_/g, ' ')}</Badge>
+                        {a.squad && <Badge variant="blue">Squad {a.squad}</Badge>}
+                        {a.is_backup && <Badge variant="default">Backup</Badge>}
+                      </div>
+                      {!a.member_instructions && a.reasoning && <p className="text-sm text-slate-300 mt-2">{a.reasoning}</p>}
+                      {a.member_instructions && (
+                        <p className="text-xs text-amber-400 mt-2">Click to view your full instructions →</p>
+                      )}
+                    </summary>
+                    {a.member_instructions && (
+                      <div className="px-3 pb-3 border-t border-slate-700">
+                        <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono leading-relaxed mt-2">
+                          {a.member_instructions}
+                        </pre>
+                      </div>
                     )}
-                  </div>
+                  </details>
                 ))}
               </div>
             ) : (
