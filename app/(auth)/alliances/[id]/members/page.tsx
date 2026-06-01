@@ -9,7 +9,9 @@ import { formatPower } from '@/lib/utils'
 import { AddMemberButton } from '@/components/members/AddMemberButton'
 import { CopyTokenButton } from '@/components/members/CopyTokenButton'
 import { PendingProfileRequests } from '@/components/members/PendingProfileRequests'
+import { PendingClaimRequests } from '@/components/members/PendingClaimRequests'
 import { RemoveMemberButton } from '@/components/members/RemoveMemberButton'
+import { ImportMembersButton } from '@/components/members/ImportMembersButton'
 import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
@@ -38,6 +40,29 @@ export default async function MembersPage({ params }: { params: { id: string } }
     .in('requested_role', ['r1', 'r2', 'r3'])
     .order('created_at', { ascending: false }) : { data: [] }
 
+  // Pending profile claim requests for this alliance
+  const { data: rawClaimRequests } = canManage ? await supabase
+    .from('profile_claim_requests')
+    .select('id, member_id, requesting_user_id, created_at, members(player_name, game_id)')
+    .eq('alliance_id', params.id)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false }) : { data: [] }
+
+  // Fetch display names for requesting users
+  const claimRequests = await Promise.all(
+    (rawClaimRequests || []).map(async (cr: any) => {
+      const { data: rp } = await supabase
+        .from('user_profiles')
+        .select('display_name')
+        .eq('id', cr.requesting_user_id)
+        .maybeSingle()
+      return {
+        ...cr,
+        requester: { display_name: rp?.display_name || null },
+      }
+    })
+  )
+
   const { data: members } = await supabase
     .from('members')
     .select('*, member_scores(overall_score, rally_leader_score, joiner_score), member_combat_stats(troop_type_primary)')
@@ -65,10 +90,16 @@ export default async function MembersPage({ params }: { params: { id: string } }
             <Badge variant="amber">{pendingRequests.length} pending</Badge>
           )}
         </h1>
-        {canManage && <AddMemberButton allianceId={params.id} />}
+        {canManage && (
+          <div className="flex items-center gap-2">
+            <ImportMembersButton allianceId={params.id} />
+            <AddMemberButton allianceId={params.id} />
+          </div>
+        )}
       </div>
 
       {canManage && <PendingProfileRequests requests={pendingRequests || []} />}
+      {canManage && <PendingClaimRequests requests={claimRequests || []} />}
 
       <Card>
         <CardContent className="pt-4">

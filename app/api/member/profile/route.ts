@@ -21,9 +21,25 @@ export async function PATCH(request: NextRequest) {
     const { access_token, ...fields } = schema.parse(body)
 
     const supabase = createServiceClient()
+
+    // Load current member to check if player_name changed (for name_history)
+    const { data: current } = await supabase
+      .from('members')
+      .select('player_name, name_history')
+      .eq('access_token', access_token)
+      .maybeSingle()
+
+    const updatePayload: Record<string, any> = { ...fields, updated_at: new Date().toISOString() }
+
+    if (current && current.player_name && current.player_name !== fields.player_name) {
+      const history: any[] = Array.isArray(current.name_history) ? current.name_history : []
+      history.push({ name: current.player_name, changed_at: new Date().toISOString() })
+      updatePayload.name_history = history
+    }
+
     const { error } = await supabase
       .from('members')
-      .update({ ...fields, updated_at: new Date().toISOString() })
+      .update(updatePayload)
       .eq('access_token', access_token)
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })

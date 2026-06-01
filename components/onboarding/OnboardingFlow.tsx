@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Search, Shield, Crown, ArrowLeft, CheckCircle, Users } from 'lucide-react'
+import { ProfileClaimStep } from '@/components/members/ProfileClaimStep'
 
-type Step = 'search' | 'select_alliance' | 'create_profile' | 'new_kingdom' | 'new_alliance' | 'submitted'
+type Step = 'search' | 'select_alliance' | 'claim_or_create' | 'create_profile' | 'new_kingdom' | 'new_alliance' | 'submitted'
 
 const RANKS = ['r1', 'r2', 'r3', 'r4', 'r5']
 const LEADER_RANKS = ['r4', 'r5']
@@ -156,7 +157,7 @@ export function OnboardingFlow() {
             <p className="text-sm text-slate-400">Select your alliance:</p>
             <div className="grid sm:grid-cols-2 gap-3">
               {alliances.map(a => (
-                <button key={a.id} onClick={() => { setSelectedAlliance(a); setRank('r3'); setStep('create_profile') }}
+                <button key={a.id} onClick={() => { setSelectedAlliance(a); setRank('r3'); setStep('claim_or_create') }}
                   className="text-left bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-amber-500/50 rounded-lg p-3 transition-colors">
                   <p className="font-semibold text-amber-400">[{a.tag}]</p>
                   <p className="text-sm text-slate-300">{a.name}</p>
@@ -174,7 +175,35 @@ export function OnboardingFlow() {
         </Card>
       )}
 
-      {/* STEP 3 — CREATE PROFILE (existing alliance) */}
+      {/* STEP 3a — CLAIM OR CREATE */}
+      {step === 'claim_or_create' && selectedAlliance && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Users size={18} className="text-amber-500" />
+              [{selectedAlliance.tag}] {selectedAlliance.name}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ProfileClaimStep
+              allianceId={selectedAlliance.id}
+              allianceName={`[${selectedAlliance.tag}] ${selectedAlliance.name}`}
+              onClaimed={() => {
+                setSubmittedMsg('Your claim request has been sent to your alliance R4/R5 for verification. You will be notified once approved.')
+                setStep('submitted')
+              }}
+              onSkip={() => setStep('create_profile')}
+            />
+            <div className="mt-3">
+              <button onClick={() => setStep('select_alliance')} className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1">
+                <ArrowLeft size={12} />Back to alliance selection
+              </button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* STEP 3b — CREATE PROFILE (existing alliance) */}
       {step === 'create_profile' && (
         <Card>
           <CardHeader>

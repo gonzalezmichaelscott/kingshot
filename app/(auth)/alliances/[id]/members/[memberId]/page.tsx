@@ -11,6 +11,8 @@ import { TroopDataEditor } from '@/components/members/TroopDataEditor'
 import { HeroManager } from '@/components/members/HeroManager'
 import { CopyTokenButton } from '@/components/members/CopyTokenButton'
 import { RoleAssigner } from '@/components/members/RoleAssigner'
+import { ProfileStatusCard } from '@/components/members/ProfileStatusCard'
+import { EditNameButton } from '@/components/members/EditNameButton'
 import { requireAllianceAccess, canManageAlliance, assignableRoles } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { BackButton } from '@/components/nav/BackButton'
@@ -57,16 +59,41 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
 
   // Current role of the member's linked account (for the role dropdown)
   const { data: linkedProfile } = (canEdit && member.linked_user_id)
-    ? await supabase.from('user_profiles').select('role').eq('id', member.linked_user_id).single()
+    ? await supabase.from('user_profiles').select('role, display_name').eq('id', member.linked_user_id).single()
     : { data: null }
   const assignable = assignableRoles(profile?.role)
+
+  // Pending claim request for this member
+  const { data: pendingClaim } = canEdit
+    ? await supabase
+        .from('profile_claim_requests')
+        .select('id, requesting_user_id, created_at')
+        .eq('member_id', params.memberId)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: false })
+        .maybeSingle()
+    : { data: null }
+
+  let pendingClaimRequesterName: string | null = null
+  if (pendingClaim) {
+    const { data: rp } = await supabase
+      .from('user_profiles')
+      .select('display_name')
+      .eq('id', pendingClaim.requesting_user_id)
+      .maybeSingle()
+    pendingClaimRequesterName = rp?.display_name || null
+  }
 
   const stats = (member.member_combat_stats as any)?.[0]
   const heroes = (member.member_heroes as any[]) || []
   const scores = (member.member_scores as any)?.[0]
+  const nameHistory = Array.isArray((member as any).name_history) ? (member as any).name_history : []
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   const memberLink = `${appUrl}/member/${member.access_token}`
+
+  // Only R5 and system_admin can unlink accounts
+  const canUnlink = profile?.role === 'r5' || profile?.role === 'system_admin'
 
   const breadcrumbs = [
     { label: 'Kingdoms', href: '/kingdoms' },
@@ -94,6 +121,14 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
             {member.player_name}
           </h1>
           {member.game_id && <p className="text-slate-400 text-sm mt-0.5">Game ID: {member.game_id}</p>}
+          {canEdit && (
+            <EditNameButton
+              memberId={member.id}
+              accessToken={member.access_token}
+              currentName={member.player_name}
+              nameHistory={nameHistory}
+            />
+          )}
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <Badge variant="amber">{member.timezone}</Badge>
@@ -121,6 +156,22 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
             <CopyTokenButton token={member.access_token} showUrl />
           </CardContent>
         </Card>
+      )}
+
+      {/* Profile Status — R4/R5/admin */}
+      {canEdit && (
+        <ProfileStatusCard
+          memberId={member.id}
+          linkedAccount={member.linked_user_id ? { display_name: linkedProfile?.display_name || null } : null}
+          pendingClaim={pendingClaim ? {
+            id: pendingClaim.id,
+            requester_name: pendingClaimRequesterName || 'Unknown user',
+            created_at: pendingClaim.created_at,
+          } : null}
+          accessToken={member.access_token}
+          canUnlink={canUnlink}
+          appUrl={appUrl}
+        />
       )}
 
       {/* Edit form — R4/R5/admin */}

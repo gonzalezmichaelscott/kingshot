@@ -1,7 +1,8 @@
 // @ts-nocheck
-import { createServiceClient } from '@/lib/supabase/server'
+import { createServiceClient, createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { MemberPortal } from '@/components/members/MemberPortal'
+import { ClaimProfileBanner } from '@/components/members/ClaimProfileBanner'
 
 export default async function MemberTokenPage({ params }: { params: { token: string } }) {
   const supabase = createServiceClient()
@@ -17,6 +18,28 @@ export default async function MemberTokenPage({ params }: { params: { token: str
     .single()
 
   if (!member) notFound()
+
+  // Check if this page is being visited by a logged-in user who doesn't own it
+  let loggedInUserId: string | null = null
+  let hasPendingClaim = false
+  try {
+    const authClient = createClient()
+    const { data: { user } } = await authClient.auth.getUser()
+    if (user && !member.linked_user_id) {
+      loggedInUserId = user.id
+      // Check if they already have a pending claim
+      const { data: existing } = await supabase
+        .from('profile_claim_requests')
+        .select('id')
+        .eq('member_id', member.id)
+        .eq('requesting_user_id', user.id)
+        .eq('status', 'pending')
+        .maybeSingle()
+      hasPendingClaim = !!existing
+    }
+  } catch {
+    // Not authenticated — that's fine
+  }
 
   // Fetch the member's saved heroes explicitly (rather than relying on the
   // deeply-nested embed in the member query) so they always load and display.
@@ -47,12 +70,21 @@ export default async function MemberTokenPage({ params }: { params: { token: str
     .order('battle_start_utc')
 
   return (
-    <MemberPortal
-      member={member}
-      memberHeroes={memberHeroes || []}
-      memberAvailability={memberAvailability || []}
-      heroes={heroes || []}
-      upcomingEvents={upcomingEvents || []}
-    />
+    <>
+      {loggedInUserId && (
+        <ClaimProfileBanner
+          memberId={member.id}
+          memberName={member.player_name}
+          hasPendingClaim={hasPendingClaim}
+        />
+      )}
+      <MemberPortal
+        member={member}
+        memberHeroes={memberHeroes || []}
+        memberAvailability={memberAvailability || []}
+        heroes={heroes || []}
+        upcomingEvents={upcomingEvents || []}
+      />
+    </>
   )
 }
