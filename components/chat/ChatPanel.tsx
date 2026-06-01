@@ -95,7 +95,7 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
             .select('*, user_profiles(display_name, role)')
             .eq('id', payload.new.id)
             .single()
-          if (data) setMessages(prev => [...prev, data])
+          if (data) setMessages(prev => prev.some(m => m.id === data.id) ? prev : [...prev, data])
         }
       )
       .on(
@@ -200,11 +200,17 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
     }
     const { data: urlData } = supabase.storage.from('chat-images').getPublicUrl(data.path)
     setUploading(false)
-    await supabase.from('chat_messages').insert({
+    const { data: inserted } = await supabase.from('chat_messages').insert({
       alliance_id: allianceId,
       author_id: currentUserId,
       content: urlData.publicUrl,
-    })
+    }).select().single()
+    if (inserted) {
+      setMessages(prev => [...prev, {
+        ...inserted,
+        user_profiles: { display_name: null, role: currentUserRole },
+      }])
+    }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
