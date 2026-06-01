@@ -14,6 +14,7 @@ import { requireAllianceAccess, canManageAlliance, assignableRoles } from '@/lib
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { BackButton } from '@/components/nav/BackButton'
 import { LeaveAllianceButton } from '@/components/members/LeaveAllianceButton'
+import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 
 export default async function MemberProfilePage({ params }: { params: { id: string; memberId: string } }) {
   const supabase = createClient()
@@ -83,7 +84,12 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <User className="text-amber-500" size={24} />
+            <PlayerAvatar
+              gameId={member.game_id}
+              playerName={member.player_name}
+              sizeClass="w-10 h-10"
+              showLevel
+            />
             {member.player_name}
           </h1>
           {member.game_id && <p className="text-slate-400 text-sm mt-0.5">Game ID: {member.game_id}</p>}

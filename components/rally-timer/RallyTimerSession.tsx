@@ -3,8 +3,15 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   Play, Square, RotateCcw, Volume2, VolumeX, Plus, Share2,
-  Clock, Timer, User, Crown
+  Clock, Timer, User, Crown, Loader2
 } from 'lucide-react'
+
+interface PlayerInfo {
+  profilePhoto: string
+  name: string
+  kingdom: number
+  level: number
+}
 
 interface TimerPlayer {
   id: string
@@ -71,10 +78,64 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
   const [marchError, setMarchError] = useState('')
   const [copied, setCopied] = useState(false)
   const [saving, setSaving] = useState(false)
+  // Cache of playerId -> fetched PlayerInfo so we never fetch the same ID twice
+  const [playerCache, setPlayerCache] = useState<Map<string, PlayerInfo>>(new Map())
+  const [fetchingPlayer, setFetchingPlayer] = useState(false)
 
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const alertedRef = useRef<Set<string>>(new Set())
+  const playerFetchTimerRef = useRef<NodeJS.Timeout | null>(null)
+  // Ref to read the current `name` value inside the debounced fetch without
+  // including it as an effect dependency (so we don't re-trigger on name type)
+  const nameRef = useRef(name)
   const supabase = createClient()
+
+  // Keep nameRef in sync
+  useEffect(() => { nameRef.current = name }, [name])
+
+  // Debounced fetch when playerId input changes
+  useEffect(() => {
+    const trimmed = playerId.trim()
+    if (!trimmed) return
+
+    // Already cached — just auto-fill if name is blank
+    if (playerCache.has(trimmed)) {
+      const cached = playerCache.get(trimmed)!
+      if (!nameRef.current.trim() && cached.name) setName(cached.name)
+      return
+    }
+
+    if (playerFetchTimerRef.current) clearTimeout(playerFetchTimerRef.current)
+    playerFetchTimerRef.current = setTimeout(async () => {
+      setFetchingPlayer(true)
+      try {
+        const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(trimmed)}`)
+        if (res.ok) {
+          const json = await res.json()
+          if (json.data) {
+            setPlayerCache(prev => {
+              const next = new Map(prev)
+              next.set(trimmed, json.data as PlayerInfo)
+              return next
+            })
+            // Auto-fill name only if the field is still empty
+            if (!nameRef.current.trim() && json.data.name) {
+              setName(json.data.name)
+            }
+          }
+        }
+      } catch {
+        // ignore — avatar stays as initials
+      } finally {
+        setFetchingPlayer(false)
+      }
+    }, 600)
+
+    return () => {
+      if (playerFetchTimerRef.current) clearTimeout(playerFetchTimerRef.current)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playerId])
 
   // Realtime sync for shared sessions
   useEffect(() => {
@@ -210,16 +271,29 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
       launchOffset: 0,
     }
 
-    // Try avatar fetch if playerId provided
-    if (newPlayer.playerId) {
-      try {
-        const res = await fetch(`https://kingshot.net/api/players/${newPlayer.playerId}`)
-        if (res.ok) {
-          const data = await res.json()
-          if (data?.avatar || data?.avatarUrl) newPlayer.avatar = data.avatar || data.avatarUrl
+    // Use cached avatar from the debounce-prefetch, or fetch inline as fallback
+    const trimmedId = playerId.trim()
+    if (trimmedId) {
+      const cached = playerCache.get(trimmedId)
+      if (cached?.profilePhoto) {
+        newPlayer.avatar = cached.profilePhoto
+      } else {
+        try {
+          const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(trimmedId)}`)
+          if (res.ok) {
+            const json = await res.json()
+            if (json.data) {
+              setPlayerCache(prev => {
+                const next = new Map(prev)
+                next.set(trimmedId, json.data as PlayerInfo)
+                return next
+              })
+              if (json.data.profilePhoto) newPlayer.avatar = json.data.profilePhoto
+            }
+          }
+        } catch {
+          // Avatar fetch failed — initials will be shown instead
         }
-      } catch {
-        // Avatar fetch failed — use initials
       }
     }
 
@@ -341,12 +415,25 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
               placeholder="Player name *"
               className="px-3 h-9 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500"
             />
-            <input
-              value={playerId}
-              onChange={e => setPlayerId(e.target.value)}
-              placeholder="Player ID (optional)"
-              className="px-3 h-9 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500"
-            />
+            {/* Player ID with loading spinner */}
+            <div className="relative">
+              <input
+                value={playerId}
+                onChange={e => setPlayerId(e.target.value)}
+                placeholder="Player ID (optional)"
+                className="w-full px-3 pr-8 h-9 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500"
+              />
+              {fetchingPlayer && (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <Loader2 size={14} className="animate-spin text-amber-400" />
+                </div>
+              )}
+              {!fetchingPlayer && playerId.trim() && playerCache.has(playerId.trim()) && (
+                <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                  <span className="text-green-400 text-xs">✓</span>
+                </div>
+              )}
+            </div>
           </div>
           <div className="flex gap-2">
             <input

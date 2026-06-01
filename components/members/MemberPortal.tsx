@@ -9,6 +9,7 @@ import { User, Shield, Calendar, Star, Sword } from 'lucide-react'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { HeroManager } from '@/components/members/HeroManager'
 import { LeaveAllianceButton } from '@/components/members/LeaveAllianceButton'
+import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 
 interface Props {
   member: any
@@ -64,14 +65,21 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
         {/* Header */}
         <div className="flex items-start justify-between gap-3 pt-4">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-amber-500/20 rounded-full flex items-center justify-center flex-shrink-0">
-              <User className="text-amber-500" size={24} />
-            </div>
+            <PlayerAvatar
+              gameId={member.game_id}
+              playerName={member.player_name}
+              sizeClass="w-12 h-12"
+            />
             <div>
               <h1 className="text-xl font-bold">{member.player_name}</h1>
               <p className="text-slate-400 text-sm">
                 [{alliance?.tag}] {alliance?.name}
               </p>
+              {/* Kingdom and level are lazily populated by PlayerAvatar's fetch;
+                  we display them inline here via a sibling fetcher */}
+              {member.game_id && (
+                <PlayerInfoBadges gameId={member.game_id} />
+              )}
             </div>
           </div>
           {alliance && (
@@ -191,6 +199,35 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
           />
         )}
       </div>
+    </div>
+  )
+}
+
+// ── Tiny client component that fetches kingdom / level for the self-service header ──
+function PlayerInfoBadges({ gameId }: { gameId: string }) {
+  const [info, setInfo] = useState<{ kingdom?: number; level?: number } | null>(null)
+
+  useEffect(() => {
+    fetch(`/api/player-lookup?playerId=${encodeURIComponent(gameId)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (json?.data) setInfo({ kingdom: json.data.kingdom, level: json.data.level })
+      })
+      .catch(() => {})
+  }, [gameId])
+
+  if (!info) return null
+
+  return (
+    <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+      {info.level != null && info.level > 0 && (
+        <span className="text-xs bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded font-semibold">
+          Lv.{info.level}
+        </span>
+      )}
+      {info.kingdom != null && info.kingdom > 0 && (
+        <span className="text-xs text-slate-400">Kingdom {info.kingdom}</span>
+      )}
     </div>
   )
 }

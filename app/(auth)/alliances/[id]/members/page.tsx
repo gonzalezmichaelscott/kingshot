@@ -12,6 +12,7 @@ import { PendingProfileRequests } from '@/components/members/PendingProfileReque
 import { RemoveMemberButton } from '@/components/members/RemoveMemberButton'
 import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
+import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 
 export default async function MembersPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
@@ -93,9 +94,16 @@ export default async function MembersPage({ params }: { params: { id: string } }
                   return (
                     <tr key={m.id} className="border-b border-slate-800/50 hover:bg-slate-800/50">
                       <td className="py-2 pr-4">
-                        <Link href={`/alliances/${params.id}/members/${m.id}`} className="text-amber-400 hover:text-amber-300 font-medium">
-                          {m.player_name}
-                        </Link>
+                        <div className="flex items-center gap-2">
+                          <PlayerAvatar
+                            gameId={m.game_id}
+                            playerName={m.player_name}
+                            sizeClass="w-7 h-7"
+                          />
+                          <Link href={`/alliances/${params.id}/members/${m.id}`} className="text-amber-400 hover:text-amber-300 font-medium">
+                            {m.player_name}
+                          </Link>
+                        </div>
                       </td>
                       <td className="text-right py-2 pr-4 text-slate-300">{formatPower(m.power)}</td>
                       <td className="text-right py-2 pr-4 text-slate-400">{formatPower(m.troop_count)}</td>
