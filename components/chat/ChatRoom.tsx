@@ -56,7 +56,9 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
           setMessages(prev => prev.filter(m => m.id !== payload.old.id))
         }
       )
-      .subscribe()
+      .subscribe((status, err) => {
+        console.log('[ChatRoom] Realtime status:', status, err ?? '')
+      })
 
     return () => { supabase.removeChannel(channel) }
   }, [allianceId])

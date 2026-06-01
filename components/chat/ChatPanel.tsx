@@ -105,7 +105,9 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
           setMessages(prev => prev.filter(m => m.id !== payload.old.id))
         }
       )
-      .subscribe()
+      .subscribe((status, err) => {
+        console.log('[ChatPanel] Realtime status:', status, err ?? '')
+      })
     return () => { supabase.removeChannel(channel) }
   }, [allianceId])
 
