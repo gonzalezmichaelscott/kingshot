@@ -1,8 +1,8 @@
 ﻿// @ts-nocheck
 import Anthropic from '@anthropic-ai/sdk'
 import { createServiceClient } from '@/lib/supabase/server'
-import { calculateRoleScores, calculateHeroScore } from '@/lib/scoring'
-import type { MemberHeroData, MemberProfile } from '@/lib/scoring'
+import { calculateRoleScores, calculateHeroScore, calculateEffectiveTroopStrength, TIER_MULTIPLIERS } from '@/lib/scoring'
+import type { MemberHeroData, MemberProfile, TroopData } from '@/lib/scoring'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -47,6 +47,15 @@ JOINER OPTIMIZATION:
 - Vivian as joiner: unique effect_op 200, amplifies ALL ally damage — very powerful
 - NEVER recommend both Howard AND Quinn — identical effect_op 111, wastes a slot
 - Fewer fuller rallies beat many thin rallies — don't split joiner pool too thin
+
+TROOP TIER SYSTEM:
+- Standard tiers T1-T10: T1-T4 are negligible (0.1x), T5-T6 moderate (0.3x), T7-T8 decent (0.6x), T9 strong (0.85x), T10 baseline (1.0x)
+- True Gold tiers TG1-TG8 are substantially stronger: TG1=1.3x, TG2=1.5x, TG3=1.8x, TG4=2.1x, TG5=2.5x, TG6=3.0x, TG7=3.6x, TG8=4.2x
+- A joiner with 300k TG5 troops (effective: 750k) outperforms one with 2M T7 troops (effective: 1.2M)
+- Lower tier troops die off faster under enemy fire, reducing the joiner's contribution mid-rally
+- When assigning rally joiners, prioritize members with higher effective troop strength (TG1+ > T10 > T9 etc)
+- Ensure joiner troop types match the rally leader's formation where possible (+15% effectiveness)
+- Mismatched troop types reduce joiner effectiveness by 10%; mixed-troop joiners are neutral
 
 Return a JSON battle plan with: summary, formations, assignments (each with member_id, player_name, role, squad, formation_recommendation, hero_recommendation, reasoning, is_primary, is_backup, time_window), joiner_stacking_advice, coverage_gaps, backup_plan, warnings.
 Never include markdown code fences in your response — raw JSON only.`
@@ -124,6 +133,8 @@ async function loadAttendingMembersWithScores(eventId: string) {
       expedition_skill_levels: mh.expedition_skill_levels || {},
     }))
 
+    const troopData: TroopData | null = m.troop_data || null
+
     const profile: MemberProfile = {
       id: m.id,
       power: m.power || 0,
@@ -132,6 +143,7 @@ async function loadAttendingMembersWithScores(eventId: string) {
       rallyCapacity: m.rally_capacity || 0,
       primaryTroopType: (stats?.troop_type_primary || 'mixed') as any,
       heroes: heroData,
+      troopData,
       combatStats: {
         infantryAttack: stats?.infantry_attack || 0,
         infantryDefense: stats?.infantry_defense || 0,
@@ -151,6 +163,8 @@ async function loadAttendingMembersWithScores(eventId: string) {
     const scores = calculateRoleScores(profile, weights)
     const heroScore = calculateHeroScore(heroData)
 
+    const effectiveStrength = troopData ? calculateEffectiveTroopStrength(troopData) : (m.troop_count || 0)
+
     return {
       member_id: m.id,
       player_name: m.player_name,
@@ -158,7 +172,9 @@ async function loadAttendingMembersWithScores(eventId: string) {
       march_size: m.march_size,
       rally_capacity: m.rally_capacity,
       troop_count: m.troop_count,
+      effective_troop_strength: Math.round(effectiveStrength),
       troop_type: stats?.troop_type_primary || 'unknown',
+      troop_data: troopData,
       hero_score: heroScore,
       scores,
       available_from: a.available_from_utc,
@@ -184,19 +200,36 @@ KEY RULES: ${JSON.stringify(rules.key_rules || [])}
 EVENT RULES: ${JSON.stringify(rules)}
 
 ATTENDING MEMBERS (${members.length} total):
-${members.map(m => `
+${members.map(m => {
+  const troopBreakdown = m.troop_data
+    ? (['infantry', 'cavalry', 'archer'] as const).map(type => {
+        const typeData = m.troop_data[type]
+        if (!typeData) return null
+        const tiers = Object.entries(typeData)
+          .filter(([, v]) => (v as number) > 0)
+          .map(([tier, v]) => `${tier}=${(v as number).toLocaleString()}`)
+        if (!tiers.length) return null
+        const eff = tiers.length
+          ? Object.entries(typeData)
+              .reduce((s, [tier, v]) => s + (v as number) * (TIER_MULTIPLIERS[tier] ?? 0.1), 0)
+          : 0
+        return `    ${type}: ${tiers.join(', ')} (eff: ${Math.round(eff).toLocaleString()})`
+      }).filter(Boolean).join('\n')
+    : null
+
+  return `
 - Player: ${m.player_name}
   ID: ${m.member_id}
   Power: ${m.power.toLocaleString()}
   March Size: ${m.march_size.toLocaleString()}
   Rally Capacity: ${m.rally_capacity.toLocaleString()}
-  Troop Count: ${m.troop_count.toLocaleString()}
-  Primary Troop Type: ${m.troop_type}
+  Troop Count: ${m.troop_count.toLocaleString()} | Effective Strength: ${m.effective_troop_strength.toLocaleString()}
+  Primary Troop Type: ${m.troop_type}${troopBreakdown ? `\n  Troop Breakdown:\n${troopBreakdown}` : ''}
   Hero Score: ${m.hero_score.toFixed(1)}
   Role Scores: Rally Leader=${m.scores.rallyLeader.toFixed(2)}, Joiner=${m.scores.joiner.toFixed(2)}, Castle=${m.scores.castle.toFixed(2)}, Turret=${m.scores.turret.toFixed(2)}, Support=${m.scores.support.toFixed(2)}
   Available: ${m.available_from || 'all event'} to ${m.available_to || 'all event'}
-  Squad Preference: ${m.squad_preference || 'none'}
-`).join('')}
+  Squad Preference: ${m.squad_preference || 'none'}`
+}).join('')}
 
 INSTRUCTIONS:
 1. Assign every attending member a primary role and squad (if applicable)

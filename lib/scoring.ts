@@ -64,6 +64,8 @@ export interface MemberHero {
 // Back-compat alias for older imports
 export type MemberHeroData = MemberHero
 
+export type TroopData = Record<string, Record<string, number>>
+
 export interface MemberProfile {
   id: string
   power: number
@@ -73,6 +75,7 @@ export interface MemberProfile {
   combatStats: CombatStats
   heroes: MemberHero[]
   primaryTroopType: 'infantry' | 'cavalry' | 'archer' | 'mixed'
+  troopData?: TroopData | null
 }
 
 export interface RoleScores {
@@ -87,6 +90,58 @@ export interface RoleScores {
   turret: number
   defender: number
   overall: number
+}
+
+/**
+ * Effective combat power weight per troop tier.
+ * TG1+ are True Gold troops — significantly stronger than standard T10.
+ */
+export const TIER_MULTIPLIERS: Record<string, number> = {
+  T1: 0.1, T2: 0.1, T3: 0.1, T4: 0.1,
+  T5: 0.3, T6: 0.3,
+  T7: 0.6, T8: 0.6,
+  T9: 0.85, T10: 1.0,
+  TG1: 1.3, TG2: 1.5, TG3: 1.8, TG4: 2.1,
+  TG5: 2.5, TG6: 3.0, TG7: 3.6, TG8: 4.2,
+}
+
+/**
+ * Weighted sum of all troops across all types and tiers.
+ * Use sqrt() of this value in scoring formulas instead of raw troop_count.
+ */
+export function calculateEffectiveTroopStrength(troopData: TroopData | null | undefined): number {
+  if (!troopData) return 0
+  let total = 0
+  for (const typeData of Object.values(troopData)) {
+    if (!typeData || typeof typeData !== 'object') continue
+    for (const [tier, count] of Object.entries(typeData)) {
+      total += (count || 0) * (TIER_MULTIPLIERS[tier] ?? 0.1)
+    }
+  }
+  return total
+}
+
+/**
+ * Detect the primary troop type from troop_data effective strengths.
+ * Returns 'mixed' when the top type is within 20% of the second-highest.
+ */
+export function detectPrimaryTroopType(
+  troopData: TroopData | null | undefined
+): 'infantry' | 'cavalry' | 'archer' | 'mixed' {
+  if (!troopData) return 'mixed'
+  const strengths: Record<string, number> = { infantry: 0, cavalry: 0, archer: 0 }
+  for (const type of ['infantry', 'cavalry', 'archer']) {
+    const typeData = troopData[type]
+    if (!typeData || typeof typeData !== 'object') continue
+    for (const [tier, count] of Object.entries(typeData)) {
+      strengths[type] += (count || 0) * (TIER_MULTIPLIERS[tier] ?? 0.1)
+    }
+  }
+  const sorted = Object.entries(strengths).sort((a, b) => b[1] - a[1])
+  const [first, second] = sorted
+  if (first[1] === 0) return 'mixed'
+  if (second[1] / first[1] >= 0.8) return 'mixed'
+  return first[0] as 'infantry' | 'cavalry' | 'archer'
 }
 
 export const EFFECT_OP_TYPES: Record<number, { name: string; category: string; reliable?: boolean }> = {
@@ -207,11 +262,15 @@ export function calculateHeroScore(heroes: MemberHero[]): number {
 
 /**
  * Full role-score calculation. Weights come from event_types.scoring_weights.
+ *
+ * @param rallyLeaderTroopType - When scoring joiners for a specific rally, pass the
+ *   leader's primary troop type to apply the 15% match bonus / 10% mismatch penalty.
  */
 export function calculateRoleScores(
   member: MemberProfile,
   scoringWeights: Record<string, Record<string, number>>,
-  enemyTroopType?: string
+  enemyTroopType?: string,
+  rallyLeaderTroopType?: string
 ): RoleScores {
   const leaderHeroScore = calculateLeaderHeroScore(member.heroes)
   const joinerHeroScore = calculateJoinerHeroScore(member.heroes?.[0] || null)
@@ -219,7 +278,13 @@ export function calculateRoleScores(
   const powerNorm = (member.power || 0) / 1_000_000
   const marchNorm = (member.marchSize || 0) / 100_000
   const rallyNorm = (member.rallyCapacity || 0) / 1_000_000
-  const troopNorm = Math.sqrt(member.troopCount || 0) / 100 // sqrt scaling per formula
+
+  // Use effective troop strength when troop_data is available; fall back to raw count.
+  const effectiveStrength = member.troopData
+    ? calculateEffectiveTroopStrength(member.troopData)
+    : member.troopCount || 0
+  const troopNorm = Math.sqrt(effectiveStrength) / 100
+
   const leaderHeroNorm = leaderHeroScore / 200
   const joinerHeroNorm = joinerHeroScore / 100
 
@@ -252,8 +317,15 @@ export function calculateRoleScores(
     ) * (1 + counterBonus)
   }
 
+  // Troop type match bonus/penalty for joiners
+  const troopTypeMult = rallyLeaderTroopType
+    ? member.primaryTroopType === rallyLeaderTroopType ? 1.15
+      : member.primaryTroopType === 'mixed' ? 1.0
+      : 0.9
+    : 1.0
+
   const rallyLeader = score('rally_leader_weight', leaderHeroNorm)
-  const joiner = score('joiner_weight', joinerHeroNorm)
+  const joiner = score('joiner_weight', joinerHeroNorm) * troopTypeMult
   const castle = score('castle_weight', leaderHeroNorm)
   const turretLeader = score('turret_leader_weight', leaderHeroNorm)
   const turretJoiner = score('turret_joiner_weight', joinerHeroNorm)

@@ -89,6 +89,7 @@ export interface Database {
           access_token: string
           linked_user_id: string | null
           participation_history: Json
+          troop_data: Json | null
           notes: string | null
           created_at: string
           updated_at: string
@@ -106,6 +107,7 @@ export interface Database {
           access_token?: string
           linked_user_id?: string | null
           participation_history?: Json
+          troop_data?: Json | null
           notes?: string | null
           created_at?: string
           updated_at?: string
@@ -123,6 +125,7 @@ export interface Database {
           access_token?: string
           linked_user_id?: string | null
           participation_history?: Json
+          troop_data?: Json | null
           notes?: string | null
           created_at?: string
           updated_at?: string

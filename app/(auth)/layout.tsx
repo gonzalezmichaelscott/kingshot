@@ -46,12 +46,13 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
   return (
     <div className="flex min-h-screen">
       <Sidebar allianceId={profile?.alliance_id || undefined} role={profile?.role} userId={user.id} allianceName={allianceName} />
-      {/* Top bar: UTC clock always visible */}
-      <div className="fixed top-0 right-0 z-30 flex items-center gap-3 px-4 h-12 bg-slate-950/80 backdrop-blur border-b border-slate-800/50 lg:left-64 left-0">
+      {/* Top bar: UTC clock always visible — z-50 keeps it above the sidebar overlay (z-40).
+           On mobile, pl-12 leaves room for the hamburger button that sits at left-4. */}
+      <div className="fixed top-0 right-0 z-50 flex items-center gap-3 pr-4 pl-12 lg:pl-4 h-12 bg-slate-950/90 backdrop-blur-sm border-b border-slate-800/60 lg:left-64 left-0">
         <div className="flex-1" />
         <UtcClock />
       </div>
-      <main className="flex-1 lg:ml-64 p-4 lg:p-6 pt-16">
+      <main className="flex-1 lg:ml-64 p-4 lg:p-6 pt-14">
         {children}
       </main>
     </div>

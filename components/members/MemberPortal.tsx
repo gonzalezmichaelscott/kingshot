@@ -1,6 +1,6 @@
 // @ts-nocheck
 'use client'
-import { useState } from 'react'
+import { useState, useEffect, Component } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -8,8 +8,25 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { User, Shield, Calendar, Star, Sword } from 'lucide-react'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { HeroManager } from '@/components/members/HeroManager'
+import { TroopDataEditor } from '@/components/members/TroopDataEditor'
 import { LeaveAllianceButton } from '@/components/members/LeaveAllianceButton'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
+
+class SectionErrorBoundary extends Component<
+  { children: React.ReactNode; label?: string },
+  { hasError: boolean }
+> {
+  constructor(props: any) { super(props); this.state = { hasError: false } }
+  static getDerivedStateFromError() { return { hasError: true } }
+  render() {
+    if (this.state.hasError) return (
+      <div className="bg-red-950/40 border border-red-800/60 rounded-xl p-4 text-center">
+        <p className="text-red-400 text-sm">{this.props.label || 'This section'} failed to load. Try refreshing.</p>
+      </div>
+    )
+    return this.props.children
+  }
+}
 
 interface Props {
   member: any
@@ -32,7 +49,7 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [tab, setTab] = useState<'stats' | 'combat' | 'availability' | 'heroes'>('stats')
+  const [tab, setTab] = useState<'stats' | 'combat' | 'troops' | 'availability' | 'heroes'>('stats')
 
   const existingCombatStats = (member.member_combat_stats as any[])?.[0]
   const assignments = memberAvailability || []
@@ -93,10 +110,11 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
         </div>
 
         {/* Tabs */}
-        <div className="grid grid-cols-4 gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1">
+        <div className="grid grid-cols-5 gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1">
           {([
             { key: 'stats', label: 'Stats', icon: Shield },
             { key: 'combat', label: 'Combat', icon: Sword },
+            { key: 'troops', label: 'Troops', icon: User },
             { key: 'availability', label: 'Events', icon: Calendar },
             { key: 'heroes', label: 'Heroes', icon: Star },
           ] as const).map(({ key, label, icon: Icon }) => (
@@ -160,11 +178,23 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
 
         {/* Combat Stats Tab */}
         {tab === 'combat' && (
-          <CombatStatsEditor
-            memberId={member.id}
-            accessToken={member.access_token}
-            existing={existingCombatStats}
-          />
+          <SectionErrorBoundary label="Combat stats">
+            <CombatStatsEditor
+              memberId={member.id}
+              accessToken={member.access_token}
+              existing={existingCombatStats}
+            />
+          </SectionErrorBoundary>
+        )}
+
+        {/* Troops Tab */}
+        {tab === 'troops' && (
+          <SectionErrorBoundary label="Troop data">
+            <TroopDataEditor
+              accessToken={member.access_token}
+              existing={member.troop_data}
+            />
+          </SectionErrorBoundary>
         )}
 
         {/* Availability Tab */}
@@ -192,11 +222,13 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
 
         {/* Heroes Tab */}
         {tab === 'heroes' && (
-          <HeroManager
-            accessToken={member.access_token}
-            memberHeroes={memberHeroes}
-            heroes={heroes}
-          />
+          <SectionErrorBoundary label="Heroes">
+            <HeroManager
+              accessToken={member.access_token}
+              memberHeroes={memberHeroes}
+              heroes={heroes}
+            />
+          </SectionErrorBoundary>
         )}
       </div>
     </div>

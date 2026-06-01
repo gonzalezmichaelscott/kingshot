@@ -7,6 +7,7 @@ import { formatPower, troopTypeColor, roleColor } from '@/lib/utils'
 import { User, Sword, Star, Link2 } from 'lucide-react'
 import { MemberEditForm } from '@/components/members/MemberEditForm'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
+import { TroopDataEditor } from '@/components/members/TroopDataEditor'
 import { HeroManager } from '@/components/members/HeroManager'
 import { CopyTokenButton } from '@/components/members/CopyTokenButton'
 import { RoleAssigner } from '@/components/members/RoleAssigner'
@@ -183,6 +184,11 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
       {/* Combat Stats Editor — R4/R5/admin only */}
       {canEdit && (
         <CombatStatsEditor memberId={member.id} accessToken={member.access_token} existing={stats} />
+      )}
+
+      {/* Troop Data Editor — R4/R5/admin only */}
+      {canEdit && (
+        <TroopDataEditor accessToken={member.access_token} existing={member.troop_data} />
       )}
 
       {/* Read-only combat stats */}
