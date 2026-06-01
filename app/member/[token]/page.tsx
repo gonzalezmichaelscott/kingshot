@@ -92,7 +92,7 @@ export default async function MemberTokenPage({ params }: { params: { token: str
   // Load member's battle assignments with instructions
   const { data: memberAssignments } = await supabase
     .from('event_assignments')
-    .select('*, events(name, battle_start_utc, event_types(name))')
+    .select('*, events(name, battle_start_utc, event_types(name, slug))')
     .eq('member_id', member.id)
 
   return (

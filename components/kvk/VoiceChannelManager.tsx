@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { createClient } from '@/lib/supabase/client'
-import { Loader2 } from 'lucide-react'
+import { Loader2, ExternalLink } from 'lucide-react'
 import type { KvkVoiceChannel } from '@/lib/supabase/types'
 
 // The 7 KVK channel slots in display order.
@@ -113,6 +113,16 @@ export function VoiceChannelManager({ kingdomId, channels }: Props) {
               <Button variant="secondary" size="md" onClick={() => handleSaveOne(c.name)} disabled={saving}>
                 Save
               </Button>
+              {/^https?:\/\//.test(urls[c.name] || '') && (
+                <a
+                  href={urls[c.name]}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 px-3 h-10 rounded-lg text-sm bg-indigo-600 hover:bg-indigo-700 text-white transition-colors"
+                >
+                  <ExternalLink size={14} /> Join
+                </a>
+              )}
             </div>
           </div>
         ))}

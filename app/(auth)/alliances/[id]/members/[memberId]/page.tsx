@@ -93,7 +93,7 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
   // Battle assignments for this member
   const { data: memberAssignments } = await supabase
     .from('event_assignments')
-    .select('*, events(name, battle_start_utc, event_types(name), status)')
+    .select('*, events(name, battle_start_utc, event_types(name, slug), status)')
     .eq('member_id', params.memberId)
     .order('created_at', { ascending: false })
     .limit(10)
@@ -257,6 +257,9 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
                         a.role?.includes('joiner') ? 'bg-blue-500 text-white' :
                         'bg-slate-600 text-slate-200'
                       }`}>{role}</span>
+                      {a.events?.event_types?.slug === 'kvk_castle_battle' && (
+                        <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-semibold">KVK</span>
+                      )}
                       {a.squad && <span className="text-xs text-slate-400">Squad {a.squad}</span>}
                       {a.is_backup && <span className="text-xs text-slate-500">(backup)</span>}
                     </div>

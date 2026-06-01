@@ -531,6 +531,17 @@ function roleBadgeStyle(role: string) {
   return 'bg-slate-600 text-slate-200'
 }
 
+function KvkBadge() {
+  return (
+    <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-semibold">
+      KVK
+    </span>
+  )
+}
+function isKvkAssignment(a: any) {
+  return a?.events?.event_types?.slug === 'kvk_castle_battle'
+}
+
 function MemberAssignmentInline({ assignment }: { assignment: any }) {
   const [copied, setCopied] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -548,6 +559,7 @@ function MemberAssignmentInline({ assignment }: { assignment: any }) {
         <div className="flex items-center gap-2 flex-wrap">
           <Sword size={13} className="text-amber-500" />
           <span className="text-sm font-semibold text-amber-400">Your Assignment</span>
+          {isKvkAssignment(assignment) && <KvkBadge />}
           <span className={`text-xs px-2 py-0.5 rounded font-semibold ${roleBadgeStyle(assignment.role)}`}>
             {role}
           </span>
@@ -604,6 +616,7 @@ function AssignmentCard({ assignment }: { assignment: any }) {
               <span className={`text-xs px-2 py-0.5 rounded font-semibold ${roleBadgeStyle(assignment.role)}`}>
                 {role}
               </span>
+              {isKvkAssignment(assignment) && <KvkBadge />}
               {assignment.squad && (
                 <span className="text-xs text-slate-400">Squad {assignment.squad}</span>
               )}

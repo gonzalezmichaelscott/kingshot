@@ -2,23 +2,28 @@
 /**
  * Shared helpers for the per-kingdom KVK Command hub.
  *
- * The KVK hub combines members from ALL kvk_enabled alliances in a kingdom.
- * Battle-plan assignments are anchored to a single "Kingdom KVK Castle Battle"
- * event so they can live in the existing event_assignments table. Because that
- * event belongs to one alliance but the data spans the whole kingdom, all reads
- * here go through the service client — callers MUST verify access first.
+ * MODEL (per FIX 2): each kvk_enabled alliance runs its OWN "Castle Battle (KVK)"
+ * event. Members submit attendance + availability on their alliance's event. The
+ * kingdom hub aggregates only the ATTENDING members across every participating
+ * alliance's active event. Each member's battle-plan assignment is stored on their
+ * own alliance's event, so the normal alliance-scoped RLS lets them see it.
+ *
+ * Cross-alliance reads here go through the service client — callers MUST verify
+ * access (kingdom membership + backend role) before calling.
  */
 import { createServiceClient } from '@/lib/supabase/server'
 
-/** The six holdable structures on the KVK battlefield, with the member_scores
- *  column used to rank recommended players and the matching voice channel. */
+export const KVK_SLUG = 'kvk_castle_battle'
+
+/** The six holdable structures, the member_scores column used to rank recommended
+ *  players, the matching voice channel, and the default formation guidance. */
 export const KVK_STRUCTURES = [
-  { key: 'castle', label: 'Castle', scoreField: 'castle_score', voiceChannel: 'castle' },
-  { key: 'north_turret', label: 'North Turret', scoreField: 'turret_score', voiceChannel: 'north_turret' },
-  { key: 'east_turret', label: 'East Turret', scoreField: 'turret_score', voiceChannel: 'east_turret' },
-  { key: 'south_turret', label: 'South Turret', scoreField: 'turret_score', voiceChannel: 'south_turret' },
-  { key: 'west_turret', label: 'West Turret', scoreField: 'turret_score', voiceChannel: 'west_turret' },
-  { key: 'support', label: 'Support', scoreField: 'support_score', voiceChannel: 'general' },
+  { key: 'castle', label: 'Castle', scoreField: 'castle_score', voiceChannel: 'castle', formation: '60% Infantry / 20% Cavalry / 20% Archer (garrison)' },
+  { key: 'north_turret', label: 'North Turret', scoreField: 'turret_score', voiceChannel: 'north_turret', formation: '50% Infantry / 20% Cavalry / 30% Archer (rally)' },
+  { key: 'east_turret', label: 'East Turret', scoreField: 'turret_score', voiceChannel: 'east_turret', formation: '50% Infantry / 20% Cavalry / 30% Archer (rally)' },
+  { key: 'south_turret', label: 'South Turret', scoreField: 'turret_score', voiceChannel: 'south_turret', formation: '50% Infantry / 20% Cavalry / 30% Archer (rally)' },
+  { key: 'west_turret', label: 'West Turret', scoreField: 'turret_score', voiceChannel: 'west_turret', formation: '50% Infantry / 20% Cavalry / 30% Archer (rally)' },
+  { key: 'support', label: 'Support', scoreField: 'support_score', voiceChannel: 'general', formation: 'Weakening rallies — bring your strongest troops' },
 ] as const
 
 /** The role stored in event_assignments when a player is manually placed on a structure. */
@@ -28,56 +33,90 @@ export function roleForSquad(squad: string): string {
   return 'turret_joiner'
 }
 
+/** Marker prefix written into event_assignments.reasoning for manual overrides. */
+export const MANUAL_MARKER = 'Manually assigned'
+export function isManualAssignment(reasoning: string | null | undefined): boolean {
+  return !!reasoning && reasoning.startsWith(MANUAL_MARKER)
+}
+
+/** Mark a KVK event completed once its battle_end_utc has passed (FIX 7 auto-reset). */
+async function autoCompleteIfEnded(svc: any, ev: any) {
+  if (!ev) return ev
+  if (ev.status !== 'completed' && ev.battle_end_utc && new Date(ev.battle_end_utc) < new Date()) {
+    await svc.from('events').update({ status: 'completed' }).eq('id', ev.id)
+    return { ...ev, status: 'completed' }
+  }
+  return ev
+}
+
 /**
- * Find (and optionally create) the single anchor event used to store kingdom-wide
- * KVK assignments. Returns the event joined with its event_type plus the list of
- * kvk_enabled alliance ids in the kingdom.
+ * Resolve the KVK context for a kingdom: the event type plus every kvk_enabled
+ * alliance with its latest Castle Battle event (auto-completing expired ones).
+ * `activeEvent` is the latest event that is NOT completed.
  */
-export async function findOrCreateKingdomKvkEvent(kingdomId: string, create = false) {
-  const supabase = createServiceClient()
+export async function getKvkContext(kingdomId: string) {
+  const svc = createServiceClient()
 
-  const { data: alliances } = await supabase
-    .from('alliances')
-    .select('id')
-    .eq('kingdom_id', kingdomId)
-    .eq('kvk_enabled', true)
-
-  const allianceIds = (alliances || []).map(a => a.id)
-
-  const { data: eventType } = await supabase
+  const { data: eventType } = await svc
     .from('event_types')
     .select('*')
-    .eq('slug', 'kvk_castle_battle')
+    .eq('slug', KVK_SLUG)
     .single()
 
-  if (allianceIds.length === 0) return { event: null, allianceIds, eventType }
+  const { data: alliances } = await svc
+    .from('alliances')
+    .select('id, name, tag, kvk_enabled')
+    .eq('kingdom_id', kingdomId)
 
-  let event: any = null
-  if (eventType) {
-    const { data: existing } = await supabase
-      .from('events')
-      .select('*, event_types(*)')
-      .in('alliance_id', allianceIds)
-      .eq('event_type_id', eventType.id)
-      .order('battle_start_utc', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false })
-      .limit(1)
-    event = existing?.[0] || null
+  const enabled = (alliances || []).filter(a => a.kvk_enabled)
+
+  const result: any[] = []
+  for (const a of enabled) {
+    let latest: any = null
+    if (eventType) {
+      const { data: evs } = await svc
+        .from('events')
+        .select('*, event_types(*)')
+        .eq('alliance_id', a.id)
+        .eq('event_type_id', eventType.id)
+        .order('battle_start_utc', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(1)
+      latest = await autoCompleteIfEnded(svc, evs?.[0] || null)
+    }
+    result.push({
+      ...a,
+      event: latest,
+      activeEvent: latest && latest.status !== 'completed' ? latest : null,
+    })
   }
 
-  if (!event && create && eventType) {
-    const { data: created } = await supabase
-      .from('events')
-      .insert({
-        alliance_id: allianceIds[0],
-        event_type_id: eventType.id,
-        name: 'Kingdom KVK Castle Battle',
-        status: 'planning',
-      })
-      .select('*, event_types(*)')
-      .single()
-    event = created
-  }
+  return { eventType, alliances: result }
+}
 
-  return { event, allianceIds, eventType }
+/**
+ * Load only the ATTENDING members (will_attend = true) across the given active
+ * event ids, each annotated with its availability row and source event id.
+ */
+export async function loadAttendingKvkMembers(activeEventIds: string[]) {
+  if (!activeEventIds.length) return []
+  const svc = createServiceClient()
+  const { data: avail } = await svc
+    .from('event_availability')
+    .select(`
+      *,
+      members (
+        *,
+        alliances (name, tag),
+        member_scores (*),
+        member_combat_stats (troop_type_primary, id),
+        member_heroes (id)
+      )
+    `)
+    .in('event_id', activeEventIds)
+    .eq('will_attend', true)
+
+  return (avail || [])
+    .filter(a => a.members)
+    .map(a => ({ ...a.members, _availability: a, _eventId: a.event_id }))
 }

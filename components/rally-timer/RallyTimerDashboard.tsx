@@ -16,7 +16,11 @@ export function RallyTimerDashboard({ allianceId, userId, canEdit, initialSessio
   const [sessions, setSessions] = useState<any[]>(
     initialSessions.length > 0
       ? initialSessions
-      : [{ id: null, label: 'Castle', players: [], status: 'idle', started_at: null, _local: true }]
+      // Leaders start empty and create a PERSISTED session (which has a shareable
+      // link). Non-leaders / no-alliance get a local-only placeholder.
+      : (canEdit && allianceId)
+        ? []
+        : [{ id: null, label: 'Castle', players: [], status: 'idle', started_at: null, _local: true }]
   )
   const [creating, setCreating] = useState(false)
 
@@ -85,6 +89,22 @@ export function RallyTimerDashboard({ allianceId, userId, canEdit, initialSessio
           BASE player opens their rally FIRST. Timer counts up. When elapsed time = time difference between march times, that player launches. All troops arrive simultaneously.
           {allianceId && ' Share individual session links so your team can see the live timer.'}
         </p>
+
+        {/* Empty state — leaders create their first persisted (shareable) timer */}
+        {sessions.length === 0 && (
+          <div className="border border-dashed border-slate-700 rounded-xl p-8 text-center">
+            <Timer className="mx-auto text-slate-600 mb-3" size={32} />
+            <p className="text-slate-400 text-sm mb-4">No rally timers yet. Create one to get a shareable link for your squad.</p>
+            <button
+              onClick={addSession}
+              disabled={creating}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm transition-colors disabled:opacity-50"
+            >
+              <Plus size={16} />
+              Create Rally Timer
+            </button>
+          </div>
+        )}
 
         {/* Sessions grid */}
         <div className={`grid gap-4 ${sessions.length > 1 ? 'lg:grid-cols-2 xl:grid-cols-3' : ''}`}>

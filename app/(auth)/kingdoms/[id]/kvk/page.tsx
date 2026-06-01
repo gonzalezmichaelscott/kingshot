@@ -1,16 +1,18 @@
 // @ts-nocheck
-import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Sword, Shield, Users, Mic, ExternalLink } from 'lucide-react'
+import { Sword, Shield, Users, Mic, ExternalLink, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { formatPower } from '@/lib/utils'
 import { KvkChatSection } from '@/components/kvk/KvkChatSection'
 import { KvkStructureBoard } from '@/components/kvk/KvkStructureBoard'
 import { KvkGeneratePlanButton } from '@/components/kvk/KvkGeneratePlanButton'
+import { KvkNewCycleButton } from '@/components/kvk/KvkNewCycleButton'
 import { KvkReadiness } from '@/components/kvk/KvkReadiness'
-import { findOrCreateKingdomKvkEvent, KVK_STRUCTURES } from '@/lib/kvk'
+import { getKvkContext, loadAttendingKvkMembers, KVK_STRUCTURES, isManualAssignment } from '@/lib/kvk'
+import { createServiceClient } from '@/lib/supabase/server'
 
 const LEADER_ROLE = /leader|castle|garrison/
 
@@ -21,10 +23,9 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
 
   const { data: kingdom } = await supabase
     .from('kingdoms')
-    .select('*, alliances(id, name, tag, kvk_enabled)')
+    .select('*, alliances(id, kvk_enabled)')
     .eq('id', params.id)
     .single()
-
   if (!kingdom) notFound()
 
   const { data: profile } = await supabase
@@ -44,41 +45,48 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
   const canManage = ['r5', 'r4', 'kingdom_leader', 'system_admin'].includes(role)
   const canSeeBattleLeader = canManage
 
-  const alliances = ((kingdom.alliances as any[]) || []).filter(a => a.kvk_enabled)
-  const allianceIds = alliances.map(a => a.id)
-  const myAllianceKvkEnabled = alliances.some(a => a.id === profile?.alliance_id)
+  // ---- Per-alliance KVK context (FIX 2): active events + attendance only ----
+  const { eventType, alliances: ctx } = await getKvkContext(params.id)
+  const participating = ctx // all kvk_enabled alliances
+  const activeAlliances = participating.filter(a => a.activeEvent)
+  const activeEventIds = activeAlliances.map(a => a.activeEvent.id)
+  const myAllianceKvkEnabled = participating.some(a => a.id === profile?.alliance_id)
 
-  // Access already verified — load cross-alliance data with the service client so
-  // the kingdom-wide hub can see members/assignments across every alliance.
+  const attendingMembers = await loadAttendingKvkMembers(activeEventIds)
+
+  // Per-alliance attendance counts + warnings
+  const attendingByAlliance: Record<string, number> = {}
+  for (const m of attendingMembers) attendingByAlliance[m.alliance_id] = (attendingByAlliance[m.alliance_id] || 0) + 1
+
+  const warnings: string[] = []
+  for (const a of participating) {
+    if (!a.activeEvent) {
+      warnings.push(`${a.name} has no active KVK event — ask your R5 to create one and collect attendance`)
+    } else if (!attendingByAlliance[a.id]) {
+      warnings.push(`${a.name} — 0 members confirmed attending`)
+    }
+  }
+
+  // KVK Complete (FIX 7): no active events but a prior completed one exists
+  const completedEvents = participating.map(a => a.event).filter(e => e && e.status === 'completed')
+  const kvkComplete = activeAlliances.length === 0 && completedEvents.length > 0
+  const latestEndUtc = completedEvents
+    .map(e => e.battle_end_utc)
+    .filter(Boolean)
+    .sort()
+    .reverse()[0] || null
+
+  // ---- Assignments across active events (service client; access already verified) ----
   const svc = createServiceClient()
-
-  let allMembers: any[] = []
-  if (allianceIds.length > 0) {
-    const { data } = await svc
-      .from('members')
-      .select('*, alliances(name, tag), member_scores(*), member_combat_stats(troop_type_primary, id), member_heroes(id)')
-      .in('alliance_id', allianceIds)
-      .order('power', { ascending: false })
-    allMembers = data || []
-  }
-
-  // Anchor event + its assignments / availability / voice channels
-  const { event } = allianceIds.length > 0
-    ? await findOrCreateKingdomKvkEvent(params.id, false)
-    : { event: null }
-
   let assignments: any[] = []
-  const availabilityByMember: Record<string, any> = {}
-  if (event) {
-    const [{ data: asg }, { data: avail }] = await Promise.all([
-      svc.from('event_assignments')
-        .select('*, members(id, player_name, alliances(tag))')
-        .eq('event_id', event.id),
-      svc.from('event_availability').select('*').eq('event_id', event.id),
-    ])
+  if (activeEventIds.length > 0) {
+    const { data: asg } = await svc
+      .from('event_assignments')
+      .select('*, members(id, player_name, game_id, alliances(tag))')
+      .in('event_id', activeEventIds)
     assignments = asg || []
-    for (const a of avail || []) availabilityByMember[a.member_id] = a
   }
+  const hasPlan = assignments.length > 0
 
   const { data: voiceChannels } = await svc
     .from('kvk_voice_channels')
@@ -86,26 +94,28 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
     .eq('kingdom_id', params.id)
     .eq('is_active', true)
 
-  // Which structures is the current user assigned to (gates structure voice visibility)
-  const myMember = allMembers.find(m => m.linked_user_id === user.id)
-  const myAssignedSquads = assignments
-    .filter(a => a.member_id === myMember?.id)
-    .map(a => a.squad)
+  // availability map (from attending members) for coverage timeline
+  const availabilityByMember: Record<string, any> = {}
+  for (const m of attendingMembers) availabilityByMember[m.id] = m._availability
 
-  // ----- Coverage timeline (5 battle hours from 12:00 UTC, or anchored to event) -----
-  const startHour = event?.battle_start_utc ? new Date(event.battle_start_utc).getUTCHours() : 12
-  const startBase = event?.battle_start_utc ? new Date(event.battle_start_utc) : null
+  const myMember = attendingMembers.find(m => m.linked_user_id === user.id)
+  const myAssignedSquads = assignments.filter(a => a.member_id === myMember?.id).map(a => a.squad)
+
+  // Coverage timeline (5 hours anchored to the earliest active event start, else 12:00)
+  const anchorStart = activeAlliances.map(a => a.activeEvent.battle_start_utc).filter(Boolean).sort()[0] || null
+  const startBase = anchorStart ? new Date(anchorStart) : null
+  const startHour = startBase ? startBase.getUTCHours() : 12
   const hourLabels = Array.from({ length: 5 }, (_, i) => `${String((startHour + i) % 24).padStart(2, '0')}:00`)
 
   function coverageFor(memberIds: string[]): boolean[] {
     return Array.from({ length: 5 }, (_, i) => {
       if (memberIds.length === 0) return false
-      if (!startBase) return true // no battle time set — any assignment counts as coverage
+      if (!startBase) return true
       const hourStart = new Date(startBase.getTime() + i * 3600_000)
       const hourEnd = new Date(hourStart.getTime() + 3600_000)
       return memberIds.some(id => {
         const a = availabilityByMember[id]
-        if (!a || (!a.available_from_utc && !a.available_to_utc)) return true // assumed full-event
+        if (!a || (!a.available_from_utc && !a.available_to_utc)) return true
         const from = a.available_from_utc ? new Date(a.available_from_utc) : new Date(-8640000000000000)
         const to = a.available_to_utc ? new Date(a.available_to_utc) : new Date(8640000000000000)
         return from < hourEnd && to > hourStart
@@ -114,7 +124,7 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
   }
 
   function topByScore(field: string, n = 5) {
-    return [...allMembers]
+    return [...attendingMembers]
       .map(m => ({
         id: m.id,
         player_name: m.player_name,
@@ -128,8 +138,10 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
   const toAssignee = (a: any) => ({
     id: a.member_id,
     player_name: (a.members as any)?.player_name || 'Unknown',
+    game_id: (a.members as any)?.game_id || null,
     tag: (a.members as any)?.alliances?.tag || null,
     role: a.role,
+    isManual: isManualAssignment(a.reasoning),
   })
 
   const structures = KVK_STRUCTURES.map(s => {
@@ -142,6 +154,7 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
     return {
       key: s.key,
       label: s.label,
+      formation: s.formation,
       voiceChannel: s.voiceChannel,
       voiceUrl: (voiceChannels || []).find(c => c.channel_name === s.voiceChannel)?.discord_invite_url || null,
       canSeeVoice: canManage || myAssignedSquads.includes(s.key),
@@ -152,43 +165,80 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
     }
   })
 
-  const pool = allMembers.map(m => ({
+  const pool = attendingMembers.map(m => ({
     id: m.id,
     player_name: m.player_name,
+    game_id: m.game_id || null,
     tag: (m.alliances as any)?.tag || null,
   }))
 
   const battleLeaderUrl = (voiceChannels || []).find(c => c.channel_name === 'battle_leader')?.discord_invite_url
   const generalUrl = (voiceChannels || []).find(c => c.channel_name === 'general')?.discord_invite_url
 
+  const kingdomName = kingdom.name
+
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold flex items-center gap-2">
         <Sword className="text-amber-500" size={24} />
-        KVK Command — {kingdom.name}
+        KVK Command — {kingdomName}
       </h1>
+
+      {/* KVK Complete banner (FIX 7) */}
+      {kvkComplete && (
+        <Card className="border-green-600/40">
+          <CardContent className="py-4">
+            <div className="flex items-start gap-3 flex-wrap">
+              <CheckCircle2 className="text-green-400 flex-shrink-0 mt-0.5" size={20} />
+              <div className="flex-1 min-w-[220px]">
+                <p className="font-semibold text-green-400">KVK Complete</p>
+                <p className="text-sm text-slate-400">
+                  The last KVK ended{latestEndUtc ? ` on ${new Date(latestEndUtc).toLocaleDateString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' })} UTC` : ''}.
+                  Start a new planning cycle to collect fresh attendance for the next KVK.
+                </p>
+              </div>
+              {canGeneratePlan && <KvkNewCycleButton kingdomId={params.id} />}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Warnings (FIX 2) */}
+      {warnings.length > 0 && (
+        <Card className="border-amber-500/40">
+          <CardContent className="py-4 space-y-1.5">
+            {warnings.map((w, i) => (
+              <p key={i} className="text-sm text-amber-300 flex items-center gap-2">
+                <AlertTriangle size={14} className="flex-shrink-0" /> {w}
+              </p>
+            ))}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Participating Alliances */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Shield size={18} className="text-amber-500" />
-            Participating Alliances ({alliances.length})
+            Participating Alliances ({participating.length})
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {alliances.length > 0 ? (
+          {participating.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {alliances.map((a: any) => {
-                const count = allMembers.filter(m => m.alliance_id === a.id).length
-                return (
-                  <div key={a.id} className="bg-slate-800 rounded-xl p-4">
+              {participating.map((a: any) => (
+                <div key={a.id} className="bg-slate-800 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-1">
                     <p className="font-semibold text-amber-400">[{a.tag}]</p>
-                    <p className="text-sm text-slate-300">{a.name}</p>
-                    <p className="text-xs text-slate-400 mt-1">{count} members</p>
+                    {a.activeEvent
+                      ? <Badge variant="green">Active</Badge>
+                      : <Badge variant="default">No event</Badge>}
                   </div>
-                )
-              })}
+                  <p className="text-sm text-slate-300">{a.name}</p>
+                  <p className="text-xs text-slate-400 mt-1">{attendingByAlliance[a.id] || 0} attending</p>
+                </div>
+              ))}
             </div>
           ) : (
             <p className="text-slate-400 text-sm">No alliances have KVK enabled for this kingdom yet.</p>
@@ -196,10 +246,10 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
         </CardContent>
       </Card>
 
-      {alliances.length > 0 && (
+      {participating.length > 0 && (
         <>
           {/* Generate Kingdom Battle Plan */}
-          {canGeneratePlan && (
+          {canGeneratePlan && activeAlliances.length > 0 && (
             <Card>
               <CardContent className="py-4">
                 <KvkGeneratePlanButton kingdomId={params.id} />
@@ -207,19 +257,21 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
             </Card>
           )}
 
-          {/* Clickable structure cards */}
+          {/* Structure cards (FIX 6) */}
           <KvkStructureBoard
             kingdomId={params.id}
             structures={structures}
             hourLabels={hourLabels}
             pool={pool}
             canManage={canManage}
+            canGeneratePlan={canGeneratePlan && activeAlliances.length > 0}
+            hasPlan={hasPlan}
           />
 
-          {/* Readiness */}
-          <KvkReadiness members={allMembers} />
+          {/* Readiness — attending members only (FIX 6/readiness) */}
+          <KvkReadiness members={attendingMembers} />
 
-          {/* Voice channels — general (all) + battle leader (R4/R5/admin) */}
+          {/* Voice channels */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
@@ -246,9 +298,7 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
                   </a>
                 </div>
               )}
-              <p className="text-xs text-slate-500">
-                Structure-specific channels appear inside each structure card for assigned members.
-              </p>
+              <p className="text-xs text-slate-500">Structure-specific channels appear inside each structure card for assigned members.</p>
               {canManage && (
                 <Link href={`/kingdoms/${params.id}/kvk/voice`} className="inline-block text-amber-500 hover:text-amber-400 text-sm pt-1">
                   Manage Voice Channel Links →
@@ -257,13 +307,13 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
             </CardContent>
           </Card>
 
-          {/* Combined Member Pool */}
-          {allMembers.length > 0 && (
+          {/* Combined attending pool */}
+          {attendingMembers.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Users size={18} className="text-amber-500" />
-                  Combined Member Pool ({allMembers.length} players)
+                  Confirmed Attending ({attendingMembers.length} players)
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -280,7 +330,7 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
                       </tr>
                     </thead>
                     <tbody>
-                      {allMembers.slice(0, 50).map(m => {
+                      {[...attendingMembers].sort((a, b) => (b.power || 0) - (a.power || 0)).slice(0, 50).map(m => {
                         const score = (m.member_scores as any)?.[0]?.overall_score ?? 0
                         const troopType = (m.member_combat_stats as any)?.[0]?.troop_type_primary
                         const alliance = m.alliances as any
@@ -303,8 +353,8 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
                       })}
                     </tbody>
                   </table>
-                  {allMembers.length > 50 && (
-                    <p className="text-center text-slate-500 text-xs py-2">Showing top 50 of {allMembers.length}</p>
+                  {attendingMembers.length > 50 && (
+                    <p className="text-center text-slate-500 text-xs py-2">Showing top 50 of {attendingMembers.length}</p>
                   )}
                 </div>
               </CardContent>

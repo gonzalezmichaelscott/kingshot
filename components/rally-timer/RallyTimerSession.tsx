@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   Play, Square, RotateCcw, Volume2, VolumeX, Plus, Share2,
-  Clock, Timer, User, Crown, Loader2
+  Clock, Timer, User, Crown, Loader2, Copy, Check
 } from 'lucide-react'
 
 interface PlayerInfo {
@@ -77,6 +77,8 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
   const [marchInput, setMarchInput] = useState('')
   const [marchError, setMarchError] = useState('')
   const [copied, setCopied] = useState(false)
+  const [showShare, setShowShare] = useState(false)
+  const [shareUrl, setShareUrl] = useState('')
   const [saving, setSaving] = useState(false)
   // Cache of playerId -> fetched PlayerInfo so we never fetch the same ID twice
   const [playerCache, setPlayerCache] = useState<Map<string, PlayerInfo>>(new Map())
@@ -92,6 +94,13 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
 
   // Keep nameRef in sync
   useEffect(() => { nameRef.current = name }, [name])
+
+  // Build the shareable URL once we're in the browser (needs window.location.origin)
+  useEffect(() => {
+    if (session.id && typeof window !== 'undefined') {
+      setShareUrl(`${window.location.origin}/rally-timer/${session.id}`)
+    }
+  }, [session.id])
 
   // Debounced fetch when playerId input changes
   useEffect(() => {
@@ -311,10 +320,9 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
     await saveSession({ players: updated })
   }
 
-  function shareLink() {
-    if (!session.id) return
-    const url = `${window.location.origin}/rally-timer/${session.id}`
-    navigator.clipboard.writeText(url).then(() => {
+  function copyShareLink() {
+    if (!shareUrl) return
+    navigator.clipboard.writeText(shareUrl).then(() => {
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     })
@@ -339,15 +347,69 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
         )}
         {session.id && (
           <button
-            onClick={shareLink}
+            onClick={() => setShowShare(true)}
             className="text-slate-400 hover:text-amber-400 transition-colors p-1 rounded"
-            title="Copy shareable link"
+            title="Share this timer"
           >
             <Share2 size={14} />
           </button>
         )}
-        {copied && <span className="text-xs text-green-400">Copied!</span>}
       </div>
+
+      {/* Visible shareable link — available before the timer starts so leaders can
+          send it to their squad in advance. */}
+      {session.id && shareUrl && (
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-2.5 space-y-1.5">
+          <p className="text-[11px] uppercase tracking-wide text-slate-500">Shareable link (view-only for squad)</p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 text-xs text-amber-300 bg-slate-900 rounded px-2 py-1.5 truncate">{shareUrl}</code>
+            <button
+              onClick={copyShareLink}
+              className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg text-xs font-semibold transition-colors flex-shrink-0"
+            >
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+              {copied ? 'Copied' : 'Copy Link'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Share modal */}
+      {showShare && session.id && (
+        <div
+          className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowShare(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-2xl p-5 w-full max-w-sm space-y-3"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-2">
+              <Share2 size={18} className="text-amber-500" />
+              <h3 className="font-bold text-lg">Share “{label}”</h3>
+            </div>
+            <p className="text-sm text-slate-400">
+              Anyone with this link can watch the timer live (read-only). Share it with your squad before you start.
+            </p>
+            <code className="block text-xs text-amber-300 bg-slate-800 rounded-lg px-3 py-2 break-all">{shareUrl}</code>
+            <div className="flex gap-2">
+              <button
+                onClick={copyShareLink}
+                className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg text-sm font-semibold transition-colors"
+              >
+                {copied ? <Check size={15} /> : <Copy size={15} />}
+                {copied ? 'Copied!' : 'Copy Link'}
+              </button>
+              <button
+                onClick={() => setShowShare(false)}
+                className="px-3 py-2 text-slate-300 hover:bg-slate-800 rounded-lg text-sm transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Elapsed timer display */}
       <div className="text-center py-3">

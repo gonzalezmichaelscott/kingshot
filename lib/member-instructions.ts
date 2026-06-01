@@ -77,10 +77,18 @@ function leaderInstructions(
   const squadLabel = a.squad ? ` — Squad ${a.squad}` : ''
   const objective = a.reasoning?.split('.')[0] || 'Assigned objective'
 
+  // Backup leader for the same structure who takes over on rotation.
+  const backupLeader = plan.assignments.find(
+    x => x.squad === a.squad && x.role.toLowerCase().includes('leader') && x.is_backup,
+  )
+  const backupLine = backupLeader
+    ? `\nBACKUP LEADER: ${backupLeader.player_name} takes over if you drop or rotate out.`
+    : ''
+
   return `${header}
 
 YOUR ROLE: Rally Leader${squadLabel}
-YOUR TARGET: ${objective}
+YOUR TARGET: ${objective}${backupLine}
 
 YOUR SQUAD (joiners who will follow your rally):
 ${joinerList}

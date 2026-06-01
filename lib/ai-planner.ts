@@ -4,7 +4,7 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { calculateRoleScores, calculateHeroScore, calculateEffectiveTroopStrength, TIER_MULTIPLIERS } from '@/lib/scoring'
 import type { MemberHeroData, MemberProfile, TroopData } from '@/lib/scoring'
 import { generateMemberInstructions } from '@/lib/member-instructions'
-import { findOrCreateKingdomKvkEvent } from '@/lib/kvk'
+import { getKvkContext } from '@/lib/kvk'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -324,11 +324,10 @@ function extractJSON(text: string): string {
 }
 
 /**
- * Load every member across the participating alliances, scored with the KVK
- * Castle weights. Availability windows are folded in when an anchor event exists;
- * members without an availability row are treated as available for the whole event.
+ * Load the given (attending) members, scored with the KVK Castle weights, folding
+ * in each member's availability window from the supplied map.
  */
-async function loadKingdomMembersWithScores(allianceIds: string[], eventType: any, eventId?: string) {
+async function loadKvkMembersForScoring(memberIds: string[], eventType: any, availabilityMap: Record<string, any>) {
   const supabase = createServiceClient()
   const weights = eventType.scoring_weights as Record<string, Record<string, number>>
 
@@ -340,16 +339,7 @@ async function loadKingdomMembersWithScores(allianceIds: string[], eventType: an
       member_heroes ( *, heroes (*) ),
       member_scores (*)
     `)
-    .in('alliance_id', allianceIds)
-
-  const availabilityMap: Record<string, any> = {}
-  if (eventId) {
-    const { data: avail } = await supabase
-      .from('event_availability')
-      .select('*')
-      .eq('event_id', eventId)
-    for (const a of avail || []) availabilityMap[a.member_id] = a
-  }
+    .in('id', memberIds)
 
   return (rawMembers || []).map(m => {
     const stats = (m.member_combat_stats as any)?.[0]
@@ -413,21 +403,107 @@ async function loadKingdomMembersWithScores(allianceIds: string[], eventType: an
 }
 
 /**
- * Generate a kingdom-wide KVK Castle battle plan combining ALL members from ALL
- * participating alliances, and store the assignments against the kingdom's anchor
- * KVK event. Returns the plan and the anchor event id.
+ * Store a kingdom KVK plan by routing each member's assignment to THEIR alliance's
+ * active KVK event (so alliance-scoped RLS lets the member see it). Preserves any
+ * manual overrides by skipping members that aren't in the plan, and regenerates
+ * member_instructions for each AI assignment.
  */
-export async function generateKingdomKvkBattlePlan(kingdomId: string): Promise<{ plan: BattlePlan; eventId: string }> {
-  const { event, allianceIds, eventType } = await findOrCreateKingdomKvkEvent(kingdomId, true)
+async function storeKvkAssignments(
+  plan: BattlePlan,
+  eventIdByMember: Record<string, string>,
+  eventName: string,
+  eventStartByMember: Record<string, string | null>,
+) {
+  const supabase = createServiceClient()
+  const now = new Date().toISOString()
 
+  // Group assignment rows by the member's alliance event.
+  const rowsByEvent: Record<string, any[]> = {}
+  for (const a of plan.assignments) {
+    const eventId = eventIdByMember[a.member_id]
+    if (!eventId) continue // member not attending an active event — skip
+    const extras = [
+      a.hero_recommendation ? `Heroes: ${a.hero_recommendation}` : '',
+      a.formation_recommendation ? `Formation: ${a.formation_recommendation}` : '',
+      a.time_window && !a.time_window_start ? `Window: ${a.time_window}` : '',
+    ].filter(Boolean).join(' · ')
+    const reasoning = [a.reasoning, extras].filter(Boolean).join(' — ')
+    const memberInstructions = generateMemberInstructions(a, plan, eventName, eventStartByMember[a.member_id] || null)
+    ;(rowsByEvent[eventId] ||= []).push({
+      event_id: eventId,
+      member_id: a.member_id,
+      role: a.role,
+      squad: a.squad,
+      is_primary: a.is_primary,
+      is_backup: a.is_backup,
+      reasoning,
+      time_window_start: a.time_window_start || null,
+      time_window_end: a.time_window_end || null,
+      member_instructions: memberInstructions,
+      instruction_generated_at: now,
+    })
+  }
+
+  for (const [eventId, rows] of Object.entries(rowsByEvent)) {
+    // Replace the AI-generated assignments for this event, then store the plan on it.
+    await supabase.from('event_assignments').delete().eq('event_id', eventId)
+    await supabase.from('event_assignments').insert(rows)
+    await supabase.from('events').update({ battle_plan: plan as any }).eq('id', eventId)
+  }
+}
+
+/**
+ * Generate a kingdom-wide KVK Castle battle plan from ONLY the attending members
+ * (will_attend = true) across every participating alliance's active KVK event,
+ * honouring each member's availability window. Each assignment is stored on the
+ * member's own alliance event. Returns the plan and the affected event ids.
+ */
+export async function generateKingdomKvkBattlePlan(kingdomId: string): Promise<{ plan: BattlePlan; eventIds: string[] }> {
+  const { eventType, alliances } = await getKvkContext(kingdomId)
   if (!eventType) throw new Error('KVK Castle Battle event type is not configured. Run the schema seed data.')
-  if (allianceIds.length === 0) throw new Error('No alliances have KVK enabled for this kingdom.')
-  if (!event) throw new Error('Could not create the kingdom KVK event.')
 
-  const members = await loadKingdomMembersWithScores(allianceIds, eventType, event.id)
-  if (members.length === 0) throw new Error('No members found across the participating alliances.')
+  const active = alliances.filter(a => a.activeEvent)
+  if (active.length === 0) {
+    throw new Error('No alliance has an active KVK Castle Battle event. Create one and collect attendance first.')
+  }
 
-  const prompt = buildPlanningPrompt(members, event)
+  const activeEventIds = active.map(a => a.activeEvent.id)
+  const eventStartById: Record<string, string | null> = {}
+  for (const a of active) eventStartById[a.activeEvent.id] = a.activeEvent.battle_start_utc || null
+
+  // Pull confirmed attendees + availability across all active events.
+  const supabase = createServiceClient()
+  const { data: avail } = await supabase
+    .from('event_availability')
+    .select('*')
+    .in('event_id', activeEventIds)
+    .eq('will_attend', true)
+
+  const attendees = avail || []
+  if (attendees.length === 0) {
+    throw new Error('No members have confirmed attendance on the KVK events yet.')
+  }
+
+  const memberIds = attendees.map(a => a.member_id)
+  const availByMember: Record<string, any> = {}
+  const eventIdByMember: Record<string, string> = {}
+  const eventStartByMember: Record<string, string | null> = {}
+  for (const a of attendees) {
+    availByMember[a.member_id] = a
+    eventIdByMember[a.member_id] = a.event_id
+    eventStartByMember[a.member_id] = eventStartById[a.event_id] || null
+  }
+
+  const members = await loadKvkMembersForScoring(memberIds, eventType, availByMember)
+  if (members.length === 0) throw new Error('No attending members found.')
+
+  // buildPlanningPrompt only needs event.event_types and event.name/battle_start_utc.
+  const pseudoEvent = {
+    name: 'Kingdom KVK Castle Battle',
+    battle_start_utc: active[0].activeEvent.battle_start_utc || null,
+    event_types: eventType,
+  }
+  const prompt = buildPlanningPrompt(members, pseudoEvent)
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-5',
@@ -439,8 +515,8 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string): Promise<{
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
   const plan: BattlePlan = JSON.parse(extractJSON(text))
 
-  await storeAssignments(event.id, plan, event)
-  return { plan, eventId: event.id }
+  await storeKvkAssignments(plan, eventIdByMember, pseudoEvent.name, eventStartByMember)
+  return { plan, eventIds: activeEventIds }
 }
 
 export async function generateBattlePlan(eventId: string): Promise<BattlePlan> {

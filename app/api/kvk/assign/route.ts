@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import { findOrCreateKingdomKvkEvent, roleForSquad, KVK_STRUCTURES } from '@/lib/kvk'
+import { getKvkContext, roleForSquad, KVK_STRUCTURES, MANUAL_MARKER } from '@/lib/kvk'
 import { z } from 'zod'
 
 const SQUADS = KVK_STRUCTURES.map(s => s.key)
@@ -32,35 +32,37 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { event, allianceIds } = await findOrCreateKingdomKvkEvent(kingdomId, true)
-    if (!event) return NextResponse.json({ error: 'No participating alliances in this kingdom.' }, { status: 400 })
-
     const svc = createServiceClient()
 
-    // Member must belong to a participating alliance in this kingdom.
     const { data: member } = await svc
       .from('members')
       .select('id, alliance_id')
       .eq('id', memberId)
       .single()
-    if (!member || !allianceIds.includes(member.alliance_id)) {
-      return NextResponse.json({ error: 'Member is not part of a participating alliance.' }, { status: 400 })
+    if (!member) return NextResponse.json({ error: 'Member not found.' }, { status: 400 })
+
+    // The assignment must live on the member's OWN alliance active KVK event.
+    const { alliances } = await getKvkContext(kingdomId)
+    const allianceCtx = alliances.find(a => a.id === member.alliance_id)
+    if (!allianceCtx?.activeEvent) {
+      return NextResponse.json({ error: "This member's alliance has no active KVK event." }, { status: 400 })
     }
+    const eventId = allianceCtx.activeEvent.id
 
     // Replace any existing assignment for this member on this event.
-    await svc.from('event_assignments').delete().eq('event_id', event.id).eq('member_id', memberId)
+    await svc.from('event_assignments').delete().eq('event_id', eventId).eq('member_id', memberId)
     const { error } = await svc.from('event_assignments').insert({
-      event_id: event.id,
+      event_id: eventId,
       member_id: memberId,
       role: roleForSquad(squad),
       squad,
       is_primary: true,
       is_backup: false,
-      reasoning: 'Manually assigned via KVK Command hub.',
+      reasoning: `${MANUAL_MARKER} to ${squad.replace(/_/g, ' ')} via KVK Command hub.`,
     })
     if (error) throw error
 
-    return NextResponse.json({ ok: true, eventId: event.id })
+    return NextResponse.json({ ok: true, eventId })
   } catch (error: any) {
     console.error('KVK assign error:', error)
     return NextResponse.json({ error: error.message || 'Internal server error' }, { status: 500 })

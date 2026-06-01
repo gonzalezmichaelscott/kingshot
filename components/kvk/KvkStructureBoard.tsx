@@ -4,13 +4,16 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Castle, Shield, ChevronDown, ChevronUp, Crown, Users, Clock, Star, ExternalLink, Loader2, UserPlus } from 'lucide-react'
+import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
+import { KvkGeneratePlanButton } from '@/components/kvk/KvkGeneratePlanButton'
+import { Castle, Shield, ChevronDown, ChevronUp, Crown, Users, Clock, Star, ExternalLink, Loader2, UserPlus, Sparkles } from 'lucide-react'
 
-interface Assignee { id: string; player_name: string; tag?: string | null; role?: string | null }
+interface Assignee { id: string; player_name: string; game_id?: string | null; tag?: string | null; role?: string | null; isManual?: boolean }
 interface Recommended { id: string; player_name: string; tag?: string | null; score: number }
 interface Structure {
   key: string
   label: string
+  formation: string
   voiceChannel: string
   voiceUrl: string | null
   canSeeVoice: boolean
@@ -24,11 +27,13 @@ interface Props {
   kingdomId: string
   structures: Structure[]
   hourLabels: string[]
-  pool: { id: string; player_name: string; tag?: string | null }[]
+  pool: { id: string; player_name: string; game_id?: string | null; tag?: string | null }[]
   canManage: boolean
+  canGeneratePlan: boolean
+  hasPlan: boolean
 }
 
-export function KvkStructureBoard({ kingdomId, structures, hourLabels, pool, canManage }: Props) {
+export function KvkStructureBoard({ kingdomId, structures, hourLabels, pool, canManage, canGeneratePlan, hasPlan }: Props) {
   const [expanded, setExpanded] = useState<string | null>(null)
 
   return (
@@ -40,6 +45,16 @@ export function KvkStructureBoard({ kingdomId, structures, hourLabels, pool, can
         </CardTitle>
       </CardHeader>
       <CardContent>
+        {!hasPlan && (
+          <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 text-center">
+            <Sparkles className="mx-auto text-amber-400 mb-2" size={22} />
+            <p className="text-sm text-slate-300 mb-3">Generate a battle plan to auto-assign players to each structure.</p>
+            {canGeneratePlan
+              ? <div className="flex justify-center"><KvkGeneratePlanButton kingdomId={kingdomId} /></div>
+              : <p className="text-xs text-slate-500">Ask your R5 to generate the kingdom battle plan.</p>}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {structures.map(s => {
             const isOpen = expanded === s.key
@@ -59,11 +74,9 @@ export function KvkStructureBoard({ kingdomId, structures, hourLabels, pool, can
                   {isOpen ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
                 </div>
                 <p className="text-xs text-slate-400 mt-1">
-                  {s.leader ? (
-                    <span className="text-amber-400">Lead: {s.leader.player_name}</span>
-                  ) : (
-                    <span className="text-slate-500">Unassigned</span>
-                  )}
+                  {s.leader
+                    ? <span className="text-amber-400">Lead: {s.leader.player_name}</span>
+                    : <span className="text-slate-500">Unassigned</span>}
                 </p>
                 <p className="text-xs text-slate-500 mt-0.5">{assigned} assigned</p>
               </button>
@@ -71,7 +84,6 @@ export function KvkStructureBoard({ kingdomId, structures, hourLabels, pool, can
           })}
         </div>
 
-        {/* Detail panel */}
         {expanded && (
           <StructureDetail
             kingdomId={kingdomId}
@@ -86,11 +98,15 @@ export function KvkStructureBoard({ kingdomId, structures, hourLabels, pool, can
   )
 }
 
+function ManualBadge() {
+  return <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-medium">Manually assigned</span>
+}
+
 function StructureDetail({ kingdomId, structure, hourLabels, pool, canManage }: {
   kingdomId: string
   structure: Structure
   hourLabels: string[]
-  pool: { id: string; player_name: string; tag?: string | null }[]
+  pool: { id: string; player_name: string; game_id?: string | null; tag?: string | null }[]
   canManage: boolean
 }) {
   const router = useRouter()
@@ -129,17 +145,16 @@ function StructureDetail({ kingdomId, structure, hourLabels, pool, canManage }: 
           {structure.label}
         </h3>
         {structure.canSeeVoice && structure.voiceUrl && (
-          <a
-            href={structure.voiceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors"
-          >
-            <ExternalLink size={12} />
-            Join voice
+          <a href={structure.voiceUrl} target="_blank" rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg transition-colors">
+            <ExternalLink size={12} /> Join voice
           </a>
         )}
       </div>
+
+      <p className="text-xs text-slate-400">
+        <span className="text-slate-500">Formation:</span> {structure.formation}
+      </p>
 
       {/* Rally leader */}
       <div>
@@ -147,9 +162,13 @@ function StructureDetail({ kingdomId, structure, hourLabels, pool, canManage }: 
           <Crown size={12} /> Rally Leader
         </p>
         {structure.leader ? (
-          <p className="text-sm text-amber-400 font-medium">
-            {structure.leader.tag ? `[${structure.leader.tag}] ` : ''}{structure.leader.player_name}
-          </p>
+          <div className="flex items-center gap-2">
+            <PlayerAvatar gameId={structure.leader.game_id} playerName={structure.leader.player_name} sizeClass="w-8 h-8" />
+            <span className="text-sm text-amber-400 font-medium">
+              {structure.leader.tag ? `[${structure.leader.tag}] ` : ''}{structure.leader.player_name}
+            </span>
+            {structure.leader.isManual && <ManualBadge />}
+          </div>
         ) : (
           <p className="text-sm text-slate-500">Unassigned</p>
         )}
@@ -161,11 +180,13 @@ function StructureDetail({ kingdomId, structure, hourLabels, pool, canManage }: 
           <Users size={12} /> Assigned Joiners ({structure.joiners.length})
         </p>
         {structure.joiners.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
+          <div className="grid sm:grid-cols-2 gap-1.5">
             {structure.joiners.map(j => (
-              <span key={j.id} className="text-xs bg-slate-800 rounded px-2 py-1 text-slate-300">
-                {j.tag ? `[${j.tag}] ` : ''}{j.player_name}
-              </span>
+              <div key={j.id} className="flex items-center gap-2 bg-slate-800 rounded px-2 py-1.5">
+                <PlayerAvatar gameId={j.game_id} playerName={j.player_name} sizeClass="w-6 h-6" />
+                <span className="text-xs text-slate-300 truncate">{j.tag ? `[${j.tag}] ` : ''}{j.player_name}</span>
+                {j.isManual && <ManualBadge />}
+              </div>
             ))}
           </div>
         ) : (
@@ -182,10 +203,7 @@ function StructureDetail({ kingdomId, structure, hourLabels, pool, canManage }: 
           {hourLabels.map((label, i) => (
             <div key={i} className="flex-1 text-center">
               <div
-                className={
-                  'h-6 rounded ' +
-                  (structure.coverage[i] ? 'bg-green-600/60' : 'bg-slate-800 border border-slate-700')
-                }
+                className={'h-6 rounded ' + (structure.coverage[i] ? 'bg-green-600/60' : 'bg-slate-800 border border-slate-700')}
                 title={structure.coverage[i] ? `${label} covered` : `${label} no coverage`}
               />
               <p className="text-[10px] text-slate-500 mt-0.5">{label}</p>
@@ -211,15 +229,15 @@ function StructureDetail({ kingdomId, structure, hourLabels, pool, canManage }: 
             ))}
           </div>
         ) : (
-          <p className="text-sm text-slate-500">No scored players available.</p>
+          <p className="text-sm text-slate-500">No scored attending players available.</p>
         )}
       </div>
 
-      {/* Manual assign */}
+      {/* Manual assign / override */}
       {canManage && (
         <div className="border-t border-slate-800 pt-3">
           <p className="text-xs uppercase tracking-wide text-slate-500 mb-1 flex items-center gap-1">
-            <UserPlus size={12} /> Assign a player to {structure.label}
+            <UserPlus size={12} /> Assign / override a player for {structure.label}
           </p>
           <div className="flex gap-2 flex-wrap">
             <select
@@ -227,11 +245,9 @@ function StructureDetail({ kingdomId, structure, hourLabels, pool, canManage }: 
               onChange={e => setSelected(e.target.value)}
               className="flex-1 min-w-[180px] h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
             >
-              <option value="">Select a player…</option>
+              <option value="">Select an attending player…</option>
               {pool.map(p => (
-                <option key={p.id} value={p.id}>
-                  {p.tag ? `[${p.tag}] ` : ''}{p.player_name}
-                </option>
+                <option key={p.id} value={p.id}>{p.tag ? `[${p.tag}] ` : ''}{p.player_name}</option>
               ))}
             </select>
             <Button onClick={assign} disabled={!selected || saving} size="md">
@@ -239,6 +255,7 @@ function StructureDetail({ kingdomId, structure, hourLabels, pool, canManage }: 
               Assign
             </Button>
           </div>
+          <p className="text-[11px] text-slate-500 mt-1">Overrides the AI recommendation for this player and is saved immediately.</p>
           {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
         </div>
       )}

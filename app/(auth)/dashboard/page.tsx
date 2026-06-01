@@ -57,7 +57,7 @@ export default async function DashboardPage() {
 
     const { data: assignments } = member ? await supabase
       .from('event_assignments')
-      .select('*, events(name, battle_start_utc, event_types(name))')
+      .select('*, events(name, battle_start_utc, event_types(name, slug))')
       .eq('member_id', member.id)
       .order('created_at', { ascending: false }) : { data: [] }
 
@@ -129,6 +129,9 @@ export default async function DashboardPage() {
                       </div>
                       <div className="flex gap-2 flex-wrap mt-1.5">
                         <Badge variant="amber">{(a.role || '').replace(/_/g, ' ')}</Badge>
+                        {a.events?.event_types?.slug === 'kvk_castle_battle' && (
+                          <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-semibold self-center">KVK</span>
+                        )}
                         {a.squad && <Badge variant="blue">Squad {a.squad}</Badge>}
                         {a.is_backup && <Badge variant="default">Backup</Badge>}
                       </div>
