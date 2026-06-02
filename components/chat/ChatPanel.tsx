@@ -337,7 +337,7 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
       )}
 
       {/* Panel */}
-      <div className={`fixed right-0 top-0 h-full w-80 max-w-full bg-slate-900 border-l border-slate-800 z-50 flex flex-col shadow-2xl transition-transform duration-200 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed right-0 top-12 h-[calc(100vh-48px)] w-80 max-w-full bg-slate-900 border-l border-slate-800 z-50 flex flex-col shadow-2xl transition-transform duration-200 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
         {/* Header */}
         <div className="flex items-center justify-between pl-4 pr-1 h-12 border-b border-slate-800 flex-shrink-0 bg-slate-900">
           <div className="flex items-center gap-2 min-w-0">
