@@ -4,6 +4,11 @@ import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { MessageSquare, Send, Globe, Trash2, X, Paperclip } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { ScreenStayOn } from '@/components/ui/ScreenStayOn'
+import { MentionText } from '@/components/chat/MentionText'
+import { MentionPopup } from '@/components/chat/MentionPopup'
+import { useMentionInput } from '@/hooks/useMentionInput'
+import { buildMemberByUser, resolveSenderName } from '@/lib/chat'
 
 interface Props {
   allianceId: string
@@ -12,9 +17,11 @@ interface Props {
   currentUserRole: string
   open: boolean
   onClose: () => void
+  targetMessageId?: string
+  targetNonce?: number
 }
 
-export function ChatPanel({ allianceId, allianceName, currentUserId, currentUserRole, open, onClose }: Props) {
+export function ChatPanel({ allianceId, allianceName, currentUserId, currentUserRole, open, onClose, targetMessageId, targetNonce }: Props) {
   const [messages, setMessages] = useState<any[]>([])
   const [content, setContent] = useState('')
   const [sending, setSending] = useState(false)
@@ -25,9 +32,13 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
   const [uploading, setUploading] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [members, setMembers] = useState<any[]>([])
+  const [myDisplayName, setMyDisplayName] = useState<string | null>(null)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   // Stable client reference — avoids creating multiple GoTrue clients across renders
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (!supabaseRef.current) supabaseRef.current = createClient()
@@ -35,6 +46,41 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
 
   const canDelete = ['r5', 'r4', 'system_admin'].includes(currentUserRole || '')
   const hasTranslate = typeof window !== 'undefined' && !!(process.env.NEXT_PUBLIC_GOOGLE_TRANSLATE_KEY)
+
+  // ---- Game-tag name resolution (Part 3) + @ mention data (Part 4) ----
+  const memberByUser = buildMemberByUser(members)
+  const memberNames = members.map((m) => m.player_name)
+  const viewerName = resolveSenderName(currentUserId, myDisplayName, memberByUser)
+  const myMemberId = members.find((m) => m.linked_user_id === currentUserId)?.id || null
+
+  const mention = useMentionInput(members, content, setContent, inputRef)
+
+  // Load alliance members (sender names + mentions) and the viewer's display name
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const [{ data: mems }, { data: prof }] = await Promise.all([
+        supabase.from('members').select('id, player_name, linked_user_id').eq('alliance_id', allianceId),
+        supabase.from('user_profiles').select('display_name').eq('id', currentUserId).maybeSingle(),
+      ])
+      if (cancelled) return
+      if (mems) setMembers(mems)
+      if (prof) setMyDisplayName(prof.display_name)
+    })()
+    return () => { cancelled = true }
+  }, [allianceId, currentUserId])
+
+  // Reading the chat marks this user's mentions in this alliance as read (Part 5)
+  useEffect(() => {
+    if (!open || !myMemberId) return
+    supabase
+      .from('chat_mentions')
+      .update({ is_read: true })
+      .eq('alliance_id', allianceId)
+      .eq('mentioned_member_id', myMemberId)
+      .eq('is_read', false)
+      .then(() => {})
+  }, [open, myMemberId, allianceId, messages.length])
 
   // Load initial messages when panel opens for the first time
   useEffect(() => {
@@ -70,6 +116,18 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
       setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
     }
   }, [initialized, open])
+
+  // Jump-to-message from a notification: scroll to the target and flash a highlight.
+  // Best-effort — only works if the message is within the loaded window.
+  useEffect(() => {
+    if (!open || !targetMessageId || !initialized) return
+    const el = document.getElementById(`panelmsg-${targetMessageId}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setHighlightId(targetMessageId)
+    const t = setTimeout(() => setHighlightId(null), 2500)
+    return () => clearTimeout(t)
+  }, [open, targetMessageId, targetNonce, initialized, messages.length])
 
   // Auto-scroll on new messages only when near the bottom
   useEffect(() => {
@@ -111,12 +169,25 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
     return () => { supabase.removeChannel(channel) }
   }, [allianceId])
 
+  async function processMentions(messageId: string) {
+    try {
+      await fetch('/api/chat/mentions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, allianceId }),
+      })
+    } catch {
+      // Non-fatal
+    }
+  }
+
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault()
     if (!content.trim()) return
     setSending(true)
     const text = content.trim()
     setContent('')
+    mention.close()
     const { data: inserted } = await supabase.from('chat_messages').insert({
       alliance_id: allianceId,
       author_id: currentUserId,
@@ -126,8 +197,9 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
     if (inserted) {
       setMessages(prev => [...prev, {
         ...inserted,
-        user_profiles: { display_name: null, role: currentUserRole },
+        user_profiles: { display_name: myDisplayName, role: currentUserRole },
       }])
+      processMentions(inserted.id)
     }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
@@ -217,7 +289,7 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
     if (inserted) {
       setMessages(prev => [...prev, {
         ...inserted,
-        user_profiles: { display_name: null, role: currentUserRole },
+        user_profiles: { display_name: myDisplayName, role: currentUserRole },
       }])
     }
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -235,6 +307,9 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
 
   return (
     <>
+      {/* Keep the screen awake while the chat panel is visible */}
+      <ScreenStayOn active={open} />
+
       {/* Lightbox */}
       {lightboxUrl && (
         <div
@@ -292,16 +367,16 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
             <p className="text-center text-xs text-slate-500 py-8">No messages yet. Say hello!</p>
           )}
           {messages.map(msg => {
-            const author = msg.user_profiles
             const isOwn = msg.author_id === currentUserId
             const isImage = isImageMessage(msg.content)
+            const senderName = resolveSenderName(msg.author_id, msg.user_profiles?.display_name, memberByUser)
             return (
-              <div key={msg.id} className={`flex gap-1.5 ${isOwn ? 'flex-row-reverse' : ''}`}>
+              <div key={msg.id} id={`panelmsg-${msg.id}`} className={`flex gap-1.5 ${isOwn ? 'flex-row-reverse' : ''} ${highlightId === msg.id ? 'ring-2 ring-amber-400 rounded-xl -m-1 p-1' : ''}`}>
                 <div className={`max-w-[85%] flex flex-col gap-0.5 ${isOwn ? 'items-end' : 'items-start'}`}>
                   {!isOwn && (
                     <span className="text-[10px] text-slate-400 px-1">
-                      {author?.display_name || 'Unknown'}
-                      {author?.role && <Badge className="ml-1 text-[9px] py-0" variant="default">{author.role.toUpperCase()}</Badge>}
+                      {senderName}
+                      {msg.user_profiles?.role && <Badge className="ml-1 text-[9px] py-0" variant="default">{msg.user_profiles.role.toUpperCase()}</Badge>}
                     </span>
                   )}
                   <div className={`rounded-xl px-3 py-1.5 text-sm leading-snug ${isOwn ? 'bg-amber-500 text-slate-900 rounded-tr-sm' : 'bg-slate-800 text-slate-100 rounded-tl-sm'} ${isImage ? 'p-1' : ''}`}>
@@ -315,7 +390,7 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
                       />
                     ) : (
                       <>
-                        {msg.content}
+                        <MentionText content={msg.content} memberNames={memberNames} viewerName={viewerName} />
                         {msg._translated && (
                           <p className="text-xs mt-1 opacity-70 italic">{msg._translated}</p>
                         )}
@@ -363,44 +438,62 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
         )}
 
         {/* Input */}
-        <form onSubmit={sendMessage} className="flex gap-2 p-3 border-t border-slate-800 flex-shrink-0">
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp"
-            className="hidden"
-            onChange={e => {
-              const file = e.target.files?.[0]
-              if (file) handleImageUpload(file)
-              e.target.value = ''
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading || sending}
-            title="Upload image"
-            className="w-9 h-9 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 border border-slate-700 rounded-full flex items-center justify-center flex-shrink-0 transition-colors"
-          >
-            <Paperclip size={14} className="text-slate-400" />
-          </button>
-          <input
-            value={content}
-            onChange={e => setContent(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e as any) } }}
-            onPaste={handlePaste}
-            placeholder="Message…"
-            className="flex-1 px-3 h-9 bg-slate-800 border border-slate-700 rounded-full text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 min-w-0"
-            maxLength={1000}
-          />
-          <button
-            type="submit"
-            disabled={sending || uploading || !content.trim()}
-            className="w-9 h-9 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 rounded-full flex items-center justify-center flex-shrink-0 transition-colors"
-          >
-            <Send size={15} className="text-slate-900" />
-          </button>
+        <form onSubmit={sendMessage} className="p-3 border-t border-slate-800 flex-shrink-0">
+          <div className="flex gap-2 relative">
+            {/* Mention autocomplete */}
+            {mention.open && (
+              <MentionPopup
+                candidates={mention.candidates}
+                activeIndex={mention.activeIndex}
+                onSelect={mention.select}
+              />
+            )}
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0]
+                if (file) handleImageUpload(file)
+                e.target.value = ''
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading || sending}
+              title="Upload image"
+              className="w-9 h-9 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 border border-slate-700 rounded-full flex items-center justify-center flex-shrink-0 transition-colors"
+            >
+              <Paperclip size={14} className="text-slate-400" />
+            </button>
+            <input
+              ref={inputRef}
+              value={content}
+              onChange={mention.onChange}
+              onKeyDown={e => {
+                if (mention.onKeyDown(e)) return
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(e as any) }
+              }}
+              onPaste={handlePaste}
+              placeholder="Message… (@ to mention)"
+              className="flex-1 px-3 h-9 bg-slate-800 border border-slate-700 rounded-full text-sm focus:outline-none focus:ring-1 focus:ring-amber-500 min-w-0"
+              maxLength={1000}
+            />
+            <button
+              type="submit"
+              disabled={sending || uploading || !content.trim()}
+              className="w-9 h-9 bg-amber-500 hover:bg-amber-600 disabled:opacity-40 rounded-full flex items-center justify-center flex-shrink-0 transition-colors"
+            >
+              <Send size={15} className="text-slate-900" />
+            </button>
+          </div>
+          {/* Confirm which name others will see */}
+          <p className="text-[10px] text-slate-500 mt-1 px-1">
+            Sending as: <span className="text-amber-400 font-medium">{viewerName}</span>
+          </p>
         </form>
       </div>
     </>

@@ -517,6 +517,32 @@ export interface Database {
           created_at?: string
         }
       }
+      chat_mentions: {
+        Row: {
+          id: string
+          message_id: string | null
+          mentioned_member_id: string | null
+          alliance_id: string | null
+          is_read: boolean
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          message_id?: string | null
+          mentioned_member_id?: string | null
+          alliance_id?: string | null
+          is_read?: boolean
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          message_id?: string | null
+          mentioned_member_id?: string | null
+          alliance_id?: string | null
+          is_read?: boolean
+          created_at?: string
+        }
+      }
       kvk_voice_channels: {
         Row: {
           id: string

@@ -6,6 +6,7 @@ import {
   Clock, Timer, User, Crown, Loader2, Copy, Check, Layers, Target
 } from 'lucide-react'
 import { computePlan, waveLabel, sortByMarch, LANDING_GAPS, type LandingMode } from '@/lib/rally-timer'
+import { ScreenStayOn } from '@/components/ui/ScreenStayOn'
 
 interface PlayerInfo {
   profilePhoto: string
@@ -333,6 +334,8 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
 
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+      {/* Keep the screen awake while a rally timer is actively running */}
+      <ScreenStayOn active={running} />
       {/* Session header */}
       <div className="flex items-center gap-2">
         <Timer size={18} className="text-amber-500 flex-shrink-0" />

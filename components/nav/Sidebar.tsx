@@ -2,7 +2,7 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Home, Users, Calendar, MessageSquare, BarChart3,
   Shield, Settings, Crown, Menu, X, LogOut, Sword, Timer
@@ -24,9 +24,25 @@ interface SidebarProps {
 export function Sidebar({ allianceId, role, userId, allianceName, kingdomId }: SidebarProps) {
   const [open, setOpen] = useState(false)
   const [chatOpen, setChatOpen] = useState(false)
+  // Scroll target for the chat panel when opened from a notification ("Jump to
+  // message"). The nonce forces the effect to re-run even for the same message id.
+  const [chatTarget, setChatTarget] = useState<{ messageId: string; nonce: number } | null>(null)
   const pathname = usePathname()
   const router = useRouter()
   const supabase = createClient()
+
+  // Member roles (R1–R3) jump to a mentioned message via the slide-out panel.
+  // The NotificationBell dispatches this event since it lives outside the Sidebar.
+  useEffect(() => {
+    function onOpenChat(e: Event) {
+      const detail = (e as CustomEvent).detail || {}
+      setChatOpen(true)
+      setOpen(false)
+      if (detail.messageId) setChatTarget({ messageId: detail.messageId, nonce: Date.now() })
+    }
+    window.addEventListener('ks:open-chat', onOpenChat)
+    return () => window.removeEventListener('ks:open-chat', onOpenChat)
+  }, [])
 
   const allianceBase = allianceId ? `/alliances/${allianceId}` : null
 
@@ -151,6 +167,8 @@ export function Sidebar({ allianceId, role, userId, allianceName, kingdomId }: S
           currentUserRole={role || ''}
           open={chatOpen}
           onClose={() => setChatOpen(false)}
+          targetMessageId={chatTarget?.messageId}
+          targetNonce={chatTarget?.nonce}
         />
       )}
     </>

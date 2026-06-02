@@ -4,6 +4,11 @@ import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { MessageSquare, Send, Globe, Trash2, X, Paperclip } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { ScreenStayOn } from '@/components/ui/ScreenStayOn'
+import { MentionText } from '@/components/chat/MentionText'
+import { MentionPopup } from '@/components/chat/MentionPopup'
+import { useMentionInput } from '@/hooks/useMentionInput'
+import { buildMemberByUser, resolveSenderName } from '@/lib/chat'
 
 interface Props {
   allianceId: string
@@ -20,8 +25,11 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
   const [uploading, setUploading] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [members, setMembers] = useState<any[]>([])
+  const [highlightId, setHighlightId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
   // Stable client reference — avoids creating multiple GoTrue clients across renders
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (!supabaseRef.current) supabaseRef.current = createClient()
@@ -36,9 +44,55 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
 
   const canDelete = ['r5', 'r4', 'system_admin'].includes(currentUser?.role || '')
 
+  // ---- Game-tag name resolution (Part 3) + @ mention data (Part 4) ----
+  const memberByUser = buildMemberByUser(members)
+  const memberNames = members.map((m) => m.player_name)
+  const viewerName = resolveSenderName(currentUser?.id, currentUser?.display_name, memberByUser)
+  const myMemberId = members.find((m) => m.linked_user_id === currentUser?.id)?.id || null
+
+  // Load alliance members for sender names + mention autocomplete
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const { data } = await supabase
+        .from('members')
+        .select('id, player_name, linked_user_id')
+        .eq('alliance_id', allianceId)
+      if (!cancelled && data) setMembers(data)
+    })()
+    return () => { cancelled = true }
+  }, [allianceId])
+
+  // Opening the chat reads its messages → mark this user's mentions here as read (Part 5)
+  useEffect(() => {
+    if (!myMemberId) return
+    supabase
+      .from('chat_mentions')
+      .update({ is_read: true })
+      .eq('alliance_id', allianceId)
+      .eq('mentioned_member_id', myMemberId)
+      .eq('is_read', false)
+      .then(() => {})
+  }, [myMemberId, allianceId, messages.length])
+
+  const mention = useMentionInput(members, content, setContent, inputRef)
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Jump-to-message from a notification (?msg=<id>): scroll to it and flash a highlight
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const msgId = new URLSearchParams(window.location.search).get('msg')
+    if (!msgId) return
+    const el = document.getElementById(`msg-${msgId}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    setHighlightId(msgId)
+    const t = setTimeout(() => setHighlightId(null), 2500)
+    return () => clearTimeout(t)
+  }, [messages.length])
 
   // Realtime subscription — starts on mount, unsubscribes on unmount.
   // Self-heals: resubscribes on CLOSED/TIMED_OUT.
@@ -99,12 +153,26 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
     }
   }, [allianceId])
 
+  // Parse @mentions server-side so recipients get notifications
+  async function processMentions(messageId: string) {
+    try {
+      await fetch('/api/chat/mentions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId, allianceId }),
+      })
+    } catch {
+      // Non-fatal: the message still sends even if mention parsing fails
+    }
+  }
+
   async function sendMessage(e: React.FormEvent) {
     e.preventDefault()
     if (!content.trim()) return
     setSending(true)
     const text = content.trim()
     setContent('')
+    mention.close()
     const { data: inserted } = await supabase.from('chat_messages').insert({
       alliance_id: allianceId,
       author_id: currentUser?.id,
@@ -116,6 +184,7 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
         ...inserted,
         user_profiles: { display_name: currentUser?.display_name, role: currentUser?.role },
       }])
+      processMentions(inserted.id)
     }
   }
 
@@ -219,6 +288,9 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
 
   return (
     <>
+      {/* Keep the screen awake while the chat room is open */}
+      <ScreenStayOn active={true} />
+
       {/* Lightbox */}
       {lightboxUrl && (
         <div
@@ -250,16 +322,16 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
         {/* Messages */}
         <div className="flex-1 overflow-y-auto py-4 space-y-3">
           {messages.map(msg => {
-            const author = msg.user_profiles
             const isOwn = msg.author_id === currentUser?.id
             const isImage = isImageMessage(msg.content)
+            const senderName = resolveSenderName(msg.author_id, msg.user_profiles?.display_name, memberByUser)
             return (
-              <div key={msg.id} className={`flex gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
+              <div key={msg.id} id={`msg-${msg.id}`} className={`flex gap-2 ${isOwn ? 'flex-row-reverse' : ''} ${highlightId === msg.id ? 'ring-2 ring-amber-400 rounded-2xl -m-1 p-1' : ''}`}>
                 <div className={`max-w-[80%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
                   {!isOwn && (
                     <span className="text-xs text-slate-400 px-1">
-                      {author?.display_name || 'Unknown'}
-                      {author?.role && <Badge className="ml-1" variant="default">{author.role}</Badge>}
+                      {senderName}
+                      {msg.user_profiles?.role && <Badge className="ml-1" variant="default">{msg.user_profiles.role}</Badge>}
                     </span>
                   )}
                   <div className={`rounded-2xl text-sm ${isOwn ? 'bg-amber-500 text-slate-900 rounded-tr-sm' : 'bg-slate-800 text-slate-100 rounded-tl-sm'} ${isImage ? 'p-1' : 'px-4 py-2'}`}>
@@ -273,7 +345,7 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
                       />
                     ) : (
                       <>
-                        {msg.content}
+                        <MentionText content={msg.content} memberNames={memberNames} viewerName={viewerName} />
                         {msg._translated && (
                           <p className="text-xs mt-1 opacity-70 italic">{msg._translated}</p>
                         )}
@@ -321,43 +393,59 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
         )}
 
         {/* Input */}
-        <form onSubmit={sendMessage} className="flex gap-2 pt-4 border-t border-slate-800">
-          {/* Hidden file input */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp"
-            className="hidden"
-            onChange={e => {
-              const file = e.target.files?.[0]
-              if (file) handleImageUpload(file)
-              e.target.value = ''
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading || sending}
-            title="Upload image"
-            className="w-11 h-11 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 border border-slate-700 rounded-full flex items-center justify-center flex-shrink-0 transition-colors"
-          >
-            <Paperclip size={18} className="text-slate-400" />
-          </button>
-          <input
-            value={content}
-            onChange={e => setContent(e.target.value)}
-            onPaste={handlePaste}
-            placeholder="Type a message..."
-            className="flex-1 px-4 h-11 bg-slate-800 border border-slate-700 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-            maxLength={1000}
-          />
-          <button
-            type="submit"
-            disabled={sending || uploading || !content.trim()}
-            className="w-11 h-11 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 rounded-full flex items-center justify-center flex-shrink-0 transition-colors"
-          >
-            <Send size={18} className="text-slate-900" />
-          </button>
+        <form onSubmit={sendMessage} className="pt-4 border-t border-slate-800">
+          <div className="flex gap-2 relative">
+            {/* Mention autocomplete */}
+            {mention.open && (
+              <MentionPopup
+                candidates={mention.candidates}
+                activeIndex={mention.activeIndex}
+                onSelect={mention.select}
+              />
+            )}
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/gif,image/webp"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0]
+                if (file) handleImageUpload(file)
+                e.target.value = ''
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading || sending}
+              title="Upload image"
+              className="w-11 h-11 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 border border-slate-700 rounded-full flex items-center justify-center flex-shrink-0 transition-colors"
+            >
+              <Paperclip size={18} className="text-slate-400" />
+            </button>
+            <input
+              ref={inputRef}
+              value={content}
+              onChange={mention.onChange}
+              onKeyDown={e => { if (mention.onKeyDown(e)) return }}
+              onPaste={handlePaste}
+              placeholder="Type a message... (@ to mention)"
+              className="flex-1 px-4 h-11 bg-slate-800 border border-slate-700 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+              maxLength={1000}
+            />
+            <button
+              type="submit"
+              disabled={sending || uploading || !content.trim()}
+              className="w-11 h-11 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 rounded-full flex items-center justify-center flex-shrink-0 transition-colors"
+            >
+              <Send size={18} className="text-slate-900" />
+            </button>
+          </div>
+          {/* Confirm which name others will see */}
+          <p className="text-xs text-slate-500 mt-1.5 px-1">
+            Sending as: <span className="text-amber-400 font-medium">{viewerName}</span>
+          </p>
         </form>
       </div>
     </>
