@@ -5,13 +5,14 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { User, Shield, Calendar, Star, Sword, Copy, Check, Trash2, AlertTriangle } from 'lucide-react'
+import { User, Shield, Calendar, Star, Sword, Copy, Check, Trash2, AlertTriangle, Gift } from 'lucide-react'
 import { parseMarkdownToHtml } from '@/components/ui/RichTextEditor'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { HeroManager } from '@/components/members/HeroManager'
 import { TroopDataEditor } from '@/components/members/TroopDataEditor'
 import { LeaveAllianceButton } from '@/components/members/LeaveAllianceButton'
 import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
+import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 
 class SectionErrorBoundary extends Component<
@@ -52,7 +53,7 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [tab, setTab] = useState<'stats' | 'combat' | 'troops' | 'availability' | 'heroes'>('stats')
+  const [tab, setTab] = useState<'stats' | 'combat' | 'troops' | 'availability' | 'heroes' | 'gifts'>('stats')
 
   const existingCombatStats = (member.member_combat_stats as any[])?.[0]
   const assignments = memberAvailability || []
@@ -115,13 +116,14 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
         </div>
 
         {/* Tabs */}
-        <div className="grid grid-cols-5 gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1">
+        <div className="grid grid-cols-6 gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1">
           {([
             { key: 'stats', label: 'Stats', icon: Shield },
             { key: 'combat', label: 'Combat', icon: Sword },
             { key: 'troops', label: 'Troops', icon: User },
             { key: 'availability', label: 'Events', icon: Calendar },
             { key: 'heroes', label: 'Heroes', icon: Star },
+            { key: 'gifts', label: 'Gifts', icon: Gift },
           ] as const).map(({ key, label, icon: Icon }) => (
             <button
               key={key}
@@ -263,6 +265,23 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
               memberHeroes={memberHeroes}
               heroes={heroes}
             />
+          </SectionErrorBoundary>
+        )}
+
+        {/* Gift Codes Tab */}
+        {tab === 'gifts' && (
+          <SectionErrorBoundary label="Gift codes">
+            <Card>
+              <CardContent className="py-4 space-y-3">
+                {!member.game_id && (
+                  <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+                    <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+                    Add your Player ID in the Stats tab to enable one-click redemption.
+                  </div>
+                )}
+                <GiftCodeRedeemer gameId={member.game_id} />
+              </CardContent>
+            </Card>
           </SectionErrorBoundary>
         )}
 

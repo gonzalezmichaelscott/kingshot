@@ -9,6 +9,8 @@ import { formatPower } from '@/lib/utils'
 import { isMemberRole, roleLabel } from '@/lib/access'
 import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
 import { DeleteOwnProfileButton } from '@/components/members/DeleteOwnProfileButton'
+import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
+import { Gift } from 'lucide-react'
 
 export default async function DashboardPage() {
   const supabase = createClient()
@@ -177,6 +179,14 @@ export default async function DashboardPage() {
                 Update my availability & stats
               </Link>
             )}
+          </CardContent>
+        </Card>
+
+        {/* Gift Codes */}
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2"><Gift size={18} className="text-amber-500" />Gift Codes</CardTitle></CardHeader>
+          <CardContent>
+            <GiftCodeRedeemer gameId={member?.game_id} />
           </CardContent>
         </Card>
 

@@ -9,6 +9,7 @@ import { formatPower } from '@/lib/utils'
 import { requireAllianceAccess } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { KvkToggle } from '@/components/alliance/KvkToggle'
+import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
 
 export default async function AllianceHubPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
@@ -105,6 +106,13 @@ export default async function AllianceHubPage({ params }: { params: { id: string
           </Link>
         ))}
       </div>
+
+      {/* Active gift codes — share with members (R4/R5 cannot redeem on their behalf) */}
+      <Card>
+        <CardContent className="py-4">
+          <GiftCodeRedeemer mode="share" />
+        </CardContent>
+      </Card>
 
       <div className="grid md:grid-cols-2 gap-6">
         {/* Top players */}
