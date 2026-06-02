@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { UtcDateTimePicker } from '@/components/ui/UtcDateTimePicker'
 import { ChevronLeft, ChevronRight, Plus, X, Edit2, Trash2, Repeat, Calendar as CalIcon } from 'lucide-react'
 import {
   CalendarEvent, CALENDAR_COLORS, RECURRENCE_LABELS, occurrencesByDay, utcDayKey,
@@ -274,11 +275,11 @@ export function AllianceCalendar({ allianceId, events, canManage }: Props) {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">Date & Time (UTC) <span className="text-red-400">*</span></label>
-                  <Input type="datetime-local" value={form.event_date} onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))} />
+                  <UtcDateTimePicker value={form.event_date} onChange={v => setForm(f => ({ ...f, event_date: v }))} />
                 </div>
                 <div>
                   <label className="text-xs text-slate-400 block mb-1">End (UTC) <span className="text-slate-500">(optional)</span></label>
-                  <Input type="datetime-local" value={form.end_date} onChange={e => setForm(f => ({ ...f, end_date: e.target.value }))} />
+                  <UtcDateTimePicker value={form.end_date} onChange={v => setForm(f => ({ ...f, end_date: v }))} />
                 </div>
               </div>
               <div>
@@ -317,7 +318,7 @@ export function AllianceCalendar({ allianceId, events, canManage }: Props) {
                   )}
                   <div>
                     <label className="text-xs text-slate-400 block mb-1">Recurrence end (UTC) <span className="text-slate-500">(optional)</span></label>
-                    <Input type="datetime-local" value={form.recurrence_end_date} onChange={e => setForm(f => ({ ...f, recurrence_end_date: e.target.value }))} />
+                    <UtcDateTimePicker value={form.recurrence_end_date} onChange={v => setForm(f => ({ ...f, recurrence_end_date: v }))} />
                   </div>
                 </div>
               )}

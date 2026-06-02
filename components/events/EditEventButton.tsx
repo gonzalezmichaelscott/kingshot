@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { UtcDateTimePicker } from '@/components/ui/UtcDateTimePicker'
 import { Edit2, X, Save } from 'lucide-react'
 
 interface Props {
@@ -136,18 +137,18 @@ export function EditEventButton({ event, compact }: Props) {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="text-xs text-slate-400 block mb-1">Legion 1 Battle Time (UTC) <span className="text-red-400">*</span></label>
-                    <Input type="datetime-local" value={form.legion1_start_utc} onChange={e => setForm(f => ({ ...f, legion1_start_utc: e.target.value }))} />
+                    <UtcDateTimePicker value={form.legion1_start_utc} onChange={v => setForm(f => ({ ...f, legion1_start_utc: v }))} />
                   </div>
                   <div>
                     <label className="text-xs text-slate-400 block mb-1">Legion 2 Battle Time (UTC) <span className="text-red-400">*</span></label>
-                    <Input type="datetime-local" value={form.legion2_start_utc} onChange={e => setForm(f => ({ ...f, legion2_start_utc: e.target.value }))} />
+                    <UtcDateTimePicker value={form.legion2_start_utc} onChange={v => setForm(f => ({ ...f, legion2_start_utc: v }))} />
                   </div>
                 </div>
               ) : (
                 <>
                   <div>
                     <label className="text-xs text-slate-400 block mb-1">Battle Start (UTC)</label>
-                    <Input type="datetime-local" value={form.battle_start_utc} onChange={e => setForm(f => ({ ...f, battle_start_utc: e.target.value }))} />
+                    <UtcDateTimePicker value={form.battle_start_utc} onChange={v => setForm(f => ({ ...f, battle_start_utc: v }))} />
                     {isKvk && (
                       <p className="text-[11px] text-slate-500 mt-1">Castle battle window is 12:00–17:00 UTC on the chosen date.</p>
                     )}
@@ -155,7 +156,7 @@ export function EditEventButton({ event, compact }: Props) {
                   {!isKvk && (
                     <div>
                       <label className="text-xs text-slate-400 block mb-1">Battle End (UTC) <span className="text-slate-500">(optional)</span></label>
-                      <Input type="datetime-local" value={form.battle_end_utc} onChange={e => setForm(f => ({ ...f, battle_end_utc: e.target.value }))} />
+                      <UtcDateTimePicker value={form.battle_end_utc} onChange={v => setForm(f => ({ ...f, battle_end_utc: v }))} />
                     </div>
                   )}
                 </>

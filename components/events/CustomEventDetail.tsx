@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { UtcDateTimePicker } from '@/components/ui/UtcDateTimePicker'
 import { RichTextEditor, parseMarkdownToHtml } from '@/components/ui/RichTextEditor'
 import { Calendar, Edit2, X, Save, ImagePlus, ZoomIn } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
@@ -221,18 +222,16 @@ function EditForm({ event, onDone }: { event: any; onDone: () => void }) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="text-xs text-slate-400 block mb-1">Start Date & Time (UTC)</label>
-          <Input
-            type="datetime-local"
+          <UtcDateTimePicker
             value={form.battle_start_utc}
-            onChange={e => setForm(f => ({ ...f, battle_start_utc: e.target.value }))}
+            onChange={v => setForm(f => ({ ...f, battle_start_utc: v }))}
           />
         </div>
         <div>
           <label className="text-xs text-slate-400 block mb-1">End Date & Time (UTC) <span className="text-slate-500">(optional)</span></label>
-          <Input
-            type="datetime-local"
+          <UtcDateTimePicker
             value={form.battle_end_utc}
-            onChange={e => setForm(f => ({ ...f, battle_end_utc: e.target.value }))}
+            onChange={v => setForm(f => ({ ...f, battle_end_utc: v }))}
           />
         </div>
       </div>
