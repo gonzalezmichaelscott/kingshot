@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatPower, troopTypeColor, roleColor } from '@/lib/utils'
 import { User, Sword, Star, Link2 } from 'lucide-react'
 import { MemberEditForm } from '@/components/members/MemberEditForm'
+import { PreferredLanguageSelect } from '@/components/members/PreferredLanguageSelect'
 import { AdminWillingToMoveToggle } from '@/components/members/AdminWillingToMoveToggle'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { TroopDataEditor } from '@/components/members/TroopDataEditor'
@@ -213,6 +214,18 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
       {/* Edit form — R4/R5/admin */}
       {canEdit && (
         <MemberEditForm member={member} />
+      )}
+
+      {/* Preferred language — R4/R5/admin can set on the member's behalf */}
+      {canEdit && (
+        <Card>
+          <CardContent className="py-4">
+            <PreferredLanguageSelect
+              accessToken={member.access_token}
+              initial={member.preferred_language}
+            />
+          </CardContent>
+        </Card>
       )}
 
       {/* Willing to move for KVK — R4/R5/admin can set on the member's behalf */}

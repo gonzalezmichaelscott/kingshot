@@ -141,11 +141,13 @@ export function Sidebar({ allianceId, role, userId, allianceName, kingdomId }: S
           {/* Chat button — visible to ALL roles if they have an alliance */}
           {allianceId && userId && (
             <button
-              onClick={() => { setChatOpen(true); setOpen(false) }}
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 w-full transition-colors"
+              onClick={() => { setChatOpen(o => !o); setOpen(false) }}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium w-full transition-colors ${
+                chatOpen ? 'bg-amber-500/20 text-amber-400' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100'
+              }`}
             >
               <MessageSquare size={18} className="text-amber-500" />
-              Alliance Chat
+              {chatOpen ? 'Close Chat' : 'Alliance Chat'}
             </button>
           )}
           <button

@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { Sidebar } from '@/components/nav/Sidebar'
 import { UtcClock } from '@/components/ui/UtcClock'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
+import { InstallButton } from '@/components/ui/InstallButton'
 import { isMemberRole } from '@/lib/access'
 
 // Backend page prefixes that R3-and-below may NOT access
@@ -55,6 +56,7 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
            On mobile, pl-12 leaves room for the hamburger button that sits at left-4. */}
       <div className="fixed top-0 right-0 z-50 flex items-center gap-3 pr-4 pl-12 lg:pl-4 h-12 bg-slate-950/90 backdrop-blur-sm border-b border-slate-800/60 lg:left-64 left-0">
         <div className="flex-1" />
+        <InstallButton />
         <NotificationBell userId={user.id} role={profile?.role} />
         <UtcClock />
       </div>

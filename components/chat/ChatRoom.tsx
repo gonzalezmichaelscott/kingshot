@@ -4,11 +4,13 @@ import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { MessageSquare, Send, Globe, Trash2, X, Paperclip } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { ScreenStayOn } from '@/components/ui/ScreenStayOn'
+import { useNoSleep } from '@/hooks/useNoSleep'
 import { MentionText } from '@/components/chat/MentionText'
 import { MentionPopup } from '@/components/chat/MentionPopup'
 import { useMentionInput } from '@/hooks/useMentionInput'
 import { buildMemberByUser, resolveSenderName } from '@/lib/chat'
+import { useChatTranslation } from '@/hooks/useChatTranslation'
+import { languageLabel, DEFAULT_LANGUAGE } from '@/lib/languages'
 
 interface Props {
   allianceId: string
@@ -21,7 +23,6 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
   const [messages, setMessages] = useState<any[]>(initialMessages)
   const [content, setContent] = useState('')
   const [sending, setSending] = useState(false)
-  const [translating, setTranslating] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -43,6 +44,10 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
   const channelIdRef = useRef<string>(`chat:${allianceId}:${Math.random().toString(36).slice(2)}`)
 
   const canDelete = ['r5', 'r4', 'system_admin'].includes(currentUser?.role || '')
+
+  // ---- Translation (Feature 2) ----
+  const preferredLang = currentUser?.preferred_language || DEFAULT_LANGUAGE
+  const tr = useChatTranslation(currentUser?.id || 'anon', preferredLang)
 
   // ---- Game-tag name resolution (Part 3) + @ mention data (Part 4) ----
   const memberByUser = buildMemberByUser(members)
@@ -76,6 +81,9 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
   }, [myMemberId, allianceId, messages.length])
 
   const mention = useMentionInput(members, content, setContent, inputRef)
+
+  // Keep the screen awake while the chat room is open (silent — no badge)
+  useNoSleep(true)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -188,27 +196,15 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
     }
   }
 
-  async function translate(messageId: string, text: string) {
-    setTranslating(messageId)
-    try {
-      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_TRANSLATE_KEY
-      if (!apiKey) { setTranslating(null); return }
-      const res = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q: text, target: navigator.language.split('-')[0] }),
-      })
-      const data = await res.json()
-      const translated = data.data?.translations?.[0]?.translatedText
-      if (translated) {
-        setMessages(prev => prev.map(m =>
-          m.id === messageId ? { ...m, _translated: translated } : m
-        ))
-      }
-    } finally {
-      setTranslating(null)
+  // Auto-translate incoming messages to the viewer's preferred language
+  useEffect(() => {
+    if (!tr.autoTranslate) return
+    for (const m of messages) {
+      if (m.author_id === currentUser?.id) continue
+      if (isImageMessage(m.content)) continue
+      tr.ensureAuto(m.id, m.content)
     }
-  }
+  }, [tr.autoTranslate, messages])
 
   async function deleteMessage(messageId: string) {
     await supabase.from('chat_messages').delete().eq('id', messageId)
@@ -288,9 +284,6 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
 
   return (
     <>
-      {/* Keep the screen awake while the chat room is open */}
-      <ScreenStayOn active={true} />
-
       {/* Lightbox */}
       {lightboxUrl && (
         <div
@@ -317,6 +310,20 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
         <div className="flex items-center gap-2 pb-4 border-b border-slate-800">
           <MessageSquare className="text-amber-500" size={20} />
           <h1 className="font-bold">{allianceName} — Chat</h1>
+          {/* Auto-translate toggle */}
+          <label className="ml-auto flex items-center gap-2 cursor-pointer select-none text-xs text-slate-400">
+            <Globe size={13} className="text-amber-500" />
+            <span className="hidden sm:inline">Auto-translate</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={tr.autoTranslate}
+              onClick={() => tr.setAutoTranslate(!tr.autoTranslate)}
+              className={`relative w-9 h-5 rounded-full transition-colors ${tr.autoTranslate ? 'bg-amber-500' : 'bg-slate-700'}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${tr.autoTranslate ? 'translate-x-4' : ''}`} />
+            </button>
+          </label>
         </div>
 
         {/* Messages */}
@@ -345,9 +352,15 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
                       />
                     ) : (
                       <>
-                        <MentionText content={msg.content} memberNames={memberNames} viewerName={viewerName} />
-                        {msg._translated && (
-                          <p className="text-xs mt-1 opacity-70 italic">{msg._translated}</p>
+                        {tr.visible[msg.id] && tr.translations[msg.id] ? (
+                          <>
+                            <p className="whitespace-pre-wrap">{tr.translations[msg.id].text}</p>
+                            <p className="text-[10px] mt-1 opacity-70 italic">
+                              Translated from {languageLabel(tr.translations[msg.id].from)}
+                            </p>
+                          </>
+                        ) : (
+                          <MentionText content={msg.content} memberNames={memberNames} viewerName={viewerName} />
                         )}
                       </>
                     )}
@@ -356,12 +369,12 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
                     <span className="text-xs text-slate-500">{formatTime(msg.created_at)}</span>
                     {!isOwn && !isImage && (
                       <button
-                        onClick={() => translate(msg.id, msg.content)}
+                        onClick={() => tr.toggle(msg.id, msg.content)}
                         className="text-xs text-slate-500 hover:text-slate-300 flex items-center gap-0.5"
-                        disabled={translating === msg.id}
+                        disabled={tr.pending[msg.id]}
                       >
                         <Globe size={10} />
-                        {translating === msg.id ? '...' : 'Translate'}
+                        {tr.pending[msg.id] ? '...' : tr.visible[msg.id] ? 'Show Original' : 'Translate'}
                       </button>
                     )}
                     {canDelete && (

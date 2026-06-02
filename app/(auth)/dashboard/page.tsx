@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { formatPower } from '@/lib/utils'
 import { isMemberRole, roleLabel } from '@/lib/access'
 import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
+import { PreferredLanguageSelect } from '@/components/members/PreferredLanguageSelect'
 import { DeleteOwnProfileButton } from '@/components/members/DeleteOwnProfileButton'
 import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
 import { Gift } from 'lucide-react'
@@ -195,6 +196,10 @@ export default async function DashboardPage() {
           <Card>
             <CardHeader><CardTitle className="flex items-center gap-2"><User size={18} className="text-amber-500" />Profile Settings</CardTitle></CardHeader>
             <CardContent className="space-y-5">
+              <PreferredLanguageSelect
+                accessToken={member.access_token}
+                initial={member.preferred_language}
+              />
               <WillingToMoveToggle
                 accessToken={member.access_token}
                 initial={member.kvk_willing_to_move}

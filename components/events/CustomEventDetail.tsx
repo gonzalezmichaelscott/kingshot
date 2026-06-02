@@ -9,6 +9,7 @@ import { RichTextEditor, parseMarkdownToHtml } from '@/components/ui/RichTextEdi
 import { Calendar, Edit2, X, Save, ImagePlus, ZoomIn } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import { TranslateButton } from '@/components/ui/TranslateButton'
 
 const statusLabel: Record<string, string> = {
   draft: 'Draft',
@@ -40,6 +41,17 @@ interface Props {
   memberId?: string | null
   memberAttendance?: any
   accessToken?: string
+  viewerLang?: string
+}
+
+/** Strip HTML tags to plain text for translation. */
+function htmlToPlainText(html: string): string {
+  if (typeof document !== 'undefined') {
+    const el = document.createElement('div')
+    el.innerHTML = html
+    return (el.textContent || el.innerText || '').trim()
+  }
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
 function ImageGallery({ images }: { images: Image[] }) {
@@ -319,11 +331,13 @@ function InlineImageLightbox({ html }: { html: string }) {
   )
 }
 
-export function CustomEventDetail({ event, canManage, allianceId, memberId, memberAttendance, accessToken }: Props) {
+export function CustomEventDetail({ event, canManage, allianceId, memberId, memberAttendance, accessToken, viewerLang = 'en' }: Props) {
   const [editing, setEditing] = useState(false)
   const images: Image[] = (event.custom_images as Image[]) || []
   const html = event.custom_instructions_html || parseMarkdownToHtml(event.custom_instructions || '')
   const status = event.status || 'planning'
+  // Plain-text source for translating the battle plan instructions.
+  const instructionsText = (event.custom_instructions || '').trim() || htmlToPlainText(html)
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">
@@ -379,7 +393,12 @@ export function CustomEventDetail({ event, canManage, allianceId, memberId, memb
           {html ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Battle Plan / Instructions</CardTitle>
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <CardTitle className="text-base">Battle Plan / Instructions</CardTitle>
+                  {instructionsText && (
+                    <TranslateButton text={instructionsText} targetLang={viewerLang} label="Translate Instructions" variant="button" />
+                  )}
+                </div>
               </CardHeader>
               <CardContent>
                 <InlineImageLightbox html={html} />

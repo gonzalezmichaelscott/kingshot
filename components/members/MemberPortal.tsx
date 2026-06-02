@@ -12,6 +12,7 @@ import { HeroManager } from '@/components/members/HeroManager'
 import { TroopDataEditor } from '@/components/members/TroopDataEditor'
 import { LeaveAllianceButton } from '@/components/members/LeaveAllianceButton'
 import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
+import { PreferredLanguageSelect } from '@/components/members/PreferredLanguageSelect'
 import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 
@@ -179,6 +180,12 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
               <Button className="w-full" onClick={saveStats} disabled={saving}>
                 {saving ? 'Saving…' : saved ? 'Saved! ✓' : 'Update Stats'}
               </Button>
+
+              {/* Preferred language */}
+              <PreferredLanguageSelect
+                accessToken={member.access_token}
+                initial={member.preferred_language}
+              />
 
               {/* Willing to move for KVK */}
               <WillingToMoveToggle

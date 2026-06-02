@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Pin, PinOff, Trash2, MessageSquare, ChevronDown, ChevronUp, Loader2, Send } from 'lucide-react'
+import { TranslateButton } from '@/components/ui/TranslateButton'
 
 interface Reply {
   id: string
@@ -30,13 +31,14 @@ interface Props {
   currentUserId: string
   currentUserName: string
   canModerate: boolean
+  viewerLang: string
 }
 
 function fmt(ts: string) {
   return new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-export function BoardClient({ initialPosts, currentUserId, currentUserName, canModerate }: Props) {
+export function BoardClient({ initialPosts, currentUserId, currentUserName, canModerate, viewerLang }: Props) {
   const [posts, setPosts] = useState<Post[]>(initialPosts)
   const router = useRouter()
   const supabase = createClient()
@@ -82,6 +84,7 @@ export function BoardClient({ initialPosts, currentUserId, currentUserName, canM
           currentUserId={currentUserId}
           currentUserName={currentUserName}
           canModerate={canModerate}
+          viewerLang={viewerLang}
           onTogglePin={togglePin}
           onDelete={deletePost}
           onReplyAdded={addReplyLocal}
@@ -91,7 +94,7 @@ export function BoardClient({ initialPosts, currentUserId, currentUserName, canM
   )
 }
 
-function PostCard({ post, currentUserId, currentUserName, canModerate, onTogglePin, onDelete, onReplyAdded }: any) {
+function PostCard({ post, currentUserId, currentUserName, canModerate, viewerLang, onTogglePin, onDelete, onReplyAdded }: any) {
   const [expanded, setExpanded] = useState(false)
   const [replying, setReplying] = useState(false)
   const [replyText, setReplyText] = useState('')
@@ -131,6 +134,11 @@ function PostCard({ post, currentUserId, currentUserName, canModerate, onToggleP
               </button>
             </div>
             <p className={`text-sm text-slate-300 ${expanded ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}>{post.content}</p>
+            {post.content && (
+              <div className="mt-1.5">
+                <TranslateButton text={post.content} targetLang={viewerLang} />
+              </div>
+            )}
             <div className="flex items-center gap-3 mt-2 text-xs text-slate-400 flex-wrap">
               <span>{post.user_profiles?.display_name || 'Member'}</span>
               <span>{fmt(post.created_at)}</span>
@@ -177,6 +185,11 @@ function PostCard({ post, currentUserId, currentUserName, canModerate, onToggleP
                       <span>{fmt(r.created_at)}</span>
                     </div>
                     <p className="text-sm text-slate-200 whitespace-pre-wrap">{r.content}</p>
+                    {r.content && (
+                      <div className="mt-1">
+                        <TranslateButton text={r.content} targetLang={viewerLang} />
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

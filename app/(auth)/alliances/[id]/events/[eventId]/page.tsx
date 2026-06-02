@@ -79,6 +79,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
             event={event}
             canManage={canManage}
             allianceId={params.id}
+            viewerLang={profile?.preferred_language || 'en'}
           />
         </div>
       </>

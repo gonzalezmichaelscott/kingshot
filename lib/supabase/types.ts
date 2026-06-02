@@ -58,6 +58,7 @@ export interface Database {
           alliance_id: string | null
           role: 'system_admin' | 'kingdom_leader' | 'r5' | 'r4' | 'member' | null
           display_name: string | null
+          preferred_language: string | null
           created_at: string
         }
         Insert: {
@@ -65,6 +66,7 @@ export interface Database {
           alliance_id?: string | null
           role?: 'system_admin' | 'kingdom_leader' | 'r5' | 'r4' | 'member' | null
           display_name?: string | null
+          preferred_language?: string | null
           created_at?: string
         }
         Update: {
@@ -72,6 +74,7 @@ export interface Database {
           alliance_id?: string | null
           role?: 'system_admin' | 'kingdom_leader' | 'r5' | 'r4' | 'member' | null
           display_name?: string | null
+          preferred_language?: string | null
           created_at?: string
         }
       }
@@ -91,6 +94,7 @@ export interface Database {
           participation_history: Json
           troop_data: Json | null
           notes: string | null
+          preferred_language: string | null
           created_at: string
           updated_at: string
         }
@@ -109,6 +113,7 @@ export interface Database {
           participation_history?: Json
           troop_data?: Json | null
           notes?: string | null
+          preferred_language?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -127,6 +132,7 @@ export interface Database {
           participation_history?: Json
           troop_data?: Json | null
           notes?: string | null
+          preferred_language?: string | null
           created_at?: string
           updated_at?: string
         }

@@ -14,7 +14,7 @@ import { KvkReadiness } from '@/components/kvk/KvkReadiness'
 import { KvkPlanModePanel } from '@/components/kvk/KvkPlanModePanel'
 import { KvkSyncButton } from '@/components/kvk/KvkSyncButton'
 import { getKvkContext, loadAttendingKvkMembers, KVK_STRUCTURES, isManualAssignment } from '@/lib/kvk'
-import { ScreenStayOn } from '@/components/ui/ScreenStayOn'
+import { KeepAwake } from '@/components/ui/KeepAwake'
 import { createServiceClient } from '@/lib/supabase/server'
 
 const LEADER_ROLE = /leader|castle|garrison/
@@ -190,8 +190,8 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      {/* Keep the screen awake while leaders coordinate KVK */}
-      <ScreenStayOn active={true} />
+      {/* Keep the screen awake while leaders coordinate KVK (no visible badge) */}
+      <KeepAwake active={true} />
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Sword className="text-amber-500" size={24} />

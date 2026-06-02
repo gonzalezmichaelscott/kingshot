@@ -4,11 +4,13 @@ import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { MessageSquare, Send, Globe, Trash2, X, Paperclip } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { ScreenStayOn } from '@/components/ui/ScreenStayOn'
+import { useNoSleep } from '@/hooks/useNoSleep'
 import { MentionText } from '@/components/chat/MentionText'
 import { MentionPopup } from '@/components/chat/MentionPopup'
 import { useMentionInput } from '@/hooks/useMentionInput'
 import { buildMemberByUser, resolveSenderName } from '@/lib/chat'
+import { useChatTranslation } from '@/hooks/useChatTranslation'
+import { languageLabel, DEFAULT_LANGUAGE } from '@/lib/languages'
 
 interface Props {
   allianceId: string
@@ -25,7 +27,6 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
   const [messages, setMessages] = useState<any[]>([])
   const [content, setContent] = useState('')
   const [sending, setSending] = useState(false)
-  const [translating, setTranslating] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
   const [hasMore, setHasMore] = useState(true)
   const [initialized, setInitialized] = useState(false)
@@ -34,6 +35,7 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [members, setMembers] = useState<any[]>([])
   const [myDisplayName, setMyDisplayName] = useState<string | null>(null)
+  const [myPreferredLang, setMyPreferredLang] = useState<string>(DEFAULT_LANGUAGE)
   const [highlightId, setHighlightId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -45,7 +47,9 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
   const supabase = supabaseRef.current
 
   const canDelete = ['r5', 'r4', 'system_admin'].includes(currentUserRole || '')
-  const hasTranslate = typeof window !== 'undefined' && !!(process.env.NEXT_PUBLIC_GOOGLE_TRANSLATE_KEY)
+
+  // ---- Translation (Feature 2) ----
+  const tr = useChatTranslation(currentUserId || 'anon', myPreferredLang)
 
   // ---- Game-tag name resolution (Part 3) + @ mention data (Part 4) ----
   const memberByUser = buildMemberByUser(members)
@@ -55,17 +59,23 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
 
   const mention = useMentionInput(members, content, setContent, inputRef)
 
+  // Keep the screen awake while the panel is open (silent — no badge)
+  useNoSleep(open)
+
   // Load alliance members (sender names + mentions) and the viewer's display name
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       const [{ data: mems }, { data: prof }] = await Promise.all([
         supabase.from('members').select('id, player_name, linked_user_id').eq('alliance_id', allianceId),
-        supabase.from('user_profiles').select('display_name').eq('id', currentUserId).maybeSingle(),
+        supabase.from('user_profiles').select('display_name, preferred_language').eq('id', currentUserId).maybeSingle(),
       ])
       if (cancelled) return
       if (mems) setMembers(mems)
-      if (prof) setMyDisplayName(prof.display_name)
+      if (prof) {
+        setMyDisplayName(prof.display_name)
+        if (prof.preferred_language) setMyPreferredLang(prof.preferred_language)
+      }
     })()
     return () => { cancelled = true }
   }, [allianceId, currentUserId])
@@ -204,25 +214,15 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }
 
-  async function translate(messageId: string, text: string) {
-    setTranslating(messageId)
-    try {
-      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_TRANSLATE_KEY
-      if (!apiKey) return
-      const res = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ q: text, target: navigator.language.split('-')[0] }),
-      })
-      const data = await res.json()
-      const translated = data.data?.translations?.[0]?.translatedText
-      if (translated) {
-        setMessages(prev => prev.map(m => m.id === messageId ? { ...m, _translated: translated } : m))
-      }
-    } finally {
-      setTranslating(null)
+  // Auto-translate incoming messages to the viewer's preferred language
+  useEffect(() => {
+    if (!tr.autoTranslate) return
+    for (const m of messages) {
+      if (m.author_id === currentUserId) continue
+      if (isImageMessage(m.content)) continue
+      tr.ensureAuto(m.id, m.content)
     }
-  }
+  }, [tr.autoTranslate, messages])
 
   async function deleteMessage(messageId: string) {
     await supabase.from('chat_messages').delete().eq('id', messageId)
@@ -307,9 +307,6 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
 
   return (
     <>
-      {/* Keep the screen awake while the chat panel is visible */}
-      <ScreenStayOn active={open} />
-
       {/* Lightbox */}
       {lightboxUrl && (
         <div
@@ -342,13 +339,36 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
       {/* Panel */}
       <div className={`fixed right-0 top-0 h-full w-80 max-w-full bg-slate-900 border-l border-slate-800 z-50 flex flex-col shadow-2xl transition-transform duration-200 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
         {/* Header */}
-        <div className="flex items-center justify-between px-4 h-12 border-b border-slate-800 flex-shrink-0 bg-slate-900">
-          <div className="flex items-center gap-2">
-            <MessageSquare size={16} className="text-amber-500" />
+        <div className="flex items-center justify-between pl-4 pr-1 h-12 border-b border-slate-800 flex-shrink-0 bg-slate-900">
+          <div className="flex items-center gap-2 min-w-0">
+            <MessageSquare size={16} className="text-amber-500 flex-shrink-0" />
             <span className="font-semibold text-sm truncate">{allianceName} Chat</span>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-100 p-1">
-            <X size={18} />
+          {/* Reliable close — 44px touch target for easy tapping on mobile */}
+          <button
+            onClick={onClose}
+            aria-label="Close chat"
+            title="Close chat"
+            className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-lg flex-shrink-0 transition-colors"
+          >
+            <X size={22} />
+          </button>
+        </div>
+
+        {/* Auto-translate toggle */}
+        <div className="flex items-center justify-between px-4 py-1.5 border-b border-slate-800/60 flex-shrink-0">
+          <span className="flex items-center gap-1.5 text-[11px] text-slate-400">
+            <Globe size={12} className="text-amber-500" />
+            Auto-translate messages
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={tr.autoTranslate}
+            onClick={() => tr.setAutoTranslate(!tr.autoTranslate)}
+            className={`relative w-9 h-5 rounded-full transition-colors ${tr.autoTranslate ? 'bg-amber-500' : 'bg-slate-700'}`}
+          >
+            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${tr.autoTranslate ? 'translate-x-4' : ''}`} />
           </button>
         </div>
 
@@ -390,23 +410,29 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
                       />
                     ) : (
                       <>
-                        <MentionText content={msg.content} memberNames={memberNames} viewerName={viewerName} />
-                        {msg._translated && (
-                          <p className="text-xs mt-1 opacity-70 italic">{msg._translated}</p>
+                        {tr.visible[msg.id] && tr.translations[msg.id] ? (
+                          <>
+                            <p className="whitespace-pre-wrap">{tr.translations[msg.id].text}</p>
+                            <p className="text-[9px] mt-1 opacity-70 italic">
+                              Translated from {languageLabel(tr.translations[msg.id].from)}
+                            </p>
+                          </>
+                        ) : (
+                          <MentionText content={msg.content} memberNames={memberNames} viewerName={viewerName} />
                         )}
                       </>
                     )}
                   </div>
                   <div className="flex items-center gap-1.5 px-1">
                     <span className="text-[10px] text-slate-500">{formatTime(msg.created_at)}</span>
-                    {!isOwn && !isImage && hasTranslate && (
+                    {!isOwn && !isImage && (
                       <button
-                        onClick={() => translate(msg.id, msg.content)}
+                        onClick={() => tr.toggle(msg.id, msg.content)}
                         className="text-[10px] text-slate-500 hover:text-slate-300 flex items-center gap-0.5"
-                        disabled={translating === msg.id}
+                        disabled={tr.pending[msg.id]}
                       >
                         <Globe size={9} />
-                        {translating === msg.id ? '…' : 'TR'}
+                        {tr.pending[msg.id] ? '…' : tr.visible[msg.id] ? 'Original' : 'TR'}
                       </button>
                     )}
                     {canDelete && (

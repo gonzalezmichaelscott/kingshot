@@ -12,7 +12,7 @@ export default async function BoardPage({ params }: { params: { id: string } }) 
   if (!alliance) notFound()
 
   const { data: { user } } = await supabase.auth.getUser()
-  const { data: profile } = await supabase.from('user_profiles').select('role, id, display_name').eq('id', user!.id).single()
+  const { data: profile } = await supabase.from('user_profiles').select('role, id, display_name, preferred_language').eq('id', user!.id).single()
 
   const { data: posts } = await supabase
     .from('posts')
@@ -50,6 +50,7 @@ export default async function BoardPage({ params }: { params: { id: string } }) 
         currentUserId={profile?.id || ''}
         currentUserName={profile?.display_name || 'You'}
         canModerate={canModerate}
+        viewerLang={profile?.preferred_language || 'en'}
       />
     </div>
   )
