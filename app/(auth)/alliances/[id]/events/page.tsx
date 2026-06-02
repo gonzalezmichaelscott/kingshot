@@ -8,6 +8,7 @@ import Link from 'next/link'
 import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { EditEventButton } from '@/components/events/EditEventButton'
+import { formatUtcDateTime } from '@/lib/utils'
 
 const statusColor: Record<string, 'green' | 'amber' | 'blue' | 'default'> = {
   active: 'green',
@@ -116,7 +117,7 @@ function EventRow({ ev, allianceId, canManage }: { ev: any; allianceId: string; 
                 {' — '}
                 {new Date(ev.battle_end_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })} UTC
               </>
-            ) : new Date(ev.battle_start_utc).toLocaleString()
+            ) : formatUtcDateTime(ev.battle_start_utc)
           ) : 'Date TBD'}
         </p>
       </Link>

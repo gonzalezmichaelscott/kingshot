@@ -3,13 +3,14 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Shield, Users, Calendar, BarChart3, MessageSquare, Sword } from 'lucide-react'
+import { Shield, Users, Calendar, BarChart3, MessageSquare, Sword, CalendarDays, Repeat } from 'lucide-react'
 import Link from 'next/link'
-import { formatPower } from '@/lib/utils'
+import { formatPower, formatUtcDateTime } from '@/lib/utils'
 import { requireAllianceAccess } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { KvkToggle } from '@/components/alliance/KvkToggle'
 import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
+import { upcomingOccurrences, CALENDAR_COLORS } from '@/lib/calendar'
 
 export default async function AllianceHubPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
@@ -30,13 +31,17 @@ export default async function AllianceHubPage({ params }: { params: { id: string
     { count: memberCount },
     { data: recentEvents },
     { data: topMembers },
+    { data: calendarEvents },
   ] = await Promise.all([
     supabase.from('members').select('*', { count: 'exact', head: true }).eq('alliance_id', params.id),
     supabase.from('events').select('*, event_types(name)').eq('alliance_id', params.id)
       .order('created_at', { ascending: false }).limit(3),
     supabase.from('members').select('player_name, power, member_scores(overall_score)')
       .eq('alliance_id', params.id).order('power', { ascending: false }).limit(5),
+    supabase.from('alliance_calendar_events').select('*').eq('alliance_id', params.id),
   ])
+
+  const upcoming = upcomingOccurrences(calendarEvents || [], new Date(), 5)
 
   const nav = [
     { href: `/alliances/${params.id}/members`, icon: Users, label: 'Members', count: memberCount },
@@ -106,6 +111,41 @@ export default async function AllianceHubPage({ params }: { params: { id: string
           </Link>
         ))}
       </div>
+
+      {/* Upcoming calendar events widget */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <CalendarDays size={18} className="text-amber-500" />
+              Upcoming Events
+            </span>
+            <Link href={`/alliances/${params.id}/calendar`} className="text-amber-500 hover:text-amber-400 text-sm font-normal">
+              Calendar →
+            </Link>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {upcoming.map((o, i) => {
+              const c = CALENDAR_COLORS[o.event.color] || CALENDAR_COLORS.amber
+              return (
+                <div key={o.event.id + i} className="flex items-center justify-between gap-3 p-2 bg-slate-800 rounded-lg">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${c.dot}`} />
+                    <span className="text-sm font-medium truncate">{o.event.title}</span>
+                    {o.event.is_recurring && <Repeat size={12} className="text-slate-500 flex-shrink-0" />}
+                  </div>
+                  <span className="text-xs text-slate-400 flex-shrink-0">{formatUtcDateTime(o.date)}</span>
+                </div>
+              )
+            })}
+            {upcoming.length === 0 && (
+              <p className="text-slate-400 text-sm">No upcoming events. <Link href={`/alliances/${params.id}/calendar`} className="text-amber-500 hover:text-amber-400">Add one →</Link></p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Active gift codes — share with members (R4/R5 cannot redeem on their behalf) */}
       <Card>

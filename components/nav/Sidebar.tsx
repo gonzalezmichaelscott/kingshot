@@ -5,7 +5,8 @@ import { usePathname } from 'next/navigation'
 import { useState, useEffect, useCallback } from 'react'
 import {
   Home, Users, Calendar, MessageSquare, BarChart3,
-  Shield, Settings, Crown, Menu, X, LogOut, Sword, Timer, ShieldCheck
+  Shield, Settings, Crown, Menu, X, LogOut, Sword, Timer, ShieldCheck,
+  CalendarDays, FileText, BookOpen
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
@@ -75,12 +76,17 @@ export function Sidebar({ allianceId, role, userId, allianceName, kingdomId }: S
       { href: `${allianceBase}`, label: 'Alliance Hub', icon: Shield },
       { href: `${allianceBase}/members`, label: 'Members', icon: Users },
       { href: `${allianceBase}/events`, label: 'Events', icon: Calendar },
+      { href: `${allianceBase}/calendar`, label: 'Calendar', icon: CalendarDays },
+      { href: `${allianceBase}/templates`, label: 'Templates', icon: FileText },
       { href: `${allianceBase}/chat`, label: 'Chat', icon: MessageSquare },
       { href: `${allianceBase}/board`, label: 'Board', icon: MessageSquare },
       { href: `${allianceBase}/analytics`, label: 'Analytics', icon: BarChart3 },
     ] : []),
     ...(backend && kingdomId ? [
       { href: `/kingdoms/${kingdomId}/kvk`, label: 'KVK Command', icon: Sword },
+    ] : []),
+    ...(backend ? [
+      { href: '/guide', label: 'Leader Guide', icon: BookOpen },
     ] : []),
     ...(role === 'system_admin' ? [
       { href: '/admin', label: 'Admin', icon: Settings },

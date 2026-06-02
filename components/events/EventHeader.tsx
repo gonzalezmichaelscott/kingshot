@@ -1,6 +1,7 @@
 'use client'
 import { Badge } from '@/components/ui/badge'
 import { Calendar, Clock } from 'lucide-react'
+import { formatUtcDateTime } from '@/lib/utils'
 
 const statusColors: Record<string, 'green' | 'amber' | 'blue' | 'default'> = {
   active: 'green', registration: 'amber', planning: 'blue', completed: 'default',
@@ -31,7 +32,7 @@ export function EventHeader({ event, children }: Props) {
         {event.battle_start_utc && (
           <span className="flex items-center gap-1">
             <Calendar size={14} />
-            {new Date(event.battle_start_utc).toLocaleString()} UTC
+            {formatUtcDateTime(event.battle_start_utc)}
           </span>
         )}
         {eventType?.duration_minutes && (

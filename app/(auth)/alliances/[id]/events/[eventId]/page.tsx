@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { notFound } from 'next/navigation'
 import { SwordlandEvent } from '@/components/events/SwordlandEvent'
 import { KvkCastleEvent } from '@/components/events/KvkCastleEvent'
+import { CastleBattleEvent } from '@/components/events/CastleBattleEvent'
 import { TriAllianceEvent } from '@/components/events/TriAllianceEvent'
 import { GenericEventPage } from '@/components/events/GenericEventPage'
 import { BattlePlansTab } from '@/components/events/BattlePlansTab'
@@ -91,6 +92,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const eventComponent =
     slug === 'swordland_showdown' ? <SwordlandEvent {...props} /> :
     slug === 'kvk_castle_battle' ? <KvkCastleEvent {...props} /> :
+    slug === 'castle_battle' ? <CastleBattleEvent {...props} /> :
     slug === 'tri_alliance_clash' ? <TriAllianceEvent {...props} /> :
     <GenericEventPage {...props} />
 

@@ -343,6 +343,7 @@ function PlayerInfoBadges({ gameId }: { gameId: string }) {
 // based on the event type. The R4/R5 coordinator already sets the event date.
 function eventWindow(slug: string | undefined, battleStartUtc: string | null) {
   if (slug === 'kvk_castle_battle') return { start: 12, end: 17 } // 5-hour castle window
+  if (slug === 'castle_battle') return { start: 12, end: 17 } // single-alliance castle battle window
   if (slug === 'tri_alliance_clash') {
     const h = battleStartUtc ? new Date(battleStartUtc).getUTCHours() : 0
     return { start: h, end: h + 1 } // single 1-hour event window
@@ -449,7 +450,7 @@ function AvailabilityCard({ event, accessToken, existing, assignment }: { event:
             <div>
               <p className="text-xs text-slate-400 mb-2">
                 Select the UTC hours you're available
-                {slug === 'kvk_castle_battle' ? ' within the battle window (12:00–17:00 UTC)' : ''}.
+                {slug === 'kvk_castle_battle' || slug === 'castle_battle' ? ' within the battle window (12:00–17:00 UTC)' : ''}.
               </p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -606,7 +607,7 @@ function AssignmentCard({ assignment, leaderConfirmed }: { assignment: any; lead
   const role = assignment.role?.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
   const eventName = assignment.events?.name || assignment.events?.event_types?.name || 'Event'
   const eventDate = assignment.events?.battle_start_utc
-    ? new Date(assignment.events.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' UTC'
+    ? new Date(assignment.events.battle_start_utc).toLocaleString('en-GB', { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) + ' UTC'
     : null
 
   function copy() {
@@ -687,13 +688,11 @@ function SwordlandLegionCard({ event, accessToken, existing, memberTimezone }: {
 
   function fmt(iso: string | null) {
     if (!iso) return 'Time TBD'
-    try {
-      return new Date(iso).toLocaleString(undefined, {
-        timeZone: memberTimezone, weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-      })
-    } catch {
-      return new Date(iso).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' UTC'
-    }
+    // Kingshot runs on UTC — always show 24-hour UTC, never the member's local time.
+    return new Date(iso).toLocaleString('en-GB', {
+      timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }) + ' UTC'
   }
 
   async function save(next: 'legion1' | 'legion2' | 'none') {
@@ -812,7 +811,7 @@ function CustomEventCard({ event, accessToken, existing }: { event: any; accessT
                     {new Date(event.battle_end_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })} UTC
                   </>
                 ) : (
-                  <>{new Date(event.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC' })} UTC</>
+                  <>{new Date(event.battle_start_utc).toLocaleString('en-GB', { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} UTC</>
                 )}
               </p>
             )}

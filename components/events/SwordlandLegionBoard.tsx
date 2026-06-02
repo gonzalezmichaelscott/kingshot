@@ -19,8 +19,9 @@ interface Props {
 
 function fmtUtc(iso: string | null) {
   if (!iso) return 'Time TBD'
-  return new Date(iso).toLocaleString(undefined, {
-    timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  return new Date(iso).toLocaleString('en-GB', {
+    timeZone: 'UTC', weekday: 'short', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
   }) + ' UTC'
 }
 

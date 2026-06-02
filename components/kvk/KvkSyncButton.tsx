@@ -35,7 +35,7 @@ export function KvkSyncButton() {
       </button>
       {last && (
         <span className="text-xs text-slate-500">
-          Last synced: {last.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+          Last synced: {last.toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })} UTC
         </span>
       )}
     </div>

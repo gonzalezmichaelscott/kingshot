@@ -99,7 +99,7 @@ export function GiftCodeRedeemer({ gameId, mode = 'redeem' }: Props) {
       {lastUpdated && (
         <p className="text-[11px] text-slate-500 flex items-center gap-1">
           <Clock size={10} />
-          Last updated {lastUpdated.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+          Last updated {lastUpdated.toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hour12: false })} UTC
         </p>
       )}
 

@@ -213,6 +213,11 @@ function buildPlanningPrompt(members: any[], event: any, kvkOptions?: { planMode
   const objectives = eventType.objectives
   const planMode = kvkOptions?.planMode
 
+  // Single-alliance Castle Battle: castle is top priority over the four turrets.
+  const castleBattleBlock = eventType.slug === 'castle_battle'
+    ? `\nCASTLE BATTLE PRIORITY: This is a single-alliance Castle Battle. Castle is top priority — assign the 2 strongest rally leaders and best joiners to castle first. If insufficient players for all 5 structures, fill castle completely first, then assign remaining capacity to turrets starting with North, then East, South, West. Never leave castle understaffed to fill turrets. Use squad values: castle, north_turret, east_turret, south_turret, west_turret, support. The battle window is 12:00–17:00 UTC.\n`
+    : ''
+
   const planModeBlock = planMode === 'A'
     ? `\nKVK PLAN MODE: PLAN A — ALLIANCE ONLY.
 STRICT rule: every rally joiner MUST be from the SAME alliance as their rally leader. Do NOT assign any cross-alliance joiners even if a member is willing to move. Set kvk_transfer = false on every assignment and return an empty transfer_recommendations array.\n`
@@ -222,7 +227,7 @@ You MAY assign willing-to-move members (kvk_willing_to_move = true) to join a ra
     : ''
 
   return `You are a battle planning assistant for the mobile strategy game Kingshot.
-${planModeBlock}
+${planModeBlock}${castleBattleBlock}
 
 EVENT: ${eventType.name}
 DESCRIPTION: ${eventType.description}
@@ -269,6 +274,7 @@ INSTRUCTIONS:
 4. Identify coverage gaps (time windows with insufficient players, missing backups)
 5. For Swordland: fill Squad A and Squad B with 30 members each, 10 substitutes
 6. For KVK Castle Battle: STAFF THE CASTLE FIRST — holding it 151 consecutive minutes wins instantly. Assign the strongest rally leader and the highest-scoring joiners to the castle before anyone else, then fill the 4 turret teams (N/E/S/W) by turret score, then support with whoever remains. Include a rotation schedule.
+6b. For (single-alliance) Castle Battle: STAFF THE CASTLE FIRST with the 2 strongest rally leaders and best joiners (2 full castle teams). Only after the castle is fully staffed, fill turrets in order North → East → South → West with remaining capacity, then support. Never leave the castle understaffed to fill a turret. Battle window is 12:00–17:00 UTC.
 7. For Tri Alliance Clash: assign by phase (Seize, Garrison, Temple) with defenders and assault teams
 8. Match march size to rally capacity — don't exceed rally capacity with joiners
 

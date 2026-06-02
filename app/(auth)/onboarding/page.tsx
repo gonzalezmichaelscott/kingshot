@@ -38,7 +38,7 @@ export default async function OnboardingPage() {
             ? 'Your request requires System Admin verification. You will be notified once it is approved.'
             : 'Your profile request has been sent to your alliance leaders. You will have access once an R4 or R5 approves it.'}
         </p>
-        <p className="text-xs text-slate-500">Submitted {new Date(pending.created_at).toLocaleString()}</p>
+        <p className="text-xs text-slate-500">Submitted {new Date(pending.created_at).toLocaleString('en-GB', { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} UTC</p>
       </div>
     )
   }

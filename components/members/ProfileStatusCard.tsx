@@ -27,8 +27,6 @@ export function ProfileStatusCard({
   const [unlinking, setUnlinking] = useState(false)
   const [approving, setApproving] = useState(false)
 
-  const selfServiceLink = `${appUrl}/member/${accessToken}`
-
   async function handleUnlink() {
     if (!confirm('Unlink this account from the member profile? The player will need to re-claim it.')) return
     setUnlinking(true)
@@ -135,16 +133,7 @@ export function ProfileStatusCard({
           <span className="w-2 h-2 rounded-full bg-blue-400 flex-shrink-0" />
           <span className="text-sm font-medium text-blue-300">Awaiting Claim</span>
         </div>
-        <p className="text-xs text-slate-400">No account linked yet. Send this link to the player in-game:</p>
-        <div className="flex items-center gap-2 bg-slate-800 rounded-lg p-2">
-          <code className="text-xs text-slate-300 truncate flex-1 min-w-0">{selfServiceLink}</code>
-          <button
-            onClick={() => navigator.clipboard.writeText(selfServiceLink)}
-            className="text-xs text-amber-400 hover:text-amber-300 flex-shrink-0"
-          >
-            Copy
-          </button>
-        </div>
+        <p className="text-xs text-slate-400">No account linked yet. Use the self-service link at the top of this page to invite the player.</p>
       </CardContent>
     </Card>
   )

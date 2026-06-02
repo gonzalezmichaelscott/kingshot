@@ -358,12 +358,12 @@ export function CustomEventDetail({ event, canManage, allianceId, memberId, memb
               <Calendar size={13} />
               {event.battle_end_utc ? (
                 <>
-                  {new Date(event.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  {new Date(event.battle_start_utc).toLocaleString('en-GB', { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}
                   {' — '}
-                  {new Date(event.battle_end_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })} UTC
+                  {new Date(event.battle_end_utc).toLocaleString('en-GB', { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} UTC
                 </>
               ) : (
-                <>{new Date(event.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC' })} UTC</>
+                <>{new Date(event.battle_start_utc).toLocaleString('en-GB', { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })} UTC</>
               )}
             </p>
           )}

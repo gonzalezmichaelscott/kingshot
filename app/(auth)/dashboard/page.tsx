@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Calendar, Shield, Swords, User } from 'lucide-react'
 import Link from 'next/link'
-import { formatPower } from '@/lib/utils'
+import { formatPower, formatUtcDateTime } from '@/lib/utils'
 import { isMemberRole, roleLabel } from '@/lib/access'
 import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
 import { PreferredLanguageSelect } from '@/components/members/PreferredLanguageSelect'
@@ -130,7 +130,7 @@ export default async function DashboardPage() {
                     <summary className="list-none p-3 cursor-pointer hover:bg-slate-750">
                       <div className="flex items-center justify-between flex-wrap gap-2">
                         <p className="font-medium">{a.events?.name || a.events?.event_types?.name}</p>
-                        {a.events?.battle_start_utc && <span className="text-xs text-slate-400">{new Date(a.events.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC' })} UTC</span>}
+                        {a.events?.battle_start_utc && <span className="text-xs text-slate-400">{formatUtcDateTime(a.events.battle_start_utc)}</span>}
                       </div>
                       <div className="flex gap-2 flex-wrap mt-1.5">
                         <Badge variant="amber">{(a.role || '').replace(/_/g, ' ')}</Badge>
@@ -267,7 +267,7 @@ export default async function DashboardPage() {
                 <Link key={ev.id} href={`/alliances/${allianceId}/events/${ev.id}`} className="flex items-center justify-between p-3 bg-slate-800 rounded-lg hover:bg-slate-700 transition-colors">
                   <div>
                     <p className="font-medium">{ev.name || ev.event_types?.name}</p>
-                    <p className="text-sm text-slate-400">{ev.battle_start_utc ? new Date(ev.battle_start_utc).toLocaleString() : 'Date TBD'}</p>
+                    <p className="text-sm text-slate-400">{ev.battle_start_utc ? formatUtcDateTime(ev.battle_start_utc) : 'Date TBD'}</p>
                   </div>
                   <Badge variant={ev.status === 'active' ? 'green' : ev.status === 'registration' ? 'amber' : 'default'}>{ev.status}</Badge>
                 </Link>

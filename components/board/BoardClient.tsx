@@ -35,7 +35,7 @@ interface Props {
 }
 
 function fmt(ts: string) {
-  return new Date(ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  return new Date(ts).toLocaleString('en-GB', { timeZone: 'UTC', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) + ' UTC'
 }
 
 export function BoardClient({ initialPosts, currentUserId, currentUserName, canModerate, viewerLang }: Props) {

@@ -72,9 +72,9 @@ export function AssignmentsTable({ assignments, title = 'Assignments', filter, s
                   {(a.time_window_start || a.time_window_end) && (
                     <div className="flex items-center gap-1 mt-1.5 text-xs text-slate-500">
                       <Clock size={10} />
-                      {a.time_window_start ? new Date(a.time_window_start).toLocaleString(undefined, { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' }) : '—'}
+                      {a.time_window_start ? new Date(a.time_window_start).toLocaleString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'}
                       {' → '}
-                      {a.time_window_end ? new Date(a.time_window_end).toLocaleString(undefined, { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' }) : '—'} UTC
+                      {a.time_window_end ? new Date(a.time_window_end).toLocaleString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hour12: false }) : '—'} UTC
                     </div>
                   )}
                 </div>
