@@ -7,6 +7,8 @@ import { Calendar, Shield, Swords, User } from 'lucide-react'
 import Link from 'next/link'
 import { formatPower } from '@/lib/utils'
 import { isMemberRole, roleLabel } from '@/lib/access'
+import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
+import { DeleteOwnProfileButton } from '@/components/members/DeleteOwnProfileButton'
 
 export default async function DashboardPage() {
   const supabase = createClient()
@@ -177,6 +179,21 @@ export default async function DashboardPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Profile settings — only for a claimed (linked) profile */}
+        {member?.access_token && (
+          <Card>
+            <CardHeader><CardTitle className="flex items-center gap-2"><User size={18} className="text-amber-500" />Profile Settings</CardTitle></CardHeader>
+            <CardContent className="space-y-5">
+              <WillingToMoveToggle
+                accessToken={member.access_token}
+                initial={member.kvk_willing_to_move}
+                setByLeaderName={member.kvk_willing_set_by ? 'your alliance leader' : null}
+              />
+              <DeleteOwnProfileButton accessToken={member.access_token} />
+            </CardContent>
+          </Card>
+        )}
       </div>
     )
   }

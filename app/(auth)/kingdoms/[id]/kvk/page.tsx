@@ -11,6 +11,8 @@ import { KvkStructureBoard } from '@/components/kvk/KvkStructureBoard'
 import { KvkGeneratePlanButton } from '@/components/kvk/KvkGeneratePlanButton'
 import { KvkNewCycleButton } from '@/components/kvk/KvkNewCycleButton'
 import { KvkReadiness } from '@/components/kvk/KvkReadiness'
+import { KvkPlanModePanel } from '@/components/kvk/KvkPlanModePanel'
+import { KvkSyncButton } from '@/components/kvk/KvkSyncButton'
 import { getKvkContext, loadAttendingKvkMembers, KVK_STRUCTURES, isManualAssignment } from '@/lib/kvk'
 import { createServiceClient } from '@/lib/supabase/server'
 
@@ -61,7 +63,7 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
   const warnings: string[] = []
   for (const a of participating) {
     if (!a.activeEvent) {
-      warnings.push(`${a.name} has no active KVK event — ask your R5 to create one and collect attendance`)
+      warnings.push(`${a.name} has no active KVK Castle Battle event — ask your R4 or R5 to create one and collect attendance from members`)
     } else if (!attendingByAlliance[a.id]) {
       warnings.push(`${a.name} — 0 members confirmed attending`)
     }
@@ -87,6 +89,13 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
     assignments = asg || []
   }
   const hasPlan = assignments.length > 0
+
+  // Transfer recommendations from the most recent stored Plan B (if any).
+  let transferRecommendations: any[] = []
+  for (const a of activeAlliances) {
+    const recs = (a.activeEvent?.battle_plan as any)?.transfer_recommendations
+    if (Array.isArray(recs) && recs.length > 0) { transferRecommendations = recs; break }
+  }
 
   const { data: voiceChannels } = await svc
     .from('kvk_voice_channels')
@@ -142,6 +151,7 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
     tag: (a.members as any)?.alliances?.tag || null,
     role: a.role,
     isManual: isManualAssignment(a.reasoning),
+    kvk_transfer: !!a.kvk_transfer,
   })
 
   const structures = KVK_STRUCTURES.map(s => {
@@ -179,10 +189,13 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
-      <h1 className="text-2xl font-bold flex items-center gap-2">
-        <Sword className="text-amber-500" size={24} />
-        KVK Command — {kingdomName}
-      </h1>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h1 className="text-2xl font-bold flex items-center gap-2">
+          <Sword className="text-amber-500" size={24} />
+          KVK Command — {kingdomName}
+        </h1>
+        <KvkSyncButton />
+      </div>
 
       {/* KVK Complete banner (FIX 7) */}
       {kvkComplete && (
@@ -248,14 +261,14 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
 
       {participating.length > 0 && (
         <>
-          {/* Generate Kingdom Battle Plan */}
-          {canGeneratePlan && activeAlliances.length > 0 && (
-            <Card>
-              <CardContent className="py-4">
-                <KvkGeneratePlanButton kingdomId={params.id} />
-              </CardContent>
-            </Card>
-          )}
+          {/* Generate Kingdom Battle Plan — Plan A / Plan B + Transfer Recommendations */}
+          {(canGeneratePlan && activeAlliances.length > 0) || transferRecommendations.length > 0 ? (
+            <KvkPlanModePanel
+              kingdomId={params.id}
+              canGenerate={canGeneratePlan && activeAlliances.length > 0}
+              transferRecommendations={transferRecommendations}
+            />
+          ) : null}
 
           {/* Structure cards (FIX 6) */}
           <KvkStructureBoard

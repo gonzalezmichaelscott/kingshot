@@ -11,6 +11,7 @@ import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { HeroManager } from '@/components/members/HeroManager'
 import { TroopDataEditor } from '@/components/members/TroopDataEditor'
 import { LeaveAllianceButton } from '@/components/members/LeaveAllianceButton'
+import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 
 class SectionErrorBoundary extends Component<
@@ -55,6 +56,8 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
 
   const existingCombatStats = (member.member_combat_stats as any[])?.[0]
   const assignments = memberAvailability || []
+  // Events where a leader set this member's attendance on their behalf.
+  const leaderSetEventIds = new Set((memberAvailability || []).filter((a: any) => a.manually_set_by).map((a: any) => a.event_id))
 
   async function saveStats() {
     setSaving(true)
@@ -174,6 +177,13 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
               <Button className="w-full" onClick={saveStats} disabled={saving}>
                 {saving ? 'Saving…' : saved ? 'Saved! ✓' : 'Update Stats'}
               </Button>
+
+              {/* Willing to move for KVK */}
+              <WillingToMoveToggle
+                accessToken={member.access_token}
+                initial={member.kvk_willing_to_move}
+                setByLeaderName={member.kvk_willing_set_by ? 'your alliance leader' : null}
+              />
             </CardContent>
           </Card>
         )}
@@ -206,7 +216,7 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
             {memberAssignments.length > 0 && (
               <div className="space-y-3">
                 {memberAssignments.map((a: any) => (
-                  <AssignmentCard key={a.id} assignment={a} />
+                  <AssignmentCard key={a.id} assignment={a} leaderConfirmed={leaderSetEventIds.has(a.event_id)} />
                 ))}
               </div>
             )}
@@ -256,79 +266,15 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
           </SectionErrorBoundary>
         )}
 
-        {/* Danger Zone */}
-        <DeleteProfileSection memberId={member.id} accessToken={member.access_token} playerName={member.player_name} />
-      </div>
-    </div>
-  )
-}
-
-function DeleteProfileSection({ memberId, accessToken, playerName }: { memberId: string; accessToken: string; playerName: string }) {
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
-  const router = useRouter()
-
-  async function handleDelete() {
-    setLoading(true)
-    setError('')
-    try {
-      const res = await fetch('/api/member/delete-profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ access_token: accessToken }),
-      })
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        throw new Error(d.error || 'Delete failed')
-      }
-      router.push('/onboarding')
-    } catch (e: any) {
-      setError(e.message)
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div className="mt-8 border-t border-red-900/30 pt-6">
-      <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">Danger Zone</p>
-      {!open ? (
-        <button
-          onClick={() => setOpen(true)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm text-red-400 border border-red-800/40 hover:bg-red-900/20 transition-colors"
-        >
-          <Trash2 size={14} />
-          Delete My Profile
-        </button>
-      ) : (
-        <div className="bg-red-950/30 border border-red-800/40 rounded-xl p-4 space-y-3">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="text-red-400 flex-shrink-0 mt-0.5" size={18} />
-            <div>
-              <p className="font-semibold text-slate-100 text-sm">Delete My Profile?</p>
-              <p className="text-xs text-slate-400 mt-1">
-                This will permanently delete your profile and all your data including stats, heroes, and assignments. This cannot be undone.
-              </p>
-            </div>
-          </div>
-          {error && <p className="text-red-400 text-xs">{error}</p>}
-          <div className="flex gap-2">
-            <button
-              onClick={() => setOpen(false)}
-              className="px-3 py-1.5 rounded-lg text-xs text-slate-300 hover:bg-slate-800 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={handleDelete}
-              disabled={loading}
-              className="px-3 py-1.5 rounded-lg text-xs bg-red-600 hover:bg-red-700 text-white font-medium disabled:opacity-50 transition-colors"
-            >
-              {loading ? 'Deleting…' : 'Yes, delete permanently'}
-            </button>
-          </div>
+        {/* Profile deletion is intentionally NOT available here. Deleting a profile
+            requires a claimed, logged-in account (or an R4/R5/admin acting on the
+            member's behalf) so it can't be done by anyone holding the share link. */}
+        <div className="mt-8 border-t border-slate-800 pt-6">
+          <p className="text-xs text-slate-500 leading-relaxed">
+            To delete your profile, log in and claim your profile first. Contact your R4 or R5 if you need help.
+          </p>
         </div>
-      )}
+      </div>
     </div>
   )
 }
@@ -452,6 +398,11 @@ function AvailabilityCard({ event, accessToken, existing, assignment }: { event:
         )}
       </CardHeader>
       <CardContent className="space-y-4">
+        {existing?.manually_set_by && (
+          <div className="rounded-lg border border-green-600/40 bg-green-600/10 p-2.5 text-xs text-green-300">
+            Attendance confirmed by your alliance leader.
+          </div>
+        )}
         <label className="flex items-center gap-3 cursor-pointer">
           <input
             type="checkbox"
@@ -542,6 +493,26 @@ function isKvkAssignment(a: any) {
   return a?.events?.event_types?.slug === 'kvk_castle_battle'
 }
 
+function KvkTransferBadge() {
+  return (
+    <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-semibold">
+      KVK Transfer
+    </span>
+  )
+}
+
+function TransferNotice({ assignment }: { assignment: any }) {
+  if (!assignment?.kvk_transfer) return null
+  const alliance = assignment.transfer_alliance || 'another alliance'
+  const leader = assignment.transfer_rally_leader || 'your assigned rally leader'
+  return (
+    <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-200 leading-relaxed">
+      You have been recommended to temporarily join <span className="font-semibold">{alliance}</span>'s rally.
+      Coordinate with <span className="font-semibold">{leader}</span> to move to their alliance before the battle.
+    </div>
+  )
+}
+
 function MemberAssignmentInline({ assignment }: { assignment: any }) {
   const [copied, setCopied] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -560,6 +531,7 @@ function MemberAssignmentInline({ assignment }: { assignment: any }) {
           <Sword size={13} className="text-amber-500" />
           <span className="text-sm font-semibold text-amber-400">Your Assignment</span>
           {isKvkAssignment(assignment) && <KvkBadge />}
+          {assignment.kvk_transfer && <KvkTransferBadge />}
           <span className={`text-xs px-2 py-0.5 rounded font-semibold ${roleBadgeStyle(assignment.role)}`}>
             {role}
           </span>
@@ -574,6 +546,11 @@ function MemberAssignmentInline({ assignment }: { assignment: any }) {
           {expanded ? 'Hide' : 'View full instructions'}
         </button>
       </div>
+      {assignment.kvk_transfer && (
+        <div className="px-3 pt-3">
+          <TransferNotice assignment={assignment} />
+        </div>
+      )}
       {expanded && (
         <div className="p-3 bg-slate-900 border-t border-amber-500/20">
           <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
@@ -592,7 +569,7 @@ function MemberAssignmentInline({ assignment }: { assignment: any }) {
   )
 }
 
-function AssignmentCard({ assignment }: { assignment: any }) {
+function AssignmentCard({ assignment, leaderConfirmed }: { assignment: any; leaderConfirmed?: boolean }) {
   const [copied, setCopied] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const role = assignment.role?.replace(/_/g, ' ').replace(/\b\w/g, (c: string) => c.toUpperCase())
@@ -617,6 +594,7 @@ function AssignmentCard({ assignment }: { assignment: any }) {
                 {role}
               </span>
               {isKvkAssignment(assignment) && <KvkBadge />}
+              {assignment.kvk_transfer && <KvkTransferBadge />}
               {assignment.squad && (
                 <span className="text-xs text-slate-400">Squad {assignment.squad}</span>
               )}
@@ -631,6 +609,12 @@ function AssignmentCard({ assignment }: { assignment: any }) {
         </div>
       </CardHeader>
       <CardContent className="pt-0 space-y-2">
+        <TransferNotice assignment={assignment} />
+        {leaderConfirmed && (
+          <div className="rounded-lg border border-green-600/40 bg-green-600/10 p-2 text-xs text-green-300">
+            Attendance confirmed by your alliance leader.
+          </div>
+        )}
         {assignment.reasoning && !expanded && (
           <p className="text-xs text-slate-400 leading-relaxed line-clamp-2">{assignment.reasoning}</p>
         )}

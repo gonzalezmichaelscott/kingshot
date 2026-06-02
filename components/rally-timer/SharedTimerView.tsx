@@ -1,7 +1,8 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Timer, Clock, Crown, Volume2, VolumeX } from 'lucide-react'
+import { Timer, Clock, Crown, Volume2, VolumeX, Layers } from 'lucide-react'
+import { computePlan, waveLabel, type LandingMode } from '@/lib/rally-timer'
 
 function formatMarchTime(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -17,6 +18,13 @@ function formatElapsed(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
+function speak(text: string) {
+  if (typeof window === 'undefined' || !window.speechSynthesis) return
+  const utt = new SpeechSynthesisUtterance(text)
+  utt.rate = 1.1
+  window.speechSynthesis.speak(utt)
+}
+
 interface Props {
   session: any
 }
@@ -24,65 +32,91 @@ interface Props {
 export function SharedTimerView({ session }: Props) {
   const [players, setPlayers] = useState<any[]>(session.players || [])
   const [label, setLabel] = useState(session.label || 'Rally Timer')
-  const [running, setRunning] = useState(session.status === 'running')
+  const [status, setStatus] = useState<'idle' | 'running'>(session.status === 'running' ? 'running' : 'idle')
   const [startedAt, setStartedAt] = useState<number | null>(
     session.started_at ? new Date(session.started_at).getTime() : null
   )
+  const [landingMode, setLandingMode] = useState<LandingMode>(session.landing_mode === 'staggered' ? 'staggered' : 'simultaneous')
+  const [landingGap, setLandingGap] = useState<number>(session.landing_gap || 3)
   const [elapsed, setElapsed] = useState(0)
+  const [countdownNum, setCountdownNum] = useState<number | null>(null)
   const [audioOn, setAudioOn] = useState(true)
   const alertedRef = useRef<Set<string>>(new Set())
+  const spokenCountdownRef = useRef<Set<number>>(new Set())
   const supabase = createClient()
 
-  // Realtime
+  // Apply a synced snapshot (broadcast OR postgres change).
+  function applySnapshot(s: any) {
+    if (s.label !== undefined) setLabel(s.label || 'Rally Timer')
+    if (s.players) setPlayers(s.players || [])
+    if (s.landing_mode) setLandingMode(s.landing_mode === 'staggered' ? 'staggered' : 'simultaneous')
+    if (s.landing_gap) setLandingGap(s.landing_gap)
+    if (s.status === 'running' && s.started_at) {
+      alertedRef.current.clear()
+      spokenCountdownRef.current.clear()
+      setStartedAt(new Date(s.started_at).getTime())
+      setStatus('running')
+    } else if (s.status === 'idle' || s.status === 'complete') {
+      setStatus('idle')
+      setStartedAt(null)
+      setElapsed(0)
+      setCountdownNum(null)
+      alertedRef.current.clear()
+      spokenCountdownRef.current.clear()
+    }
+  }
+
+  // Realtime: shared broadcast channel (FEATURE 4) + postgres changes fallback.
   useEffect(() => {
-    const channel = supabase
-      .channel(`shared:${session.id}`)
+    const channel = supabase.channel(`rally-timer:${session.id}`, { config: { broadcast: { self: false } } })
+    channel
+      .on('broadcast', { event: 'timer_started' }, ({ payload }) => applySnapshot({ ...payload, status: 'running' }))
+      .on('broadcast', { event: 'timer_reset' }, () => applySnapshot({ status: 'idle' }))
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rally_timer_sessions', filter: `id=eq.${session.id}` }, (payload) => {
-        const s = payload.new as any
-        setLabel(s.label || label)
-        setPlayers(s.players || [])
-        if (s.status === 'running' && s.started_at) {
-          setStartedAt(new Date(s.started_at).getTime())
-          setRunning(true)
-          alertedRef.current.clear()
-        } else if (s.status === 'idle' || s.status === 'complete') {
-          setRunning(false)
-          setElapsed(0)
-          setStartedAt(null)
-          alertedRef.current.clear()
-        }
+        applySnapshot(payload.new as any)
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id])
 
-  // Timer tick
+  // Unified tick (identical to the leader): countdown then elapsed + launch audio.
   useEffect(() => {
-    let id: NodeJS.Timeout
-    if (running && startedAt) {
-      id = setInterval(() => {
-        const el = Math.floor((Date.now() - startedAt) / 1000)
-        setElapsed(el)
-        const sorted = [...players].sort((a, b) => b.marchTime - a.marchTime)
-        const base = sorted[0]?.marchTime || 0
-        players.forEach(p => {
-          const offset = base - p.marchTime
-          if (el >= offset && !alertedRef.current.has(p.id) && p.marchTime !== base) {
-            alertedRef.current.add(p.id)
-            if (audioOn && window.speechSynthesis) {
-              const utt = new SpeechSynthesisUtterance(`Launch now ${p.name}`)
-              utt.rate = 1.1
-              window.speechSynthesis.speak(utt)
-            }
+    if (status !== 'running' || startedAt == null) return
+    const tick = () => {
+      const delta = Date.now() - startedAt
+      if (delta < 0) {
+        const c = Math.min(3, Math.max(1, Math.ceil(-delta / 1000)))
+        setCountdownNum(c)
+        setElapsed(0)
+        if (audioOn && !spokenCountdownRef.current.has(c)) {
+          spokenCountdownRef.current.add(c)
+          speak(String(c))
+        }
+        return
+      }
+      setCountdownNum(null)
+      const el = Math.floor(delta / 1000)
+      setElapsed(el)
+      const plan = computePlan(players, landingMode, landingGap)
+      const total = plan.length
+      plan.forEach(cp => {
+        if (el >= cp.launchOffset && !alertedRef.current.has(cp.id)) {
+          alertedRef.current.add(cp.id)
+          if (audioOn) {
+            const wave = landingMode === 'staggered' ? ` — ${waveLabel(cp.sortedIndex, total)} wave` : ''
+            speak(`Launch now ${cp.name}${wave}`)
           }
-        })
-      }, 250)
+        }
+      })
     }
+    const id = setInterval(tick, 250)
+    tick()
     return () => clearInterval(id)
-  }, [running, startedAt, players, audioOn])
+  }, [status, startedAt, players, audioOn, landingMode, landingGap])
 
-  const sortedPlayers = [...players].sort((a: any, b: any) => b.marchTime - a.marchTime)
-  const baseTime = sortedPlayers[0]?.marchTime || 0
+  const plan = computePlan(players, landingMode, landingGap)
+  const running = status === 'running'
 
   return (
     <div className="min-h-screen bg-slate-950 p-4 flex items-start justify-center">
@@ -97,26 +131,29 @@ export function SharedTimerView({ session }: Props) {
           </button>
         </div>
 
-        <p className="text-xs text-slate-500 text-center">Shared view — read only. Timer is synced live.</p>
+        <p className="text-xs text-slate-500 text-center">
+          Shared view — read only. Starts automatically when the leader starts.
+          {landingMode === 'staggered' && <span className="text-amber-400"> · Staggered landing ({landingGap}s apart)</span>}
+        </p>
 
-        {/* Elapsed */}
+        {/* Elapsed / countdown */}
         <div className="text-center py-4">
-          <div className={`text-6xl font-mono font-bold ${running ? 'text-amber-400' : 'text-slate-600'}`}>
-            {formatElapsed(elapsed)}
+          <div className={`text-6xl font-mono font-bold ${countdownNum !== null ? 'text-amber-300 animate-pulse' : running ? 'text-amber-400' : 'text-slate-600'}`}>
+            {countdownNum !== null ? countdownNum : formatElapsed(elapsed)}
           </div>
           {!running && <p className="text-slate-500 text-sm mt-2">Waiting for leader to start…</p>}
         </div>
 
         {/* Players */}
         <div className="space-y-2">
-          {sortedPlayers.map((p: any, i: number) => {
-            const isBase = i === 0
-            const offset = baseTime - p.marchTime
-            const launched = running && elapsed >= offset && !isBase
+          {plan.map((p) => {
+            const isBase = p.sortedIndex === 0
+            const launching = running && countdownNum === null && elapsed >= p.launchOffset && elapsed - p.launchOffset < 5
+            const launched = running && countdownNum === null && elapsed - p.launchOffset >= 5
 
             return (
               <div key={p.id} className={`border rounded-xl p-3 transition-all ${
-                launched && elapsed - offset < 5 ? 'border-green-500 bg-green-500/20 animate-pulse'
+                launching ? 'border-green-500 bg-green-500/20 animate-pulse'
                 : launched ? 'border-slate-700 bg-slate-800 opacity-60'
                 : isBase ? 'border-amber-500/50 bg-amber-500/10'
                 : 'border-slate-700 bg-slate-800'
@@ -130,19 +167,23 @@ export function SharedTimerView({ session }: Props) {
                     )}
                   </div>
                   <div className="flex-1">
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1 flex-wrap">
                       {isBase && <Crown size={12} className="text-amber-400" />}
                       <span className="font-semibold text-sm">{p.name}</span>
-                      {launched && elapsed - offset < 5 && <span className="text-green-400 font-bold text-xs ml-1">LAUNCH!</span>}
-                      {launched && elapsed - offset >= 5 && <span className="text-slate-500 text-xs ml-1">Launched</span>}
-                    </div>
-                    <div className="text-xs text-slate-400 flex gap-2">
-                      <span className="flex items-center gap-0.5"><Clock size={10} />{formatMarchTime(p.marchTime)}</span>
-                      {isBase ? (
-                        <span className="text-amber-400">BASE — opens first</span>
-                      ) : (
-                        <span>+{formatMarchTime(offset)} after BASE</span>
+                      {landingMode === 'staggered' && (
+                        <span className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                          <Layers size={9} />{waveLabel(p.sortedIndex, plan.length)} Wave
+                        </span>
                       )}
+                      {launching && <span className="text-green-400 font-bold text-xs ml-1">LAUNCH!</span>}
+                      {launched && <span className="text-slate-500 text-xs ml-1">Launched</span>}
+                    </div>
+                    <div className="text-xs text-slate-400 flex gap-2 flex-wrap">
+                      <span className="flex items-center gap-0.5"><Clock size={10} />{formatMarchTime(p.marchTime)}</span>
+                      <span>
+                        Launch {p.launchOffset === 0 ? 'at 0:00' : `+${formatMarchTime(p.launchOffset)}`}
+                        {' · arrives '}{formatElapsed(p.arrivalOffset)}
+                      </span>
                     </div>
                   </div>
                 </div>

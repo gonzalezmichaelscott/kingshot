@@ -20,6 +20,7 @@ const schema = z.object({
   march_size: z.number().int().min(0).optional(),
   rally_capacity: z.number().int().min(0).optional(),
   timezone: z.string().optional(),
+  kvk_willing_to_move: z.boolean().optional(),
   troop_data: troopDataSchema,
 })
 
@@ -36,6 +37,11 @@ export async function PATCH(request: NextRequest) {
     if (rest.march_size !== undefined) updates.march_size = rest.march_size
     if (rest.rally_capacity !== undefined) updates.rally_capacity = rest.rally_capacity
     if (rest.timezone !== undefined) updates.timezone = rest.timezone
+    if (rest.kvk_willing_to_move !== undefined) {
+      updates.kvk_willing_to_move = rest.kvk_willing_to_move
+      // Self-set via the member's own access token — clear any "set by leader" marker.
+      updates.kvk_willing_set_by = null
+    }
 
     if (troop_data !== undefined) {
       updates.troop_data = troop_data

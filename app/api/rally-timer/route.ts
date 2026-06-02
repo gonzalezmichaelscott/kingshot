@@ -32,6 +32,8 @@ export async function POST(request: NextRequest) {
           status: body.status,
           started_at: body.started_at ?? null,
           scheduled_for: body.scheduled_for ?? null,
+          landing_mode: body.landing_mode ?? 'simultaneous',
+          landing_gap: body.landing_gap ?? 3,
         })
         .eq('id', body.id)
         .select()

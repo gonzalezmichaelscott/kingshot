@@ -42,6 +42,12 @@ RALLY LEADER SELECTION RULES:
 - Zoe NEVER leads attack rallies — her kit is purely defensive
 - Garrison/defense: Zoe, Jabel, Eric, Alcar, Charles (Gen 7)
 
+CASTLE PRIORITY (KVK Castle Battle):
+Holding the castle for 151 consecutive minutes wins the entire KVK instantly. ALWAYS assign the kingdom's strongest rally leaders and highest-scoring joiners to the castle FIRST. Only after the castle is fully staffed assign remaining players to turrets and support. Never sacrifice castle strength for turret assignments. Order of filling: (1) top rally leader to the castle, (2) fill castle joiner slots with the highest-scoring joiners, (3) assign remaining players to the four turrets by turret score, (4) everyone left becomes support.
+
+RALLY JOINER RULE:
+Joiners must be from the same alliance as their rally leader UNLESS the joiner has kvk_willing_to_move = true. Willing-to-move members can be assigned across alliance lines if it meaningfully improves rally strength. Always note in reasoning when a cross-alliance joiner assignment is made.
+
 JOINER OPTIMIZATION:
 - Best attack joiner stack: Chenko (101) + Amane (102) — different effect_ops multiply
 - Best defensive joiner stack: Saul (112) + Gordon (113) + Howard or Quinn (111) — all different ops multiply
@@ -59,7 +65,7 @@ TROOP TIER SYSTEM:
 - Ensure joiner troop types match the rally leader's formation where possible (+15% effectiveness)
 - Mismatched troop types reduce joiner effectiveness by 10%; mixed-troop joiners are neutral
 
-Return a JSON battle plan with: summary, formations, assignments (each with member_id, player_name, role, squad, formation_recommendation, hero_recommendation, reasoning, is_primary, is_backup, time_window), joiner_stacking_advice, coverage_gaps, backup_plan, warnings.
+Return a JSON battle plan with: summary, formations, assignments (each with member_id, player_name, role, squad, formation_recommendation, hero_recommendation, reasoning, is_primary, is_backup, time_window, and for cross-alliance KVK joiners: kvk_transfer, transfer_alliance, transfer_rally_leader), joiner_stacking_advice, coverage_gaps, backup_plan, warnings, and (when cross-alliance transfers are used) transfer_recommendations.
 Never include markdown code fences in your response — raw JSON only.`
 
 export interface BattlePlanAssignment {
@@ -75,6 +81,18 @@ export interface BattlePlanAssignment {
   time_window?: string
   time_window_start?: string
   time_window_end?: string
+  // Cross-alliance KVK transfer (Plan B / willing-to-move joiners)
+  kvk_transfer?: boolean
+  transfer_alliance?: string
+  transfer_rally_leader?: string
+}
+
+export interface TransferRecommendation {
+  player_name: string
+  home_alliance: string
+  recommended_alliance: string
+  rally_leader: string
+  strength_improvement: string
 }
 
 export interface BattlePlan {
@@ -85,6 +103,7 @@ export interface BattlePlan {
   coverage_gaps: string[]
   backup_plan?: string
   warnings?: string[]
+  transfer_recommendations?: TransferRecommendation[]
   // legacy field retained for older stored plans
   recommendations?: string[]
 }
@@ -188,12 +207,22 @@ async function loadAttendingMembersWithScores(eventId: string) {
   return { members, event, weights }
 }
 
-function buildPlanningPrompt(members: any[], event: any): string {
+function buildPlanningPrompt(members: any[], event: any, kvkOptions?: { planMode?: 'A' | 'B' }): string {
   const eventType = event.event_types
   const rules = eventType.rules
   const objectives = eventType.objectives
+  const planMode = kvkOptions?.planMode
+
+  const planModeBlock = planMode === 'A'
+    ? `\nKVK PLAN MODE: PLAN A — ALLIANCE ONLY.
+STRICT rule: every rally joiner MUST be from the SAME alliance as their rally leader. Do NOT assign any cross-alliance joiners even if a member is willing to move. Set kvk_transfer = false on every assignment and return an empty transfer_recommendations array.\n`
+    : planMode === 'B'
+    ? `\nKVK PLAN MODE: PLAN B — OPTIMAL (INCLUDES WILLING TRANSFERS).
+You MAY assign willing-to-move members (kvk_willing_to_move = true) to join a rally leader from a DIFFERENT alliance when it meaningfully improves rally strength. For each such cross-alliance joiner set kvk_transfer = true, transfer_alliance = the rally leader's alliance, and transfer_rally_leader = the rally leader's player name. Also populate transfer_recommendations with one entry per transferred player: { player_name, home_alliance, recommended_alliance, rally_leader, strength_improvement }. Members who are NOT willing to move must still only join same-alliance rally leaders.\n`
+    : ''
 
   return `You are a battle planning assistant for the mobile strategy game Kingshot.
+${planModeBlock}
 
 EVENT: ${eventType.name}
 DESCRIPTION: ${eventType.description}
@@ -221,7 +250,7 @@ ${members.map(m => {
 
   return `
 - Player: ${m.player_name}
-  ID: ${m.member_id}
+  ID: ${m.member_id}${m.alliance_name ? `\n  Alliance: [${m.alliance_tag || ''}] ${m.alliance_name}` : ''}${m.kvk_willing_to_move !== undefined ? `\n  KVK Willing To Move: ${m.kvk_willing_to_move ? 'YES (may join a different alliance\'s rally)' : 'no (same-alliance rallies only)'}` : ''}
   Power: ${m.power.toLocaleString()}
   March Size: ${m.march_size.toLocaleString()}
   Rally Capacity: ${m.rally_capacity.toLocaleString()}
@@ -239,7 +268,7 @@ INSTRUCTIONS:
 3. Explain WHY each assignment was made — reference specific stats AND hero/effect_op synergy
 4. Identify coverage gaps (time windows with insufficient players, missing backups)
 5. For Swordland: fill Squad A and Squad B with 30 members each, 10 substitutes
-6. For KVK Castle Battle: assign castle team, 4 turret teams (N/E/S/W), support roles, and rotation schedule
+6. For KVK Castle Battle: STAFF THE CASTLE FIRST — holding it 151 consecutive minutes wins instantly. Assign the strongest rally leader and the highest-scoring joiners to the castle before anyone else, then fill the 4 turret teams (N/E/S/W) by turret score, then support with whoever remains. Include a rotation schedule.
 7. For Tri Alliance Clash: assign by phase (Seize, Garrison, Temple) with defenders and assault teams
 8. Match march size to rally capacity — don't exceed rally capacity with joiners
 
@@ -335,6 +364,7 @@ async function loadKvkMembersForScoring(memberIds: string[], eventType: any, ava
     .from('members')
     .select(`
       *,
+      alliances ( name, tag ),
       member_combat_stats (*),
       member_heroes ( *, heroes (*) ),
       member_scores (*)
@@ -386,6 +416,9 @@ async function loadKvkMembersForScoring(memberIds: string[], eventType: any, ava
     return {
       member_id: m.id,
       player_name: m.player_name,
+      alliance_name: (m.alliances as any)?.name || null,
+      alliance_tag: (m.alliances as any)?.tag || null,
+      kvk_willing_to_move: !!m.kvk_willing_to_move,
       power: m.power,
       march_size: m.march_size,
       rally_capacity: m.rally_capacity,
@@ -441,6 +474,9 @@ async function storeKvkAssignments(
       time_window_end: a.time_window_end || null,
       member_instructions: memberInstructions,
       instruction_generated_at: now,
+      kvk_transfer: !!a.kvk_transfer,
+      transfer_alliance: a.transfer_alliance || null,
+      transfer_rally_leader: a.transfer_rally_leader || null,
     })
   }
 
@@ -458,7 +494,7 @@ async function storeKvkAssignments(
  * honouring each member's availability window. Each assignment is stored on the
  * member's own alliance event. Returns the plan and the affected event ids.
  */
-export async function generateKingdomKvkBattlePlan(kingdomId: string): Promise<{ plan: BattlePlan; eventIds: string[] }> {
+export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 'A' | 'B' = 'A'): Promise<{ plan: BattlePlan; eventIds: string[] }> {
   const { eventType, alliances } = await getKvkContext(kingdomId)
   if (!eventType) throw new Error('KVK Castle Battle event type is not configured. Run the schema seed data.')
 
@@ -503,7 +539,7 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string): Promise<{
     battle_start_utc: active[0].activeEvent.battle_start_utc || null,
     event_types: eventType,
   }
-  const prompt = buildPlanningPrompt(members, pseudoEvent)
+  const prompt = buildPlanningPrompt(members, pseudoEvent, { planMode })
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-5',
@@ -514,6 +550,16 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string): Promise<{
 
   const text = response.content[0].type === 'text' ? response.content[0].text : ''
   const plan: BattlePlan = JSON.parse(extractJSON(text))
+
+  // Plan A is strict same-alliance: defensively strip any transfer flags the model emitted.
+  if (planMode === 'A') {
+    plan.transfer_recommendations = []
+    for (const a of plan.assignments) {
+      a.kvk_transfer = false
+      delete a.transfer_alliance
+      delete a.transfer_rally_leader
+    }
+  }
 
   await storeKvkAssignments(plan, eventIdByMember, pseudoEvent.name, eventStartByMember)
   return { plan, eventIds: activeEventIds }

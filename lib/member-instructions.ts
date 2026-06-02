@@ -29,12 +29,19 @@ function joinerInstructions(
   const squadJoiners = plan.assignments.filter(
     x => x.squad === a.squad && x.role.toLowerCase().includes('joiner') && !x.is_backup,
   )
-  const leaderName = leader?.player_name || 'your squad leader'
+  const leaderName = a.transfer_rally_leader || leader?.player_name || 'your squad leader'
   const formation = a.formation_recommendation || 'Use your primary troop type'
   const squadLabel = a.squad ? ` (Squad ${a.squad})` : ''
 
-  return `${header}
+  const transferBlock = a.kvk_transfer
+    ? `\n*** KVK TRANSFER ***
+You have been recommended to temporarily join ${a.transfer_alliance || "another alliance"}'s rally.
+Coordinate with ${leaderName} to move to their alliance before the battle.
+\n`
+    : ''
 
+  return `${header}
+${transferBlock}
 YOUR ROLE: Rally Joiner${squadLabel}
 YOUR SQUAD LEADER: ${leaderName}
 

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Sword, Loader2 } from 'lucide-react'
 
-export function KvkGeneratePlanButton({ kingdomId }: { kingdomId: string }) {
+export function KvkGeneratePlanButton({ kingdomId, planMode = 'A' }: { kingdomId: string; planMode?: 'A' | 'B' }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
@@ -18,7 +18,7 @@ export function KvkGeneratePlanButton({ kingdomId }: { kingdomId: string }) {
       const res = await fetch('/api/kvk/battle-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kingdomId }),
+        body: JSON.stringify({ kingdomId, planMode }),
       })
       if (!res.ok) {
         const data = await res.json()

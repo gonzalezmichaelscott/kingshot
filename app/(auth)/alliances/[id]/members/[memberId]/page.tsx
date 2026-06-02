@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatPower, troopTypeColor, roleColor } from '@/lib/utils'
 import { User, Sword, Star, Link2 } from 'lucide-react'
 import { MemberEditForm } from '@/components/members/MemberEditForm'
+import { AdminWillingToMoveToggle } from '@/components/members/AdminWillingToMoveToggle'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { TroopDataEditor } from '@/components/members/TroopDataEditor'
 import { HeroManager } from '@/components/members/HeroManager'
@@ -83,6 +84,17 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
       .eq('id', pendingClaim.requesting_user_id)
       .maybeSingle()
     pendingClaimRequesterName = rp?.display_name || null
+  }
+
+  // Resolve the leader who set the willing-to-move flag (if any) for display.
+  let willingSetByName: string | null = null
+  if (member.kvk_willing_set_by) {
+    const { data: setter } = await supabase
+      .from('user_profiles')
+      .select('display_name')
+      .eq('id', member.kvk_willing_set_by)
+      .maybeSingle()
+    willingSetByName = setter?.display_name || 'an alliance leader'
   }
 
   const stats = (member.member_combat_stats as any)?.[0]
@@ -203,6 +215,15 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
         <MemberEditForm member={member} />
       )}
 
+      {/* Willing to move for KVK — R4/R5/admin can set on the member's behalf */}
+      {canEdit && (
+        <AdminWillingToMoveToggle
+          memberId={member.id}
+          initial={member.kvk_willing_to_move}
+          setByLeaderName={willingSetByName}
+        />
+      )}
+
       {/* Role assignment — R4/R5/admin */}
       {canEdit && (
         <RoleAssigner
@@ -259,6 +280,9 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
                       }`}>{role}</span>
                       {a.events?.event_types?.slug === 'kvk_castle_battle' && (
                         <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-1.5 py-0.5 rounded font-semibold">KVK</span>
+                      )}
+                      {a.kvk_transfer && (
+                        <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-semibold">KVK Transfer</span>
                       )}
                       {a.squad && <span className="text-xs text-slate-400">Squad {a.squad}</span>}
                       {a.is_backup && <span className="text-xs text-slate-500">(backup)</span>}

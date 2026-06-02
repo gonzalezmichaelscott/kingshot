@@ -1,5 +1,6 @@
 import { EventHeader } from './EventHeader'
 import { AvailabilityPanel } from './AvailabilityPanel'
+import { KvkAttendanceManager } from './KvkAttendanceManager'
 import { AssignmentsTable } from './AssignmentsTable'
 import { BattlePlanButton } from './BattlePlanButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -80,6 +81,16 @@ export function KvkCastleEvent({ event, availability, assignments, members, alli
 
       {/* Availability */}
       <AvailabilityPanel members={members} availability={availability} allianceId={allianceId} eventId={event.id} />
+
+      {/* R4/R5 attendance management */}
+      {canManage && (
+        <KvkAttendanceManager
+          members={members}
+          availability={availability}
+          eventId={event.id}
+          battleStartUtc={event.battle_start_utc}
+        />
+      )}
 
       {/* Generate Plan */}
       {canManage && (

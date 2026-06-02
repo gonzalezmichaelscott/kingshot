@@ -8,7 +8,7 @@ import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 import { KvkGeneratePlanButton } from '@/components/kvk/KvkGeneratePlanButton'
 import { Castle, Shield, ChevronDown, ChevronUp, Crown, Users, Clock, Star, ExternalLink, Loader2, UserPlus, Sparkles } from 'lucide-react'
 
-interface Assignee { id: string; player_name: string; game_id?: string | null; tag?: string | null; role?: string | null; isManual?: boolean }
+interface Assignee { id: string; player_name: string; game_id?: string | null; tag?: string | null; role?: string | null; isManual?: boolean; kvk_transfer?: boolean }
 interface Recommended { id: string; player_name: string; tag?: string | null; score: number }
 interface Structure {
   key: string
@@ -185,6 +185,7 @@ function StructureDetail({ kingdomId, structure, hourLabels, pool, canManage }: 
               <div key={j.id} className="flex items-center gap-2 bg-slate-800 rounded px-2 py-1.5">
                 <PlayerAvatar gameId={j.game_id} playerName={j.player_name} sizeClass="w-6 h-6" />
                 <span className="text-xs text-slate-300 truncate">{j.tag ? `[${j.tag}] ` : ''}{j.player_name}</span>
+                {j.kvk_transfer && <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-semibold flex-shrink-0">KVK Transfer</span>}
                 {j.isManual && <ManualBadge />}
               </div>
             ))}
