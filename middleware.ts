@@ -32,9 +32,22 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl
 
-  // Public routes — always allow
-  const publicPaths = ['/', '/welcome', '/login', '/auth', '/member']
-  const isPublic = publicPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
+  // Public routes — always allow (no authentication required). Members use the
+  // /member/[token] self-service links and shared /rally-timer/[sessionId] links
+  // without ever logging in, and the two public APIs back those pages.
+  const publicPaths = [
+    '/',                    // root / landing
+    '/welcome',             // public marketing page
+    '/login',               // login page
+    '/auth',                // auth callback
+    '/member',              // /member/[token] self-service profile links
+    '/api/player-lookup',   // public player lookup API
+    '/api/gift-codes',      // public gift-codes API
+  ]
+  const isPublic =
+    publicPaths.some(p => pathname === p || pathname.startsWith(p + '/')) ||
+    // Shared rally-timer session links (the authed /rally-timer index stays protected)
+    pathname.startsWith('/rally-timer/')
 
   if (!isPublic && !user) {
     const url = request.nextUrl.clone()
