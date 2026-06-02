@@ -2,8 +2,9 @@
 ﻿// @ts-nocheck
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import Link from 'next/link'
 import { LoginForm } from '@/components/auth/LoginForm'
-import { Sword, Shield, Users, Calendar } from 'lucide-react'
+import { Sword, Shield, Users, Calendar, ArrowRight } from 'lucide-react'
 
 export default async function LandingPage() {
   const supabase = createClient()
@@ -44,6 +45,12 @@ export default async function LandingPage() {
         {/* Login */}
         <div className="w-full max-w-sm">
           <LoginForm />
+          <Link
+            href="/welcome"
+            className="mt-5 flex items-center justify-center gap-1.5 text-sm text-amber-500 hover:text-amber-400"
+          >
+            Learn more about KS Command <ArrowRight size={15} />
+          </Link>
         </div>
       </div>
     </div>

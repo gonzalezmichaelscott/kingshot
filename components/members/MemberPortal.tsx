@@ -15,6 +15,8 @@ import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
 import { PreferredLanguageSelect } from '@/components/members/PreferredLanguageSelect'
 import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
+import { TransferAllianceFlow } from '@/components/members/TransferAllianceFlow'
+import { CheckCircle2, ArrowRightLeft } from 'lucide-react'
 
 class SectionErrorBoundary extends Component<
   { children: React.ReactNode; label?: string },
@@ -39,9 +41,13 @@ interface Props {
   heroes: any[]
   upcomingEvents: any[]
   memberAssignments?: any[]
+  /** Viewer is the logged-in owner of this claimed profile (enables transfer). */
+  canTransfer?: boolean
+  /** Arrived here via an old transferred self-service link. */
+  wasRedirected?: boolean
 }
 
-export function MemberPortal({ member, memberHeroes, memberAvailability, heroes, upcomingEvents, memberAssignments = [] }: Props) {
+export function MemberPortal({ member, memberHeroes, memberAvailability, heroes, upcomingEvents, memberAssignments = [], canTransfer = false, wasRedirected = false }: Props) {
   const alliance = member.alliances
   const router = useRouter()
 
@@ -86,6 +92,22 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
   return (
     <div className="min-h-screen bg-slate-950 p-4">
       <div className="max-w-lg mx-auto space-y-5">
+        {/* Redirected from an old (transferred) self-service link */}
+        {wasRedirected && (
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl px-4 py-3 flex items-center gap-3 mt-4">
+            <ArrowRightLeft size={18} className="text-blue-400 flex-shrink-0" />
+            <p className="text-sm text-blue-200">You have been redirected to your updated profile.</p>
+          </div>
+        )}
+
+        {/* Stats were carried over from a previous alliance profile */}
+        {member.previous_alliance_id && (
+          <div className="bg-green-500/10 border border-green-500/30 rounded-xl px-4 py-3 flex items-center gap-3 mt-4">
+            <CheckCircle2 size={18} className="text-green-400 flex-shrink-0" />
+            <p className="text-sm text-green-200">Your stats and hero data have been transferred from your previous alliance profile.</p>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-start justify-between gap-3 pt-4">
           <div className="flex items-center gap-3">
@@ -193,6 +215,15 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
                 initial={member.kvk_willing_to_move}
                 setByLeaderName={member.kvk_willing_set_by ? 'your alliance leader' : null}
               />
+
+              {/* Self-service alliance/kingdom transfer — only for the logged-in
+                  owner of a claimed profile. */}
+              {canTransfer && (
+                <div className="pt-3 border-t border-slate-800">
+                  <p className="text-xs text-slate-500 mb-2">Moved to a new server or alliance?</p>
+                  <TransferAllianceFlow variant="link" />
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

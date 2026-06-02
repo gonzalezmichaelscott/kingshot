@@ -10,6 +10,7 @@ import { isMemberRole, roleLabel } from '@/lib/access'
 import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
 import { PreferredLanguageSelect } from '@/components/members/PreferredLanguageSelect'
 import { DeleteOwnProfileButton } from '@/components/members/DeleteOwnProfileButton'
+import { TransferAllianceFlow } from '@/components/members/TransferAllianceFlow'
 import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
 import { Gift } from 'lucide-react'
 
@@ -205,6 +206,11 @@ export default async function DashboardPage() {
                 initial={member.kvk_willing_to_move}
                 setByLeaderName={member.kvk_willing_set_by ? 'your alliance leader' : null}
               />
+              {/* Change Kingdom & Alliance — moves stats/heroes to a new alliance */}
+              <div className="pt-4 border-t border-slate-800">
+                <p className="text-sm text-slate-400 mb-2">Moved to a new server or alliance?</p>
+                <TransferAllianceFlow variant="button" />
+              </div>
               <DeleteOwnProfileButton accessToken={member.access_token} />
             </CardContent>
           </Card>

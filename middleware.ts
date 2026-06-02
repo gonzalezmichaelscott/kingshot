@@ -33,7 +33,7 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   // Public routes — always allow
-  const publicPaths = ['/', '/auth', '/member']
+  const publicPaths = ['/', '/welcome', '/login', '/auth', '/member']
   const isPublic = publicPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
 
   if (!isPublic && !user) {

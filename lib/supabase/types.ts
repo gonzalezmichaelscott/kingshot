@@ -95,6 +95,12 @@ export interface Database {
           troop_data: Json | null
           notes: string | null
           preferred_language: string | null
+          kvk_willing_to_move: boolean | null
+          kvk_willing_set_by: string | null
+          name_history: Json | null
+          is_active: boolean | null
+          transferred_to: string | null
+          previous_alliance_id: string | null
           created_at: string
           updated_at: string
         }
@@ -114,6 +120,12 @@ export interface Database {
           troop_data?: Json | null
           notes?: string | null
           preferred_language?: string | null
+          kvk_willing_to_move?: boolean | null
+          kvk_willing_set_by?: string | null
+          name_history?: Json | null
+          is_active?: boolean | null
+          transferred_to?: string | null
+          previous_alliance_id?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -133,6 +145,12 @@ export interface Database {
           troop_data?: Json | null
           notes?: string | null
           preferred_language?: string | null
+          kvk_willing_to_move?: boolean | null
+          kvk_willing_set_by?: string | null
+          name_history?: Json | null
+          is_active?: boolean | null
+          transferred_to?: string | null
+          previous_alliance_id?: string | null
           created_at?: string
           updated_at?: string
         }

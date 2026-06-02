@@ -1,10 +1,17 @@
 // @ts-nocheck
 import { createServiceClient, createClient } from '@/lib/supabase/server'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
+import { resolveTransferTarget } from '@/lib/member-transfer'
 import { MemberPortal } from '@/components/members/MemberPortal'
 import { ClaimProfileBanner } from '@/components/members/ClaimProfileBanner'
 
-export default async function MemberTokenPage({ params }: { params: { token: string } }) {
+export default async function MemberTokenPage({
+  params,
+  searchParams,
+}: {
+  params: { token: string }
+  searchParams: { [key: string]: string | undefined }
+}) {
   const supabase = createServiceClient()
 
   const { data: member } = await supabase
@@ -19,12 +26,29 @@ export default async function MemberTokenPage({ params }: { params: { token: str
 
   if (!member) notFound()
 
+  // If this profile has been transferred to a newer record (alliance/kingdom
+  // change), redirect to the new self-service link automatically.
+  if (member.transferred_to) {
+    const newToken = await resolveTransferTarget(supabase, member.id)
+    if (newToken && newToken !== params.token) {
+      redirect(`/member/${newToken}?redirected=1`)
+    }
+  }
+
+  const wasRedirected = searchParams?.redirected === '1'
+
   // Check if this page is being visited by a logged-in user who doesn't own it
   let loggedInUserId: string | null = null
   let hasPendingClaim = false
+  // Whether the current viewer is the logged-in owner of this claimed profile
+  // (controls the "Move to Different Alliance" self-service transfer option).
+  let viewerIsOwner = false
   try {
     const authClient = createClient()
     const { data: { user } } = await authClient.auth.getUser()
+    if (user && member.linked_user_id && user.id === member.linked_user_id) {
+      viewerIsOwner = true
+    }
     if (user && !member.linked_user_id) {
       loggedInUserId = user.id
       // Check if they already have a pending claim
@@ -111,6 +135,8 @@ export default async function MemberTokenPage({ params }: { params: { token: str
         heroes={heroes || []}
         upcomingEvents={upcomingEvents || []}
         memberAssignments={memberAssignments || []}
+        canTransfer={viewerIsOwner}
+        wasRedirected={wasRedirected}
       />
     </>
   )

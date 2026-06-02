@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { isBackendRole } from '@/lib/access'
+import { findPreviousMember, transferMember } from '@/lib/member-transfer'
 import { z } from 'zod'
 
 const schema = z.object({
@@ -66,6 +67,17 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString(),
     }).eq('id', claim.member_id)
 
+    // Feature 1 — Stat transfer when changing alliances.
+    // If the claimer already has an active member record in another alliance,
+    // carry their stats/heroes/combat/scores over to this newly-claimed record
+    // and retire the old one (kept for history, linked forward for redirects).
+    let transferred = false
+    const previous = await findPreviousMember(svc, claim.requesting_user_id, claim.member_id)
+    if (previous && previous.alliance_id !== claim.alliance_id) {
+      await transferMember(svc, previous.id, claim.member_id)
+      transferred = true
+    }
+
     // Set user_profile alliance and role (default r3 if not set)
     const { data: requesterProfile } = await svc
       .from('user_profiles')
@@ -96,7 +108,7 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString(),
     }).eq('id', claim.id)
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, transferred })
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Bad request' }, { status: 400 })
   }
