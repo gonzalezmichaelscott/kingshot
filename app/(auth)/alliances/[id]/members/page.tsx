@@ -102,7 +102,7 @@ export default async function MembersPage({ params }: { params: { id: string } }
         )}
       </div>
 
-      {canManage && <PendingProfileRequests requests={pendingRequests || []} />}
+      {canManage && <PendingProfileRequests requests={pendingRequests || []} allianceId={params.id} currentUserId={profile?.id} />}
       {canManage && <PendingClaimRequests requests={claimRequests || []} />}
 
       <Card>

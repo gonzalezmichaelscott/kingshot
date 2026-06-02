@@ -243,6 +243,17 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
                     />
                   )
                 }
+                if (ev.event_types?.slug === 'swordland_showdown') {
+                  return (
+                    <SwordlandLegionCard
+                      key={ev.id}
+                      event={ev}
+                      accessToken={member.access_token}
+                      existing={assignments.find((a: any) => a.event_id === ev.id)}
+                      memberTimezone={member.timezone || 'UTC'}
+                    />
+                  )
+                }
                 return (
                   <AvailabilityCard
                     key={ev.id}
@@ -658,6 +669,89 @@ function AssignmentCard({ assignment, leaderConfirmed }: { assignment: any; lead
             </button>
           </div>
         )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function SwordlandLegionCard({ event, accessToken, existing, memberTimezone }: { event: any; accessToken: string; existing: any; memberTimezone: string }) {
+  const router = useRouter()
+  const legion1 = event.legion1_start_utc || event.battle_start_utc
+  const legion2 = event.legion2_start_utc
+  const initial = existing?.will_attend && (existing.squad_preference === 'legion1' || existing.squad_preference === 'legion2')
+    ? existing.squad_preference
+    : 'none'
+  const [choice, setChoice] = useState<'legion1' | 'legion2' | 'none'>(initial)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  function fmt(iso: string | null) {
+    if (!iso) return 'Time TBD'
+    try {
+      return new Date(iso).toLocaleString(undefined, {
+        timeZone: memberTimezone, weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+      })
+    } catch {
+      return new Date(iso).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' UTC'
+    }
+  }
+
+  async function save(next: 'legion1' | 'legion2' | 'none') {
+    setChoice(next)
+    setSaving(true)
+    const attend = next === 'legion1' || next === 'legion2'
+    const startIso = next === 'legion1' ? legion1 : next === 'legion2' ? legion2 : null
+    await fetch('/api/member/availability', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        access_token: accessToken,
+        event_id: event.id,
+        will_attend: attend,
+        available_from_utc: startIso || null,
+        available_to_utc: startIso ? new Date(new Date(startIso).getTime() + 3600000).toISOString() : null,
+        squad_preference: attend ? next : '',
+      }),
+    })
+    setSaving(false)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
+    router.refresh()
+  }
+
+  function Option({ value, label, time }: { value: 'legion1' | 'legion2' | 'none'; label: string; time: string | null }) {
+    return (
+      <label className={`flex items-center gap-3 cursor-pointer rounded-lg border p-3 transition-colors ${choice === value ? 'border-amber-500 bg-amber-500/10' : 'border-slate-700 bg-slate-800'}`}>
+        <input
+          type="radio"
+          name={`legion-${event.id}`}
+          checked={choice === value}
+          onChange={() => save(value)}
+          disabled={saving}
+          className="w-4 h-4 accent-amber-500"
+        />
+        <div>
+          <p className="text-sm font-medium">{label}</p>
+          {time && <p className="text-xs text-slate-400">{time}</p>}
+        </div>
+      </label>
+    )
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sword size={16} className="text-amber-500" />
+          {event.name || 'Swordland Showdown'}
+        </CardTitle>
+        <p className="text-xs text-slate-400">Choose which Legion you&apos;ll fight with. Times shown in your timezone ({memberTimezone}).</p>
+      </CardHeader>
+      <CardContent className="space-y-2">
+        <Option value="legion1" label="Legion 1" time={fmt(legion1)} />
+        <Option value="legion2" label="Legion 2" time={fmt(legion2)} />
+        <Option value="none" label="I cannot attend either" time={null} />
+        {saved && <p className="text-green-400 text-sm">Saved! ✓</p>}
       </CardContent>
     </Card>
   )

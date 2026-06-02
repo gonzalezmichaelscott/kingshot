@@ -15,7 +15,7 @@ import { CopyTokenButton } from '@/components/members/CopyTokenButton'
 import { RoleAssigner } from '@/components/members/RoleAssigner'
 import { ProfileStatusCard } from '@/components/members/ProfileStatusCard'
 import { EditNameButton } from '@/components/members/EditNameButton'
-import { requireAllianceAccess, canManageAlliance, assignableRoles } from '@/lib/access'
+import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { BackButton } from '@/components/nav/BackButton'
 import { RemoveMemberButton } from '@/components/members/RemoveMemberButton'
@@ -64,7 +64,6 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
   const { data: linkedProfile } = (canEdit && member.linked_user_id)
     ? await supabase.from('user_profiles').select('role, display_name').eq('id', member.linked_user_id).single()
     : { data: null }
-  const assignable = assignableRoles(profile?.role)
 
   // Pending claim request for this member
   const { data: pendingClaim } = canEdit
@@ -243,7 +242,7 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
           memberId={member.id}
           linkedUserId={member.linked_user_id}
           currentRole={linkedProfile?.role || null}
-          assignable={assignable}
+          actorRole={profile?.role || null}
         />
       )}
 

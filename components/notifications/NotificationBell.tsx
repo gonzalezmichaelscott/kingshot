@@ -1,17 +1,18 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Bell, X, MessageSquare } from 'lucide-react'
+import { Bell, X, MessageSquare, ShieldCheck } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface NotificationItem {
+  kind: string // 'mention' | 'approval_request' | ...
   id: string
-  messageId: string
-  allianceId: string
-  allianceName: string
-  authorName: string
-  preview: string
+  title: string
+  message?: string | null
+  link?: string | null
   createdAt: string
+  allianceId?: string | null
+  messageId?: string | null
 }
 
 function timeAgo(iso: string): string {
@@ -58,7 +59,7 @@ export function NotificationBell({ userId, role }: Props) {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch('/api/chat/notifications', { cache: 'no-store' })
+      const res = await fetch('/api/notifications', { cache: 'no-store' })
       if (!res.ok) return
       const data = await res.json()
       setItems(data.items || [])
@@ -71,16 +72,13 @@ export function NotificationBell({ userId, role }: Props) {
   // Initial load
   useEffect(() => { refresh() }, [refresh])
 
-  // Realtime: RLS only delivers chat_mentions rows belonging to this user, so an
-  // unfiltered subscription still only fires for our own mentions.
+  // Realtime: RLS only delivers rows belonging to this user, so unfiltered
+  // subscriptions on both tables still only fire for this user's notifications.
   useEffect(() => {
     const channel = supabase
-      .channel(`mentions:${userId}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'chat_mentions' },
-        () => { refresh() }
-      )
+      .channel(`notif:${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_mentions' }, () => refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => refresh())
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [userId, refresh])
@@ -88,7 +86,7 @@ export function NotificationBell({ userId, role }: Props) {
   async function markAllRead() {
     setItems([])
     setAppBadge(0)
-    await fetch('/api/chat/notifications', {
+    await fetch('/api/notifications', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ all: true }),
@@ -103,23 +101,24 @@ export function NotificationBell({ userId, role }: Props) {
       return next
     })
     setOpen(false)
-    fetch('/api/chat/notifications', {
+    fetch('/api/notifications', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: n.id }),
+      body: JSON.stringify({ id: n.id, kind: n.kind }),
     }).catch(() => {})
 
-    if (isBackend) {
-      // Backend roles can access the full chat page; scroll handled there via ?msg=
-      router.push(`/alliances/${n.allianceId}/chat?msg=${n.messageId}`)
+    if (n.kind === 'mention') {
+      if (isBackend) {
+        router.push(`/alliances/${n.allianceId}/chat?msg=${n.messageId}`)
+      } else {
+        window.dispatchEvent(
+          new CustomEvent('ks:open-chat', {
+            detail: { allianceId: n.allianceId, messageId: n.messageId },
+          })
+        )
+      }
     } else {
-      // Member roles (R1–R3) have no chat page — open the slide-out ChatPanel
-      // (rendered by the Sidebar) and scroll to the mentioned message there.
-      window.dispatchEvent(
-        new CustomEvent('ks:open-chat', {
-          detail: { allianceId: n.allianceId, messageId: n.messageId },
-        })
-      )
+      router.push(n.link || '/approvals')
     }
   }
 
@@ -170,29 +169,38 @@ export function NotificationBell({ userId, role }: Props) {
 
         <div className="flex-1 overflow-y-auto">
           {count === 0 ? (
-            <p className="text-center text-sm text-slate-500 py-12">No new mentions</p>
+            <p className="text-center text-sm text-slate-500 py-12">No new notifications</p>
           ) : (
-            items.map((n) => (
-              <button
-                key={n.id}
-                onClick={() => openNotification(n)}
-                className="w-full text-left px-4 py-3 border-b border-slate-800/60 hover:bg-slate-800/60 transition-colors"
-              >
-                <p className="text-sm text-slate-200">
-                  <span className="font-semibold text-amber-400">{n.authorName}</span> mentioned you in{' '}
-                  <span className="text-slate-300">{n.allianceName}</span> chat
-                </p>
-                {n.preview && (
-                  <p className="text-xs text-slate-400 mt-1 truncate">&ldquo;{n.preview}&rdquo;</p>
-                )}
-                <div className="flex items-center justify-between mt-1.5">
-                  <span className="text-[11px] text-slate-500">{timeAgo(n.createdAt)}</span>
-                  <span className="text-[11px] text-amber-500 flex items-center gap-1">
-                    <MessageSquare size={11} /> Jump to message
-                  </span>
-                </div>
-              </button>
-            ))
+            items.map((n) => {
+              const isApproval = n.kind === 'approval_request'
+              return (
+                <button
+                  key={`${n.kind}:${n.id}`}
+                  onClick={() => openNotification(n)}
+                  className="w-full text-left px-4 py-3 border-b border-slate-800/60 hover:bg-slate-800/60 transition-colors"
+                >
+                  <div className="flex items-start gap-2">
+                    {isApproval ? (
+                      <ShieldCheck size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <MessageSquare size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-sm text-slate-200">{n.title}</p>
+                      {n.message && (
+                        <p className="text-xs text-slate-400 mt-1 truncate">{n.message}</p>
+                      )}
+                      <div className="flex items-center justify-between mt-1.5">
+                        <span className="text-[11px] text-slate-500">{timeAgo(n.createdAt)}</span>
+                        <span className="text-[11px] text-amber-500">
+                          {isApproval ? 'View approvals →' : 'Jump to message'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              )
+            })
           )}
         </div>
       </div>

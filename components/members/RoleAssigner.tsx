@@ -5,23 +5,37 @@ import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { ShieldCheck } from 'lucide-react'
+import { canChangeRole, roleLabel } from '@/lib/access'
 
 interface Props {
   memberId: string
   linkedUserId: string | null
   currentRole: string | null
-  assignable: string[]
+  /** The acting user's role (drives promotion/demotion permissions). */
+  actorRole: string | null
 }
 
-export function RoleAssigner({ memberId, linkedUserId, currentRole, assignable }: Props) {
+const STANDARD_ROLES = ['r1', 'r2', 'r3', 'r4', 'r5']
+const NO_PERMISSION = "You don't have permission to assign this role"
+
+export function RoleAssigner({ memberId, linkedUserId, currentRole, actorRole }: Props) {
   const router = useRouter()
-  const [role, setRole] = useState(currentRole || assignable[0] || 'r3')
+
+  // All roles to surface, including the member's current role if it's outside the
+  // standard set (e.g. system_admin) so it shows as the disabled current value.
+  const options = Array.from(new Set([...(currentRole ? [currentRole] : []), ...STANDARD_ROLES]))
+
+  // Default to the first role the actor is actually allowed to assign.
+  const firstAssignable = STANDARD_ROLES.find(r => r !== currentRole && canChangeRole(actorRole, currentRole, r))
+  const [role, setRole] = useState(firstAssignable || currentRole || 'r3')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [error, setError] = useState('')
 
-  // Options: the roles this actor may assign, plus the member's current role (so it shows even if not assignable)
-  const options = Array.from(new Set([...(currentRole ? [currentRole] : []), ...assignable]))
+  function isDisabled(r: string) {
+    if (r === currentRole) return true // can't "assign" the current role
+    return !canChangeRole(actorRole, currentRole, r)
+  }
 
   async function save() {
     setSaving(true); setError(''); setMsg('')
@@ -57,14 +71,23 @@ export function RoleAssigner({ memberId, linkedUserId, currentRole, assignable }
                 onChange={e => setRole(e.target.value)}
                 className="h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
               >
-                {options.map(r => (
-                  <option key={r} value={r} disabled={r === currentRole && !assignable.includes(r)}>
-                    {r === 'system_admin' ? 'System Admin' : r.toUpperCase()}{r === currentRole ? ' (current)' : ''}
-                  </option>
-                ))}
+                {options.map(r => {
+                  const disabled = isDisabled(r)
+                  return (
+                    <option
+                      key={r}
+                      value={r}
+                      disabled={disabled}
+                      title={disabled && r !== currentRole ? NO_PERMISSION : undefined}
+                    >
+                      {roleLabel(r)}{r === currentRole ? ' (current)' : ''}
+                      {disabled && r !== currentRole ? ' — no permission' : ''}
+                    </option>
+                  )
+                })}
               </select>
             </div>
-            <Button size="sm" onClick={save} disabled={saving || role === currentRole}>
+            <Button size="sm" onClick={save} disabled={saving || role === currentRole || isDisabled(role)}>
               {saving ? 'Saving…' : 'Update Role'}
             </Button>
             {msg && <span className="text-green-400 text-sm">{msg}</span>}

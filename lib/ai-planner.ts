@@ -565,11 +565,70 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 
   return { plan, eventIds: activeEventIds }
 }
 
+async function planOneLegion(legion: 'legion1' | 'legion2', members: any[], event: any): Promise<BattlePlan | null> {
+  if (members.length === 0) return null
+  const label = legion === 'legion1' ? 'Legion 1' : 'Legion 2'
+  const prompt = buildPlanningPrompt(members, event) +
+    `\n\nIMPORTANT: This plan is for ${label} ONLY. These ${members.length} members all fight together in ${label}. Set "squad": "${legion}" on every assignment.`
+
+  const response = await anthropic.messages.create({
+    model: 'claude-sonnet-4-5',
+    max_tokens: 4000,
+    system: BATTLE_PLANNER_SYSTEM_PROMPT,
+    messages: [{ role: 'user', content: prompt }],
+  })
+  const text = response.content[0].type === 'text' ? response.content[0].text : ''
+  const plan: BattlePlan = JSON.parse(extractJSON(text))
+  // Force the squad to the legion regardless of what the model returned.
+  for (const a of plan.assignments) a.squad = legion
+  return plan
+}
+
+/**
+ * Swordland Showdown: generate a SEPARATE battle plan for each legion, then merge
+ * them into one stored plan. Members are split by their squad_preference
+ * ('legion1' / 'legion2'); anyone attending without a chosen legion is folded into
+ * Legion 1 so they still receive an assignment (leaders can move them after).
+ */
+async function generateSwordlandPlan(members: any[], event: any, eventId: string): Promise<BattlePlan> {
+  const legion2 = members.filter(m => m.squad_preference === 'legion2')
+  const legion1 = members.filter(m => m.squad_preference !== 'legion2') // includes legion1 + unspecified
+
+  const [p1, p2] = await Promise.all([
+    planOneLegion('legion1', legion1, event),
+    planOneLegion('legion2', legion2, event),
+  ])
+
+  const merged: BattlePlan = {
+    summary: [
+      p1?.summary ? `Legion 1: ${p1.summary}` : '',
+      p2?.summary ? `Legion 2: ${p2.summary}` : '',
+    ].filter(Boolean).join('\n\n') || 'No members assigned to either legion yet.',
+    assignments: [...(p1?.assignments || []), ...(p2?.assignments || [])],
+    formations: { ...(p1?.formations || {}), ...(p2?.formations || {}) },
+    joiner_stacking_advice: [p1?.joiner_stacking_advice, p2?.joiner_stacking_advice].filter(Boolean).join(' | ') || undefined,
+    coverage_gaps: [
+      ...(p1?.coverage_gaps || []).map(g => `Legion 1: ${g}`),
+      ...(p2?.coverage_gaps || []).map(g => `Legion 2: ${g}`),
+    ],
+    backup_plan: [p1?.backup_plan, p2?.backup_plan].filter(Boolean).join(' | ') || undefined,
+    warnings: [...(p1?.warnings || []), ...(p2?.warnings || [])],
+  }
+
+  await storeAssignments(eventId, merged, event)
+  return merged
+}
+
 export async function generateBattlePlan(eventId: string): Promise<BattlePlan> {
   const { members, event } = await loadAttendingMembersWithScores(eventId)
 
   if (members.length === 0) {
     throw new Error('No attending members found for this event')
+  }
+
+  // Swordland Showdown runs two legions at different times — plan each separately.
+  if (event.event_types?.slug === 'swordland_showdown') {
+    return generateSwordlandPlan(members, event, eventId)
   }
 
   const prompt = buildPlanningPrompt(members, event)

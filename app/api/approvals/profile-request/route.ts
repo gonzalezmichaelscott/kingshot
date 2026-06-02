@@ -41,6 +41,8 @@ export async function POST(request: NextRequest) {
         rejection_reason: body.rejection_reason || null,
         updated_at: new Date().toISOString(),
       }).eq('id', req.id)
+      // Clear the approval notifications from every approver's bell.
+      await svc.from('notifications').update({ is_read: true }).eq('related_id', req.id)
       return NextResponse.json({ ok: true })
     }
 
@@ -73,6 +75,9 @@ export async function POST(request: NextRequest) {
     await svc.from('profile_requests').update({
       status: 'approved', reviewed_by: user.id, updated_at: new Date().toISOString(),
     }).eq('id', req.id)
+
+    // Clear the approval notifications from every approver's bell.
+    await svc.from('notifications').update({ is_read: true }).eq('related_id', req.id)
 
     return NextResponse.json({ ok: true })
   } catch (error: any) {

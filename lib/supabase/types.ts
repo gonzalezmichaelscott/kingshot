@@ -327,6 +327,8 @@ export interface Database {
           name: string | null
           battle_start_utc: string | null
           battle_end_utc: string | null
+          legion1_start_utc: string | null
+          legion2_start_utc: string | null
           status: 'planning' | 'registration' | 'active' | 'completed'
           battle_plan: Json
           notes: string | null
@@ -340,6 +342,8 @@ export interface Database {
           name?: string | null
           battle_start_utc?: string | null
           battle_end_utc?: string | null
+          legion1_start_utc?: string | null
+          legion2_start_utc?: string | null
           status?: 'planning' | 'registration' | 'active' | 'completed'
           battle_plan?: Json
           notes?: string | null
@@ -353,10 +357,47 @@ export interface Database {
           name?: string | null
           battle_start_utc?: string | null
           battle_end_utc?: string | null
+          legion1_start_utc?: string | null
+          legion2_start_utc?: string | null
           status?: 'planning' | 'registration' | 'active' | 'completed'
           battle_plan?: Json
           notes?: string | null
           created_by?: string | null
+          created_at?: string
+        }
+      }
+      notifications: {
+        Row: {
+          id: string
+          user_id: string | null
+          type: string
+          title: string
+          message: string | null
+          link: string | null
+          is_read: boolean
+          related_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          type: string
+          title: string
+          message?: string | null
+          link?: string | null
+          is_read?: boolean
+          related_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string | null
+          type?: string
+          title?: string
+          message?: string | null
+          link?: string | null
+          is_read?: boolean
+          related_id?: string | null
           created_at?: string
         }
       }

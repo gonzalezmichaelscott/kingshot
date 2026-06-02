@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import { canAssignRole } from '@/lib/access'
+import { canChangeRole } from '@/lib/access'
 import { z } from 'zod'
 
 const schema = z.object({
@@ -27,10 +27,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Member has not created an account yet — role can be assigned once they log in' }, { status: 400 })
     }
 
-    // Permission: actor must be allowed to assign this role AND (same alliance OR admin)
+    // Current role of the member being changed (drives demotion protection).
+    const { data: targetProfile } = await svc
+      .from('user_profiles')
+      .select('role')
+      .eq('id', member.linked_user_id)
+      .maybeSingle()
+    const currentRole = targetProfile?.role || null
+
+    // Permission: demotion-aware. Same alliance required for non-admins.
     const sameAlliance = actor?.alliance_id === member.alliance_id
-    const allowed = actor?.role === 'system_admin' || (canAssignRole(actor?.role, body.new_role) && sameAlliance)
-    if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const allowed = actor?.role === 'system_admin'
+      || (sameAlliance && canChangeRole(actor?.role, currentRole, body.new_role))
+    if (!allowed) {
+      return NextResponse.json({ error: "You don't have permission to assign this role" }, { status: 403 })
+    }
 
     const { error } = await svc.from('user_profiles').upsert({
       id: member.linked_user_id,

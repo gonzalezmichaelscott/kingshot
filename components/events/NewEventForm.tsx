@@ -26,8 +26,13 @@ export function NewEventForm({ allianceId, eventTypes }: Props) {
     name: '',
     battle_start_utc: '',
     battle_end_utc: '',
+    legion1_start_utc: '',
+    legion2_start_utc: '',
     notes: '',
   })
+
+  const selectedType = eventTypes.find(et => et.id === form.event_type_id)
+  const isSwordland = selectedType?.slug === 'swordland_showdown'
 
   // Custom event form
   const [customForm, setCustomForm] = useState({
@@ -46,13 +51,22 @@ export function NewEventForm({ allianceId, eventTypes }: Props) {
     e.preventDefault()
     setLoading(true)
     setError('')
+    if (isSwordland && (!form.legion1_start_utc || !form.legion2_start_utc)) {
+      setError('Both Legion 1 and Legion 2 battle times are required for Swordland Showdown.')
+      setLoading(false)
+      return
+    }
     const { data: { user } } = await supabase.auth.getUser()
+    // For Swordland, Legion 1 doubles as the canonical battle_start_utc (back-compat).
+    const startUtc = isSwordland ? form.legion1_start_utc : form.battle_start_utc
     const { data: event, error: err } = await supabase.from('events').insert({
       alliance_id: allianceId,
       event_type_id: form.event_type_id,
       name: form.name || null,
-      battle_start_utc: form.battle_start_utc || null,
+      battle_start_utc: startUtc || null,
       battle_end_utc: form.battle_end_utc || null,
+      legion1_start_utc: isSwordland ? form.legion1_start_utc : null,
+      legion2_start_utc: isSwordland ? form.legion2_start_utc : null,
       notes: form.notes || null,
       created_by: user?.id,
       status: 'planning',
@@ -135,16 +149,34 @@ export function NewEventForm({ allianceId, eventTypes }: Props) {
             <label className="text-sm text-slate-400 block mb-1">Event Name (optional)</label>
             <Input placeholder="Leave blank to use event type name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm text-slate-400 block mb-1">Battle Start (UTC)</label>
-              <Input type="datetime-local" value={form.battle_start_utc} onChange={e => setForm(f => ({ ...f, battle_start_utc: e.target.value }))} />
+          {isSwordland ? (
+            <div className="space-y-3">
+              <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 text-xs text-amber-300">
+                Swordland Showdown runs two Legions at different times (set by in-game vote). Enter both battle times — members will choose which Legion to join.
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm text-slate-400 block mb-1">Legion 1 Battle Time (UTC) <span className="text-red-400">*</span></label>
+                  <Input type="datetime-local" value={form.legion1_start_utc} onChange={e => setForm(f => ({ ...f, legion1_start_utc: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="text-sm text-slate-400 block mb-1">Legion 2 Battle Time (UTC) <span className="text-red-400">*</span></label>
+                  <Input type="datetime-local" value={form.legion2_start_utc} onChange={e => setForm(f => ({ ...f, legion2_start_utc: e.target.value }))} />
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="text-sm text-slate-400 block mb-1">Battle End (UTC)</label>
-              <Input type="datetime-local" value={form.battle_end_utc} onChange={e => setForm(f => ({ ...f, battle_end_utc: e.target.value }))} />
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm text-slate-400 block mb-1">Battle Start (UTC)</label>
+                <Input type="datetime-local" value={form.battle_start_utc} onChange={e => setForm(f => ({ ...f, battle_start_utc: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-sm text-slate-400 block mb-1">Battle End (UTC)</label>
+                <Input type="datetime-local" value={form.battle_end_utc} onChange={e => setForm(f => ({ ...f, battle_end_utc: e.target.value }))} />
+              </div>
             </div>
-          </div>
+          )}
           <div>
             <label className="text-sm text-slate-400 block mb-1">Notes</label>
             <textarea

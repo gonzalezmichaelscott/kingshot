@@ -1,7 +1,7 @@
 import { EventHeader } from './EventHeader'
-import { AvailabilityPanel } from './AvailabilityPanel'
 import { AssignmentsTable } from './AssignmentsTable'
 import { BattlePlanButton } from './BattlePlanButton'
+import { SwordlandLegionBoard } from './SwordlandLegionBoard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AlertTriangle, Users, Shield } from 'lucide-react'
@@ -19,8 +19,10 @@ interface Props {
 export function SwordlandEvent({ event, availability, assignments, members, allianceId, canManage }: Props) {
   const rules = event.event_types?.rules || {}
   const attending = availability.filter(a => a.will_attend)
-  const squadA = assignments.filter(a => a.squad === 'A')
-  const squadB = assignments.filter(a => a.squad === 'B')
+  const legion1Start = event.legion1_start_utc || event.battle_start_utc
+  const legion2Start = event.legion2_start_utc
+  const legion1Assignments = assignments.filter(a => a.squad === 'legion1')
+  const legion2Assignments = assignments.filter(a => a.squad === 'legion2')
   const backups = assignments.filter(a => a.is_backup)
 
   const plan = event.battle_plan as any
@@ -52,12 +54,15 @@ export function SwordlandEvent({ event, availability, assignments, members, alli
         </Card>
       )}
 
-      {/* Availability */}
-      <AvailabilityPanel
+      {/* Dual-legion board: rosters, readiness, and manual assignment */}
+      <SwordlandLegionBoard
+        eventId={event.id}
         members={members}
         availability={availability}
-        allianceId={allianceId}
-        eventId={event.id}
+        assignments={assignments}
+        legion1Start={legion1Start}
+        legion2Start={legion2Start}
+        canManage={canManage}
       />
 
       {/* Generate Plan */}
@@ -131,14 +136,14 @@ export function SwordlandEvent({ event, availability, assignments, members, alli
         </Card>
       )}
 
-      {/* Squad A */}
-      {squadA.length > 0 && (
-        <AssignmentsTable assignments={squadA} title="Squad A" />
+      {/* Legion 1 plan */}
+      {legion1Assignments.length > 0 && (
+        <AssignmentsTable assignments={legion1Assignments} title="Legion 1 — Battle Plan" />
       )}
 
-      {/* Squad B */}
-      {squadB.length > 0 && (
-        <AssignmentsTable assignments={squadB} title="Squad B" />
+      {/* Legion 2 plan */}
+      {legion2Assignments.length > 0 && (
+        <AssignmentsTable assignments={legion2Assignments} title="Legion 2 — Battle Plan" />
       )}
 
       {/* Backups */}

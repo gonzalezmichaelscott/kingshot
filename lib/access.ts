@@ -46,6 +46,54 @@ export function canAssignRole(actorRole: UserRole, targetRole: string) {
   return assignableRoles(actorRole).includes(targetRole)
 }
 
+/** Numeric rank for ordering. Higher = more powerful. */
+const ROLE_RANK: Record<string, number> = {
+  r1: 1, r2: 2, r3: 3, r4: 4, r5: 5, system_admin: 6,
+}
+export function roleRank(role: string | null | undefined): number {
+  return role ? (ROLE_RANK[role] || 0) : 0
+}
+
+/**
+ * Whether `actorRole` may change a member whose CURRENT role is `currentRole`
+ * to `newRole`. Handles both promotion (existing ceiling) and DEMOTION:
+ *
+ * Demotion (newRank < currentRank):
+ *  - No one but System Admin can demote a System Admin.
+ *  - Only System Admin can demote an R5.
+ *  - Only R5 or System Admin can demote an R4.
+ *  - R4 and R5 can demote R1/R2/R3.
+ *  - R3 and below: no access.
+ * Promotion / same level: the assignableRoles ceiling applies
+ *  (R5 → up to R5, R4 → up to R4).
+ */
+export function canChangeRole(
+  actorRole: UserRole,
+  currentRole: string | null | undefined,
+  newRole: string
+): boolean {
+  if (actorRole === 'system_admin') return true
+
+  // Nobody but a System Admin (handled above) may touch a System Admin.
+  if (currentRole === 'system_admin') return false
+
+  // Only backend leaders (R4/R5) have any role-change access.
+  if (actorRole !== 'r4' && actorRole !== 'r5') return false
+
+  const cur = roleRank(currentRole)
+  const next = roleRank(newRole)
+  const isDemotion = cur > 0 && next < cur
+
+  if (isDemotion) {
+    if (currentRole === 'r5') return false              // only System Admin
+    if (currentRole === 'r4') return actorRole === 'r5' // only R5 (or admin)
+    return true                                         // R1/R2/R3 → any R4/R5
+  }
+
+  // Promotion or same level — apply the promotion ceiling.
+  return canAssignRole(actorRole, newRole)
+}
+
 /** Elevated ranks whose join/rank requests need an R5 (or System Admin fallback). */
 export const ELEVATED_REQUEST_ROLES = ['r4', 'r5'] as const
 
