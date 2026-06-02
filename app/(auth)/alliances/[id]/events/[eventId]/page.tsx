@@ -11,6 +11,7 @@ import { CustomEventDetail } from '@/components/events/CustomEventDetail'
 import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { BackButton } from '@/components/nav/BackButton'
+import { EditEventButton } from '@/components/events/EditEventButton'
 
 export default async function EventDetailPage({ params }: { params: { id: string; eventId: string } }) {
   const supabase = createClient()
@@ -97,6 +98,11 @@ export default async function EventDetailPage({ params }: { params: { id: string
     <>
       {nav}
       <div className="max-w-5xl mx-auto">
+        {canManage && (
+          <div className="flex justify-end mb-3">
+            <EditEventButton event={event} />
+          </div>
+        )}
         <EventPageWrapper
           hasPlan={(assignments || []).length > 0}
           battlePlans={

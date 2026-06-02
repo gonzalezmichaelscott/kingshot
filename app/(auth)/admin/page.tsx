@@ -36,7 +36,7 @@ export default async function AdminPage() {
       </h1>
 
       {/* Pending Approvals — highlighted */}
-      <Link href="/admin/approvals">
+      <Link href="/approvals">
         <Card className="hover:border-amber-500/50 transition-colors border-amber-500/40">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">

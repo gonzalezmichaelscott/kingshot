@@ -7,6 +7,7 @@ import { Calendar, Plus } from 'lucide-react'
 import Link from 'next/link'
 import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
+import { EditEventButton } from '@/components/events/EditEventButton'
 
 const statusColor: Record<string, 'green' | 'amber' | 'blue' | 'default'> = {
   active: 'green',
@@ -67,7 +68,7 @@ export default async function EventsListPage({ params }: { params: { id: string 
         <div>
           <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide mb-3">Active & Upcoming</h2>
           <div className="space-y-3">
-            {active.map(ev => <EventRow key={ev.id} ev={ev} allianceId={params.id} />)}
+            {active.map(ev => <EventRow key={ev.id} ev={ev} allianceId={params.id} canManage={canCreate} />)}
           </div>
         </div>
       )}
@@ -76,7 +77,7 @@ export default async function EventsListPage({ params }: { params: { id: string 
         <div>
           <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide mb-3">Completed</h2>
           <div className="space-y-3">
-            {completed.slice(0, 10).map(ev => <EventRow key={ev.id} ev={ev} allianceId={params.id} />)}
+            {completed.slice(0, 10).map(ev => <EventRow key={ev.id} ev={ev} allianceId={params.id} canManage={canCreate} />)}
           </div>
         </div>
       )}
@@ -93,38 +94,37 @@ export default async function EventsListPage({ params }: { params: { id: string 
   )
 }
 
-function EventRow({ ev, allianceId }: { ev: any; allianceId: string }) {
+function EventRow({ ev, allianceId, canManage }: { ev: any; allianceId: string; canManage?: boolean }) {
   const displayStatus = ev.status === 'registration' && ev.is_custom ? 'published' : ev.status
   const displayStatusLabel = ev.is_custom && ev.status === 'registration' ? 'Published' : ev.status
   return (
-    <Link href={`/alliances/${allianceId}/events/${ev.id}`}>
-      <div className="flex items-center justify-between p-4 bg-slate-900 border border-slate-800 rounded-xl hover:border-amber-500/50 transition-colors">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <p className="font-medium">{ev.name || ev.event_types?.name}</p>
-            {ev.is_custom && (
-              <span className="text-[10px] bg-purple-500/20 text-purple-400 border border-purple-500/30 px-1.5 py-0.5 rounded font-medium">
-                Custom
-              </span>
-            )}
-          </div>
-          <p className="text-sm text-slate-400 mt-0.5">
-            {ev.battle_start_utc ? (
-              ev.is_custom && ev.battle_end_utc ? (
-                <>
-                  {new Date(ev.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })}
-                  {' — '}
-                  {new Date(ev.battle_end_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })} UTC
-                </>
-              ) : new Date(ev.battle_start_utc).toLocaleString()
-            ) : 'Date TBD'}
-          </p>
+    <div className="flex items-center justify-between gap-3 p-4 bg-slate-900 border border-slate-800 rounded-xl hover:border-amber-500/50 transition-colors">
+      <Link href={`/alliances/${allianceId}/events/${ev.id}`} className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <p className="font-medium">{ev.name || ev.event_types?.name}</p>
+          {ev.is_custom && (
+            <span className="text-[10px] bg-purple-500/20 text-purple-400 border border-purple-500/30 px-1.5 py-0.5 rounded font-medium">
+              Custom
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-3">
-          {!ev.is_custom && <span className="text-xs text-slate-500">{ev.event_types?.name}</span>}
-          <Badge variant={statusColor[displayStatus] || 'default'}>{displayStatusLabel}</Badge>
-        </div>
+        <p className="text-sm text-slate-400 mt-0.5">
+          {ev.battle_start_utc ? (
+            ev.is_custom && ev.battle_end_utc ? (
+              <>
+                {new Date(ev.battle_start_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })}
+                {' — '}
+                {new Date(ev.battle_end_utc).toLocaleString(undefined, { timeZone: 'UTC', month: 'short', day: 'numeric' })} UTC
+              </>
+            ) : new Date(ev.battle_start_utc).toLocaleString()
+          ) : 'Date TBD'}
+        </p>
+      </Link>
+      <div className="flex items-center gap-3 flex-shrink-0">
+        {!ev.is_custom && <span className="text-xs text-slate-500 hidden sm:inline">{ev.event_types?.name}</span>}
+        <Badge variant={statusColor[displayStatus] || 'default'}>{displayStatusLabel}</Badge>
+        {canManage && <EditEventButton event={ev} compact />}
       </div>
-    </Link>
+    </div>
   )
 }
