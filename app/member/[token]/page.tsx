@@ -18,7 +18,7 @@ export default async function MemberTokenPage({
     .from('members')
     .select(`
       *,
-      alliances(name, tag),
+      alliances!members_alliance_id_fkey(name, tag),
       member_combat_stats(*)
     `)
     .eq('access_token', params.token)

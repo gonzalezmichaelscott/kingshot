@@ -85,7 +85,7 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
   if (activeEventIds.length > 0) {
     const { data: asg } = await svc
       .from('event_assignments')
-      .select('*, members(id, player_name, game_id, alliances(tag))')
+      .select('*, members(id, player_name, game_id, alliances!members_alliance_id_fkey(tag))')
       .in('event_id', activeEventIds)
     assignments = asg || []
   }

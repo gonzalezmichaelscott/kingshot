@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
     if (isNumeric) {
       const { data } = await svc
         .from('members')
-        .select('id, player_name, game_id, power, alliance_id, linked_user_id, access_token, alliances(name, tag)')
+        .select('id, player_name, game_id, power, alliance_id, linked_user_id, access_token, alliances!members_alliance_id_fkey(name, tag)')
         .eq('alliance_id', body.alliance_id)
         .eq('game_id', body.query.trim())
         .maybeSingle()
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
     if (!member) {
       const { data } = await svc
         .from('members')
-        .select('id, player_name, game_id, power, alliance_id, linked_user_id, access_token, alliances(name, tag)')
+        .select('id, player_name, game_id, power, alliance_id, linked_user_id, access_token, alliances!members_alliance_id_fkey(name, tag)')
         .eq('alliance_id', body.alliance_id)
         .ilike('player_name', `%${body.query.trim()}%`)
         .maybeSingle()

@@ -13,7 +13,7 @@ export async function POST(request: NextRequest, { params }: { params: { memberI
     // Load the member
     const { data: member } = await service
       .from('members')
-      .select('id, alliance_id, linked_user_id, alliances(name, tag)')
+      .select('id, alliance_id, linked_user_id, alliances!members_alliance_id_fkey(name, tag)')
       .eq('id', params.memberId)
       .single()
 
