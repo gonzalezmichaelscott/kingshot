@@ -1,19 +1,29 @@
 // @ts-nocheck
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Upload, Download, X, FileText, CheckCircle2, AlertCircle } from 'lucide-react'
+import { Upload, Download, X, FileText, CheckCircle2, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react'
 
 const TEMPLATE_CSV =
-  `player_name,game_id,power,troop_count,march_size,rally_capacity,timezone,notes\r\nIdahoPotato,12345678,131195663,772900,142210,1059210,UTC,R4 main account\r\nLittleSpud,87654321,45000000,400000,95000,500000,EST,\r\nCaptainFrost,,22000000,,,,,New member`
+  `game_id,player_name,power,troop_count,march_size,rally_capacity,timezone,notes\r\n12345678,IdahoPotato,131195663,772900,142210,1059210,UTC,R4 main account\r\n87654321,,45000000,400000,95000,500000,EST,\r\n22334455,CaptainFrost,22000000,,,,,New member`
 
-const EXPECTED_COLUMNS = ['player_name', 'game_id', 'power', 'troop_count', 'march_size', 'rally_capacity', 'timezone', 'notes']
+const EXPECTED_COLUMNS = ['game_id', 'player_name', 'power', 'troop_count', 'march_size', 'rally_capacity', 'timezone', 'notes']
+
+// kingshot.net rate limit — fetch at most 6 player names per minute.
+const RATE_LIMIT_PER_MIN = 6
 
 interface ParsedRow {
   raw: Record<string, string>
   error?: string
+}
+
+// Per-game_id name resolution state for CSV rows without a player_name override.
+type NameFetchState = Record<string, { status: 'fetching' | 'done' | 'failed'; name?: string }>
+
+function fetchWarning(id: string) {
+  return `Could not fetch name for Player ID ${id} — you can add it manually later`
 }
 
 interface ImportedRow {
@@ -54,8 +64,9 @@ function parseCSV(text: string): ParsedRow[] {
     const raw: Record<string, string> = {}
     headers.forEach((h, i) => { raw[h] = values[i] ?? '' })
 
-    const name = (raw.player_name || '').trim()
-    if (!name) return { raw, error: 'player_name is required' }
+    // game_id (Player ID) is the ONLY required field now.
+    const gameId = (raw.game_id || '').trim()
+    if (!gameId) return { raw, error: 'game_id (Player ID) is required' }
     return { raw }
   })
 }
@@ -83,19 +94,93 @@ export function ImportMembersButton({ allianceId }: Props) {
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<{ imported: ImportedRow[]; skipped: SkippedRow[] } | null>(null)
   const [importError, setImportError] = useState('')
+  // Name lookups keyed by game_id, plus overall fetch progress.
+  const [nameFetch, setNameFetch] = useState<NameFetchState>({})
+  const [fetchProgress, setFetchProgress] = useState<{ done: number; total: number } | null>(null)
 
-  // Detect duplicates within the uploaded file itself
-  const seenNames = new Set<string>()
+  // Detect duplicates within the uploaded file itself — keyed by game_id (identity).
+  const seenIds = new Set<string>()
   const rowsWithDuplicates: ParsedRow[] = rows.map(r => {
     if (r.error) return r
-    const name = (r.raw.player_name || '').toLowerCase().trim()
-    if (seenNames.has(name)) return { ...r, error: 'Duplicate within file' }
-    seenNames.add(name)
+    const id = (r.raw.game_id || '').trim()
+    if (seenIds.has(id)) return { ...r, error: 'Duplicate Player ID within file' }
+    seenIds.add(id)
     return r
   })
 
   const validRows = rowsWithDuplicates.filter(r => !r.error)
   const errorRows = rowsWithDuplicates.filter(r => r.error)
+
+  // Resolve the effective name for a row: CSV player_name overrides the fetched
+  // name; otherwise use the fetched name; otherwise blank (flagged with a warning).
+  function resolveName(r: ParsedRow): { name: string; fetching: boolean; warning: boolean } {
+    const csvName = (r.raw.player_name || '').trim()
+    if (csvName) return { name: csvName, fetching: false, warning: false }
+    const id = (r.raw.game_id || '').trim()
+    const f = nameFetch[id]
+    if (!f || f.status === 'fetching') return { name: '', fetching: true, warning: false }
+    if (f.status === 'done' && f.name) return { name: f.name, fetching: false, warning: false }
+    return { name: '', fetching: false, warning: true }
+  }
+
+  const isFetchingNames = fetchProgress !== null && fetchProgress.done < fetchProgress.total
+
+  // When a file is parsed, fetch missing names from the game API (rate-limited).
+  useEffect(() => {
+    let cancelled = false
+
+    const idsToFetch = Array.from(new Set(
+      rowsWithDuplicates
+        .filter(r => !r.error && !(r.raw.player_name || '').trim() && (r.raw.game_id || '').trim())
+        .map(r => (r.raw.game_id || '').trim())
+    ))
+
+    if (idsToFetch.length === 0) {
+      setNameFetch({})
+      setFetchProgress(null)
+      return
+    }
+
+    setNameFetch(Object.fromEntries(idsToFetch.map(id => [id, { status: 'fetching' as const }])))
+    setFetchProgress({ done: 0, total: idsToFetch.length })
+
+    const callTimes: number[] = []
+    ;(async () => {
+      let done = 0
+      for (const id of idsToFetch) {
+        if (cancelled) return
+
+        // Rate limit: allow a burst of RATE_LIMIT_PER_MIN, then throttle so we
+        // never exceed that many calls in any rolling 60-second window.
+        const now = Date.now()
+        while (callTimes.length && now - callTimes[0] > 60000) callTimes.shift()
+        if (callTimes.length >= RATE_LIMIT_PER_MIN) {
+          const waitMs = 60000 - (Date.now() - callTimes[0]) + 50
+          await new Promise(res => setTimeout(res, waitMs))
+        }
+        callTimes.push(Date.now())
+
+        let name = ''
+        try {
+          const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(id)}`)
+          if (res.ok) {
+            const json = await res.json()
+            name = (json.data?.name || '').trim()
+          }
+        } catch {
+          // network error — treated as a failed lookup below
+        }
+        if (cancelled) return
+
+        setNameFetch(prev => ({ ...prev, [id]: name ? { status: 'done', name } : { status: 'failed' } }))
+        done++
+        setFetchProgress({ done, total: idsToFetch.length })
+      }
+    })()
+
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows])
 
   function handleFile(file: File) {
     setFileName(file.name)
@@ -130,7 +215,11 @@ export function ImportMembersButton({ allianceId }: Props) {
     const res = await fetch('/api/members/import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alliance_id: allianceId, rows: validRows.map(r => r.raw) }),
+      // Override player_name with the resolved (fetched/override) name per row.
+      body: JSON.stringify({
+        alliance_id: allianceId,
+        rows: validRows.map(r => ({ ...r.raw, player_name: resolveName(r).name })),
+      }),
     })
     setImporting(false)
     if (!res.ok) {
@@ -157,6 +246,8 @@ export function ImportMembersButton({ allianceId }: Props) {
     setFileName('')
     setResult(null)
     setImportError('')
+    setNameFetch({})
+    setFetchProgress(null)
   }
 
   if (!open) {
@@ -193,7 +284,9 @@ export function ImportMembersButton({ allianceId }: Props) {
               <Download size={14} className="mr-1" />
               Download CSV Template
             </Button>
-            <span className="text-xs text-slate-500">Required column: player_name. All others optional.</span>
+            <span className="text-xs text-slate-500">
+              game_id (Player ID) is required. Player name will be fetched automatically from the game. All other fields are optional.
+            </span>
           </div>
 
           {/* Success state */}
@@ -230,7 +323,7 @@ export function ImportMembersButton({ allianceId }: Props) {
                       <tbody>
                         {result.imported.map((r, i) => (
                           <tr key={i} className="border-b border-slate-800">
-                            <td className="py-1.5 px-3 font-medium">{r.player_name}</td>
+                            <td className="py-1.5 px-3 font-medium">{r.player_name || <em className="text-slate-500">no name</em>}</td>
                             <td className="py-1.5 px-3 text-slate-400 hidden sm:table-cell">{r.game_id || '—'}</td>
                             <td className="py-1.5 px-3">
                               <div className="flex items-center gap-2">
@@ -301,32 +394,62 @@ export function ImportMembersButton({ allianceId }: Props) {
                     )}
                   </p>
 
+                  {/* Name-fetch progress (rate-limited to 6/min) */}
+                  {isFetchingNames && (
+                    <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+                      <Loader2 size={14} className="animate-spin flex-shrink-0" />
+                      Fetching player names from the game… {fetchProgress!.done}/{fetchProgress!.total}
+                      <span className="text-slate-500">(rate-limited to {RATE_LIMIT_PER_MIN}/min)</span>
+                    </div>
+                  )}
+
                   <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-700">
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="text-slate-400 border-b border-slate-700 bg-slate-900 sticky top-0">
-                          <th className="text-left py-2 px-3">Player Name</th>
                           <th className="text-left py-2 px-3">Game ID</th>
+                          <th className="text-left py-2 px-3">Player Name</th>
                           <th className="text-right py-2 px-3">Power</th>
                           <th className="text-left py-2 px-3">TZ</th>
                           <th className="text-left py-2 px-3">Status</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {rowsWithDuplicates.map((r, i) => (
-                          <tr key={i} className={`border-b border-slate-800 ${r.error ? 'bg-red-950/30' : ''}`}>
-                            <td className="py-1.5 px-3 font-medium">{r.raw.player_name || <em className="text-slate-500">empty</em>}</td>
-                            <td className="py-1.5 px-3 text-slate-400">{r.raw.game_id || '—'}</td>
-                            <td className="py-1.5 px-3 text-right text-slate-400">{r.raw.power || '—'}</td>
-                            <td className="py-1.5 px-3 text-slate-400">{r.raw.timezone || 'UTC'}</td>
-                            <td className="py-1.5 px-3">
-                              {r.error
-                                ? <span className="text-red-400 flex items-center gap-1"><AlertCircle size={10} />{r.error}</span>
-                                : <span className="text-green-400">✓</span>
-                              }
-                            </td>
-                          </tr>
-                        ))}
+                        {rowsWithDuplicates.map((r, i) => {
+                          const res = r.error ? null : resolveName(r)
+                          const id = (r.raw.game_id || '').trim()
+                          return (
+                            <tr key={i} className={`border-b border-slate-800 ${r.error ? 'bg-red-950/30' : res?.warning ? 'bg-amber-950/20' : ''}`}>
+                              <td className="py-1.5 px-3 text-slate-300 font-medium">{r.raw.game_id || <em className="text-slate-500">missing</em>}</td>
+                              <td className="py-1.5 px-3 font-medium">
+                                {r.error ? (
+                                  r.raw.player_name || <em className="text-slate-500">—</em>
+                                ) : res!.fetching ? (
+                                  <span className="text-amber-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" />Fetching name…</span>
+                                ) : res!.name ? (
+                                  res!.name
+                                ) : (
+                                  <em className="text-slate-500">no name</em>
+                                )}
+                              </td>
+                              <td className="py-1.5 px-3 text-right text-slate-400">{r.raw.power || '—'}</td>
+                              <td className="py-1.5 px-3 text-slate-400">{r.raw.timezone || 'UTC'}</td>
+                              <td className="py-1.5 px-3">
+                                {r.error ? (
+                                  <span className="text-red-400 flex items-center gap-1"><AlertCircle size={10} />{r.error}</span>
+                                ) : res!.fetching ? (
+                                  <span className="text-amber-400">Fetching…</span>
+                                ) : res!.warning ? (
+                                  <span className="text-amber-400 flex items-center gap-1" title={fetchWarning(id)}>
+                                    <AlertTriangle size={10} />Name not found — add later
+                                  </span>
+                                ) : (
+                                  <span className="text-green-400">✓</span>
+                                )}
+                              </td>
+                            </tr>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -336,10 +459,14 @@ export function ImportMembersButton({ allianceId }: Props) {
                   <Button
                     className="w-full"
                     onClick={doImport}
-                    disabled={importing || validRows.length === 0}
+                    disabled={importing || validRows.length === 0 || isFetchingNames}
                   >
                     <Upload size={16} className="mr-2" />
-                    {importing ? 'Importing…' : `Import ${validRows.length} Member${validRows.length !== 1 ? 's' : ''}`}
+                    {importing
+                      ? 'Importing…'
+                      : isFetchingNames
+                      ? 'Fetching names…'
+                      : `Import ${validRows.length} Member${validRows.length !== 1 ? 's' : ''}`}
                   </Button>
                 </div>
               )}

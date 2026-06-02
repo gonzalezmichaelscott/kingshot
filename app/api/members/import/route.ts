@@ -5,8 +5,10 @@ import { isBackendRole } from '@/lib/access'
 import { z } from 'zod'
 
 const rowSchema = z.object({
-  player_name: z.string().min(1),
-  game_id: z.string().optional().default(''),
+  // game_id (Player ID) is the only required field; player_name is optional and
+  // is normally fetched from the game on the client (may be blank on failure).
+  game_id: z.string().min(1),
+  player_name: z.string().optional().default(''),
   power: z.coerce.number().int().min(0).optional().default(0),
   troop_count: z.coerce.number().int().min(0).optional().default(0),
   march_size: z.coerce.number().int().min(0).optional().default(0),
@@ -43,14 +45,14 @@ export async function POST(request: NextRequest) {
 
     const svc = createServiceClient()
 
-    // Load existing player_names in this alliance for duplicate detection
+    // Load existing game_ids in this alliance for duplicate detection (game_id is identity now)
     const { data: existing } = await svc
       .from('members')
-      .select('player_name')
+      .select('game_id')
       .eq('alliance_id', body.alliance_id)
 
-    const existingNames = new Set(
-      (existing || []).map((m: any) => m.player_name.toLowerCase().trim())
+    const existingIds = new Set(
+      (existing || []).filter((m: any) => m.game_id).map((m: any) => String(m.game_id).trim())
     )
 
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
@@ -64,20 +66,24 @@ export async function POST(request: NextRequest) {
         row[k.toLowerCase().trim()] = rawRow[k]
       }
 
+      const gameId = (row.game_id || '').trim()
       const name = (row.player_name || '').trim()
-      if (!name) {
-        skipped.push({ player_name: '(empty)', reason: 'player_name is required' })
+      // Label used in skipped-row feedback when there's no name yet.
+      const label = name || (gameId ? `Player ID ${gameId}` : '(empty)')
+
+      if (!gameId) {
+        skipped.push({ player_name: label, reason: 'game_id (Player ID) is required' })
         continue
       }
 
-      if (existingNames.has(name.toLowerCase())) {
-        skipped.push({ player_name: name, reason: 'Duplicate — player already exists in alliance' })
+      if (existingIds.has(gameId)) {
+        skipped.push({ player_name: label, reason: 'Duplicate — Player ID already exists in alliance' })
         continue
       }
 
       const parsed = rowSchema.safeParse({
+        game_id: gameId,
         player_name: name,
-        game_id: row.game_id || '',
         power: row.power || 0,
         troop_count: row.troop_count || 0,
         march_size: row.march_size || 0,
@@ -87,7 +93,7 @@ export async function POST(request: NextRequest) {
       })
 
       if (!parsed.success) {
-        skipped.push({ player_name: name, reason: parsed.error.issues[0]?.message || 'Invalid data' })
+        skipped.push({ player_name: label, reason: parsed.error.issues[0]?.message || 'Invalid data' })
         continue
       }
 
@@ -95,8 +101,9 @@ export async function POST(request: NextRequest) {
         .from('members')
         .insert({
           alliance_id: body.alliance_id,
-          player_name: parsed.data.player_name,
-          game_id: parsed.data.game_id || null,
+          // player_name is NOT NULL in the schema — store '' when no name is available yet
+          player_name: parsed.data.player_name || '',
+          game_id: parsed.data.game_id,
           power: parsed.data.power,
           troop_count: parsed.data.troop_count,
           march_size: parsed.data.march_size,
@@ -108,14 +115,14 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (error || !newMember) {
-        skipped.push({ player_name: name, reason: error?.message || 'Insert failed' })
+        skipped.push({ player_name: label, reason: error?.message || 'Insert failed' })
         continue
       }
 
-      existingNames.add(name.toLowerCase())
+      existingIds.add(gameId)
       imported.push({
-        player_name: name,
-        game_id: parsed.data.game_id || '',
+        player_name: parsed.data.player_name || '',
+        game_id: parsed.data.game_id,
         self_service_link: `${appUrl}/member/${newMember.access_token}`,
       })
     }
