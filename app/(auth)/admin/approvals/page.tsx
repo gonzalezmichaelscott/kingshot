@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Inbox } from 'lucide-react'
 import { ApprovalsPortal } from '@/components/admin/ApprovalsPortal'
+import { alliancesWithR5 } from '@/lib/leadership'
 
 export default async function AdminApprovalsPage() {
   const supabase = createClient()
@@ -19,14 +20,20 @@ export default async function AdminApprovalsPage() {
   const kingdomRequests = (kingdomReqs || []).filter(r => r.request_type === 'new_kingdom')
   const allianceRequests = (kingdomReqs || []).filter(r => r.request_type === 'new_alliance')
 
+  // System Admin only handles elevated requests that have FALLEN BACK to admin —
+  // i.e. the target alliance has no R5. Once an alliance gains an R5, its pending
+  // R4/R5 requests disappear from here and surface in that R5's Members queue.
+  const r5Alliances = await alliancesWithR5(supabase, (rankReqsRaw || []).map(r => r.alliance_id))
+  const fallbackRankReqs = (rankReqsRaw || []).filter(r => !r5Alliances.has(r.alliance_id))
+
   // Attach current role for each rank request's requesting user
-  const userIds = (rankReqsRaw || []).map(r => r.user_id)
+  const userIds = fallbackRankReqs.map(r => r.user_id)
   let roleMap: Record<string, string> = {}
   if (userIds.length > 0) {
     const { data: profiles } = await supabase.from('user_profiles').select('id, role').in('id', userIds)
     roleMap = Object.fromEntries((profiles || []).map(p => [p.id, p.role]))
   }
-  const rankRequests = (rankReqsRaw || []).map(r => ({ ...r, current_role: roleMap[r.user_id] || null }))
+  const rankRequests = fallbackRankReqs.map(r => ({ ...r, current_role: roleMap[r.user_id] || null }))
 
   return (
     <div className="max-w-3xl mx-auto space-y-6">

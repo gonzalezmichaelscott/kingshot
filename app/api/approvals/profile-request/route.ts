@@ -1,7 +1,8 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
-import { profileRequestApprover, isBackendRole } from '@/lib/access'
+import { canApproveProfileRequest } from '@/lib/access'
+import { allianceHasR5 } from '@/lib/leadership'
 import { z } from 'zod'
 
 const schema = z.object({
@@ -25,11 +26,12 @@ export async function POST(request: NextRequest) {
     if (!req) return NextResponse.json({ error: 'Request not found' }, { status: 404 })
     if (req.status !== 'pending') return NextResponse.json({ error: 'Request already resolved' }, { status: 400 })
 
-    // Permission: r1-r3 → alliance r4/r5/admin; r4/r5 → system_admin only
-    const approver = profileRequestApprover(req.requested_role)
-    const isAdmin = actor?.role === 'system_admin'
-    const isAllianceLeader = isBackendRole(actor?.role) && actor?.alliance_id === req.alliance_id
-    const allowed = approver === 'system_admin' ? isAdmin : (isAdmin || isAllianceLeader)
+    // Permission (leadership-aware):
+    //  - r1/r2/r3 → any R4/R5 of the alliance (or admin)
+    //  - r4/r5    → the alliance's R5 if one exists, else System Admin (fallback)
+    const sameAlliance = actor?.alliance_id === req.alliance_id
+    const hasR5 = await allianceHasR5(svc, req.alliance_id)
+    const allowed = canApproveProfileRequest(actor?.role, req.requested_role, sameAlliance, hasR5)
     if (!allowed) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
     if (body.action === 'reject') {

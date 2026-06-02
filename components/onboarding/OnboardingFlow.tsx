@@ -70,7 +70,7 @@ export function OnboardingFlow() {
     setLoading(false)
     if (!res.ok) { const d = await res.json().catch(() => ({})); setError(d.error || 'Failed'); return }
     setSubmittedMsg(LEADER_RANKS.includes(rank)
-      ? 'R4/R5 rank requests require System Admin verification. You will be notified once approved.'
+      ? "R4/R5 rank requests are reviewed by your alliance's R5 — or by System Admin if your alliance doesn't have an R5 yet. You will be notified once approved."
       : 'Your profile request has been sent for approval. You will have access once an R4 or R5 approves your request.')
     setStep('submitted')
   }

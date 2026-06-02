@@ -28,16 +28,17 @@ export function canViewAlliance(role: UserRole, profileAllianceId: string | null
 }
 
 /**
- * Roles an actor is allowed to ASSIGN to a member directly (instant).
- * - system_admin: any role including r5
- * - r5: r1-r4 (NOT r5 — that needs admin approval)
- * - r4: r1-r3 only
- * Requesting r5 always routes through the System Admin approval queue.
+ * Roles an actor is allowed to PROMOTE a member to directly (instant), within
+ * their own alliance.
+ * - system_admin: any role, any alliance
+ * - r5: up to R5 (can promote anyone up to and including R5)
+ * - r4: up to R4 (cannot promote to R5)
+ * - r3 and below: no promotion access at all
  */
 export function assignableRoles(actorRole: UserRole): string[] {
   if (actorRole === 'system_admin') return ['r1', 'r2', 'r3', 'r4', 'r5']
-  if (actorRole === 'r5') return ['r1', 'r2', 'r3', 'r4']
-  if (actorRole === 'r4') return ['r1', 'r2', 'r3']
+  if (actorRole === 'r5') return ['r1', 'r2', 'r3', 'r4', 'r5']
+  if (actorRole === 'r4') return ['r1', 'r2', 'r3', 'r4']
   return []
 }
 
@@ -45,13 +46,57 @@ export function canAssignRole(actorRole: UserRole, targetRole: string) {
   return assignableRoles(actorRole).includes(targetRole)
 }
 
+/** Elevated ranks whose join/rank requests need an R5 (or System Admin fallback). */
+export const ELEVATED_REQUEST_ROLES = ['r4', 'r5'] as const
+
+export function isElevatedRequestRole(role: string) {
+  return role === 'r4' || role === 'r5'
+}
+
 /**
- * Who approves a profile request for the given requested role.
- * - r1/r2/r3 → the alliance's r4/r5 (or system_admin)
- * - r4/r5    → system_admin only
+ * Whether a pending profile (join/rank) request must fall back to System Admin.
+ * - r4/r5 requests fall back to admin ONLY when the alliance has no existing R5.
+ * - r1/r2/r3 requests are always handled by the alliance's R4/R5 (never admin-only).
  */
-export function profileRequestApprover(requestedRole: string): 'alliance' | 'system_admin' {
-  return requestedRole === 'r4' || requestedRole === 'r5' ? 'system_admin' : 'alliance'
+export function profileRequestNeedsAdmin(requestedRole: string, allianceHasR5: boolean): boolean {
+  if (isElevatedRequestRole(requestedRole)) return !allianceHasR5
+  return false
+}
+
+/**
+ * Whether `actorRole` may approve/reject a profile request, given the requested
+ * role, whether the actor belongs to the request's alliance, and whether that
+ * alliance currently has an R5.
+ *
+ * - System Admin: always.
+ * - r4/r5 requests: only an R5 of the same alliance, and only while an R5 exists
+ *   (otherwise it has fallen back to System Admin).
+ * - r1/r2/r3 requests: any R4 or R5 of the same alliance.
+ */
+export function canApproveProfileRequest(
+  actorRole: UserRole,
+  requestedRole: string,
+  sameAlliance: boolean,
+  allianceHasR5: boolean
+): boolean {
+  if (actorRole === 'system_admin') return true
+  if (!sameAlliance) return false
+  if (isElevatedRequestRole(requestedRole)) {
+    return allianceHasR5 && actorRole === 'r5'
+  }
+  return actorRole === 'r4' || actorRole === 'r5'
+}
+
+/**
+ * Which requested-role values an alliance leader should see in their Members
+ * page approval queue. R5 sees elevated (R4/R5) requests too; R4 sees only R1-R3.
+ */
+export function visibleRequestRolesFor(viewerRole: UserRole): string[] {
+  if (viewerRole === 'r5' || viewerRole === 'system_admin') {
+    return ['r1', 'r2', 'r3', 'r4', 'r5']
+  }
+  if (viewerRole === 'r4') return ['r1', 'r2', 'r3']
+  return []
 }
 
 export function roleLabel(role: string | null | undefined): string {

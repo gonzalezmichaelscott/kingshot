@@ -12,7 +12,7 @@ import { PendingProfileRequests } from '@/components/members/PendingProfileReque
 import { PendingClaimRequests } from '@/components/members/PendingClaimRequests'
 import { RemoveMemberButton } from '@/components/members/RemoveMemberButton'
 import { ImportMembersButton } from '@/components/members/ImportMembersButton'
-import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
+import { requireAllianceAccess, canManageAlliance, visibleRequestRolesFor } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 
@@ -33,12 +33,15 @@ export default async function MembersPage({ params }: { params: { id: string } }
   const canManage = canManageAlliance(profile?.role)
   const isAdmin = profile?.role === 'system_admin'
 
-  const { data: pendingRequests } = canManage ? await supabase
+  // R5 sees R1-R5 requests for their alliance (elevated R4/R5 requests route to
+  // the alliance R5 when one exists); R4 sees only R1-R3.
+  const visibleRequestRoles = visibleRequestRolesFor(profile?.role)
+  const { data: pendingRequests } = (canManage && visibleRequestRoles.length > 0) ? await supabase
     .from('profile_requests')
     .select('*')
     .eq('alliance_id', params.id)
     .eq('status', 'pending')
-    .in('requested_role', ['r1', 'r2', 'r3'])
+    .in('requested_role', visibleRequestRoles)
     .order('created_at', { ascending: false }) : { data: [] }
 
   // Pending profile claim requests for this alliance
