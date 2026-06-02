@@ -1,7 +1,7 @@
 // @ts-nocheck
 'use client'
 import { useState, useEffect, useCallback } from 'react'
-import { Gift, RefreshCw, Loader2, Check, Copy, AlertCircle, Clock } from 'lucide-react'
+import { Gift, RefreshCw, Loader2, Check, Copy, AlertCircle, Clock, ExternalLink } from 'lucide-react'
 
 interface GiftCode {
   id: string
@@ -13,33 +13,14 @@ interface GiftCode {
 type Mode = 'redeem' | 'share'
 
 interface Props {
-  /** Member's stored Player ID — required for one-click redemption. */
+  /** Member's stored Player ID — shown so they can paste it on the game site. */
   gameId?: string | null
-  /** 'redeem' (default): members redeem with their Player ID.
-   *  'share': R4/R5 view — copy buttons only, no redemption. */
+  /** 'redeem' (default): members copy + open the game site to redeem.
+   *  'share': R4/R5 view — copy buttons only. */
   mode?: Mode
 }
 
-const LS_KEY = 'ks_redeemed_gift_codes'
-const MANUAL_FALLBACK =
-  'Redemption service unavailable — try redeeming at ks-giftcode.centurygame.com manually'
-
-function loadRedeemed(): Record<string, true> {
-  if (typeof window === 'undefined') return {}
-  try {
-    return JSON.parse(localStorage.getItem(LS_KEY) || '{}') || {}
-  } catch {
-    return {}
-  }
-}
-
-function saveRedeemed(map: Record<string, true>) {
-  try {
-    localStorage.setItem(LS_KEY, JSON.stringify(map))
-  } catch {
-    /* localStorage unavailable — non-fatal */
-  }
-}
+const GAME_SITE_URL = 'https://ks-giftcode.centurygame.com'
 
 function fmtExpiry(iso: string | null): string {
   if (!iso) return 'No expiry'
@@ -60,14 +41,8 @@ export function GiftCodeRedeemer({ gameId, mode = 'redeem' }: Props) {
   const [loading, setLoading] = useState(true)
   const [serviceError, setServiceError] = useState('')
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
-
-  const [redeemed, setRedeemed] = useState<Record<string, true>>({})
-  const [redeeming, setRedeeming] = useState<Record<string, boolean>>({})
-  const [results, setResults] = useState<Record<string, { success: boolean; message: string }>>({})
-  const [copied, setCopied] = useState('')
-
-  // Load previously-redeemed codes from localStorage on mount.
-  useEffect(() => { setRedeemed(loadRedeemed()) }, [])
+  const [copied, setCopied] = useState('')      // which code was just copied
+  const [copiedId, setCopiedId] = useState(false) // Player ID just copied
 
   const fetchCodes = useCallback(async () => {
     setLoading(true)
@@ -90,41 +65,17 @@ export function GiftCodeRedeemer({ gameId, mode = 'redeem' }: Props) {
 
   const active = codes.filter(isActive)
 
-  async function redeem(c: GiftCode) {
-    if (!gameId) return
-    setRedeeming(p => ({ ...p, [c.code]: true }))
-    setResults(p => { const n = { ...p }; delete n[c.code]; return n })
-    try {
-      const res = await fetch('/api/gift-codes/redeem', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ playerId: gameId, code: c.code }),
-      })
-      const json = await res.json().catch(() => ({}))
-      const success = !!json.success
-      const already = !!json.alreadyRedeemed
-      setResults(p => ({
-        ...p,
-        [c.code]: { success: success || already, message: json.message || (success ? '✓ Redeemed!' : 'Redemption failed') },
-      }))
-      if (success || already) {
-        setRedeemed(prev => {
-          const next = { ...prev, [c.code]: true as const }
-          saveRedeemed(next)
-          return next
-        })
-      }
-    } catch {
-      setResults(p => ({ ...p, [c.code]: { success: false, message: MANUAL_FALLBACK } }))
-    } finally {
-      setRedeeming(p => ({ ...p, [c.code]: false }))
-    }
-  }
-
-  function copy(code: string) {
+  function copyCode(code: string) {
     try { navigator.clipboard?.writeText(code) } catch { /* ignore */ }
     setCopied(code)
     setTimeout(() => setCopied(c => (c === code ? '' : c)), 1500)
+  }
+
+  function copyId() {
+    if (!gameId) return
+    try { navigator.clipboard?.writeText(String(gameId)) } catch { /* ignore */ }
+    setCopiedId(true)
+    setTimeout(() => setCopiedId(false), 1500)
   }
 
   return (
@@ -152,6 +103,35 @@ export function GiftCodeRedeemer({ gameId, mode = 'redeem' }: Props) {
         </p>
       )}
 
+      {/* Player ID + instructions (member redeem mode only) */}
+      {mode === 'redeem' && (
+        <>
+          {gameId ? (
+            <div className="flex items-center justify-between gap-3 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 flex-wrap">
+              <p className="text-sm text-slate-300">
+                Your Player ID: <span className="font-mono font-bold text-amber-300">{gameId}</span>
+              </p>
+              <button
+                onClick={copyId}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg text-xs font-semibold transition-colors"
+              >
+                {copiedId ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
+                {copiedId ? 'Copied!' : 'Copy ID'}
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+              <AlertCircle size={13} className="flex-shrink-0 mt-0.5" />
+              Add your Player ID in the Stats tab to use this feature
+            </div>
+          )}
+
+          <p className="text-xs text-slate-400 leading-relaxed">
+            To redeem: Copy your Player ID and the code, then click Redeem on Game Site. Paste both into the form to claim your rewards.
+          </p>
+        </>
+      )}
+
       {/* Soft service error (degraded but usable) */}
       {serviceError && (
         <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
@@ -177,67 +157,36 @@ export function GiftCodeRedeemer({ gameId, mode = 'redeem' }: Props) {
       {/* Codes */}
       {active.length > 0 && (
         <div className="space-y-2">
-          {active.map(c => {
-            const result = results[c.code]
-            const isRedeeming = !!redeeming[c.code]
-            const wasRedeemed = !!redeemed[c.code]
-
-            return (
-              <div key={c.id} className="flex items-center justify-between gap-3 bg-slate-800 border border-slate-700 rounded-xl p-3 flex-wrap">
-                <div className="min-w-0">
-                  <p className="font-mono font-bold text-base text-amber-300 tracking-wide break-all">{c.code}</p>
-                  <p className="text-xs text-slate-500 mt-0.5">{fmtExpiry(c.expiresAt)}</p>
-                </div>
-
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  {mode === 'share' ? (
-                    <button
-                      onClick={() => copy(c.code)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg text-xs font-semibold transition-colors"
-                    >
-                      {copied === c.code ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
-                      {copied === c.code ? 'Copied' : 'Copy Code'}
-                    </button>
-                  ) : isRedeeming ? (
-                    <span className="flex items-center gap-1.5 text-xs text-amber-400">
-                      <Loader2 size={13} className="animate-spin" /> Redeeming…
-                    </span>
-                  ) : result ? (
-                    result.success ? (
-                      <span className="text-xs font-semibold text-green-400 flex items-center gap-1">
-                        <Check size={13} /> {result.message}
-                      </span>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-red-400 max-w-[200px]">{result.message}</span>
-                        <button
-                          onClick={() => redeem(c)}
-                          className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg text-xs font-semibold transition-colors"
-                        >
-                          Try again
-                        </button>
-                      </div>
-                    )
-                  ) : wasRedeemed ? (
-                    <span className="text-xs text-slate-500 flex items-center gap-1">
-                      <Check size={13} /> Already redeemed
-                    </span>
-                  ) : !gameId ? (
-                    <span className="text-xs text-slate-400 max-w-[220px] text-right">
-                      Add your Player ID to your profile to redeem codes automatically
-                    </span>
-                  ) : (
-                    <button
-                      onClick={() => redeem(c)}
-                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg text-xs font-semibold transition-colors"
-                    >
-                      Redeem
-                    </button>
-                  )}
-                </div>
+          {active.map(c => (
+            <div key={c.id} className="flex items-center justify-between gap-3 bg-slate-800 border border-slate-700 rounded-xl p-3 flex-wrap">
+              <div className="min-w-0">
+                <p className="font-mono font-bold text-base text-amber-300 tracking-wide break-all">{c.code}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{fmtExpiry(c.expiresAt)}</p>
               </div>
-            )
-          })}
+
+              <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                <button
+                  onClick={() => copyCode(c.code)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-lg text-xs font-semibold transition-colors"
+                >
+                  {copied === c.code ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
+                  <span className={copied === c.code ? 'text-green-400' : ''}>{copied === c.code ? 'Copied!' : 'Copy Code'}</span>
+                </button>
+
+                {mode === 'redeem' && (
+                  <a
+                    href={GAME_SITE_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg text-xs font-semibold transition-colors"
+                  >
+                    <ExternalLink size={13} />
+                    Redeem on Game Site
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 

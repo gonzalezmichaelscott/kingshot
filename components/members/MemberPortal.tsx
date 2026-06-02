@@ -272,13 +272,7 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
         {tab === 'gifts' && (
           <SectionErrorBoundary label="Gift codes">
             <Card>
-              <CardContent className="py-4 space-y-3">
-                {!member.game_id && (
-                  <div className="flex items-start gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
-                    <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
-                    Add your Player ID in the Stats tab to enable one-click redemption.
-                  </div>
-                )}
+              <CardContent className="py-4">
                 <GiftCodeRedeemer gameId={member.game_id} />
               </CardContent>
             </Card>
