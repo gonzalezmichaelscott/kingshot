@@ -93,49 +93,92 @@ export interface RoleScores {
 }
 
 /**
- * Effective combat power weight per troop tier.
- * TG1+ are True Gold troops — significantly stronger than standard T10.
+ * CORRECTED TROOP MODEL
+ *
+ * Troops exist only as standard tiers T1-T10. "Truegold" (TG) is NOT a tier — it
+ * is a global stat multiplier (TG0-TG10) applied to ALL troops of a given type
+ * once unlocked via Barracks/Range/Stable. A player cannot mix TG levels within a
+ * troop type; the level applies to the whole pool.
+ *
+ * troop_data structure (per troop type):
+ *   { t1..t10: count, tg_level: 0-10 }
  */
-export const TIER_MULTIPLIERS: Record<string, number> = {
-  T1: 0.1, T2: 0.1, T3: 0.1, T4: 0.1,
-  T5: 0.3, T6: 0.3,
-  T7: 0.6, T8: 0.6,
-  T9: 0.85, T10: 1.0,
-  TG1: 1.3, TG2: 1.5, TG3: 1.8, TG4: 2.1,
-  TG5: 2.5, TG6: 3.0, TG7: 3.6, TG8: 4.2,
+
+/** Raw power contribution per unit at each standard tier. */
+export const TIER_POWER: Record<string, number> = {
+  t1: 3, t2: 4, t3: 6, t4: 9, t5: 13,
+  t6: 20, t7: 28, t8: 38, t9: 50, t10: 66,
+}
+
+/** Multiplicative stat bonus applied to the entire troop pool at each TG level. */
+export const TG_MULTIPLIERS: Record<number, number> = {
+  0: 1.0,   // No TG
+  1: 1.15,
+  2: 1.25,
+  3: 1.40,  // TG3 also unlocks a special combat skill — significant power jump
+  4: 1.55,
+  5: 1.72,
+  6: 1.92,
+  7: 2.15,
+  8: 2.40,
+  9: 2.68,
+  10: 3.0,
+}
+
+const TROOP_TYPE_KEYS = ['infantry', 'cavalry', 'archer'] as const
+type TroopTypeKey = (typeof TROOP_TYPE_KEYS)[number]
+
+/** Read a tier count tolerating legacy uppercase keys (T10) alongside t10. */
+function readTier(typeData: any, tier: string): number {
+  if (!typeData || typeof typeData !== 'object') return 0
+  const v = typeData[tier] ?? typeData[tier.toUpperCase()]
+  const n = Number(v)
+  return Number.isFinite(n) && n > 0 ? n : 0
 }
 
 /**
- * Weighted sum of all troops across all types and tiers.
- * Use sqrt() of this value in scoring formulas instead of raw troop_count.
+ * Effective strength of ONE troop type: sum of raw tier power, scaled by the
+ * type's TG multiplier, with an extra skill bonus once the TG3 skill unlocks.
  */
-export function calculateEffectiveTroopStrength(troopData: TroopData | null | undefined): number {
+function effectiveForType(typeData: any): number {
+  if (!typeData || typeof typeData !== 'object') return 0
+  const rawPower = Object.entries(TIER_POWER).reduce(
+    (sum, [tier, power]) => sum + readTier(typeData, tier) * power,
+    0
+  )
+  const tgLevel = Math.max(0, Math.min(10, Number(typeData.tg_level) || 0))
+  const tgMultiplier = TG_MULTIPLIERS[tgLevel] ?? 1.0
+  // TG3+ special skill bonus (Unyielding Shield / Assault Lance / Howling Wind)
+  const skillBonus = tgLevel >= 3 ? 1.15 : 1.0
+  return rawPower * tgMultiplier * skillBonus
+}
+
+/**
+ * Effective troop strength. Pass a `troopType` for that type's strength, or omit
+ * it to get the combined total across all three types. Use sqrt() of this value
+ * in scoring formulas instead of raw troop_count.
+ */
+export function calculateEffectiveTroopStrength(
+  troopData: TroopData | null | undefined,
+  troopType?: TroopTypeKey
+): number {
   if (!troopData) return 0
-  let total = 0
-  for (const typeData of Object.values(troopData)) {
-    if (!typeData || typeof typeData !== 'object') continue
-    for (const [tier, count] of Object.entries(typeData)) {
-      total += (count || 0) * (TIER_MULTIPLIERS[tier] ?? 0.1)
-    }
-  }
-  return total
+  if (troopType) return effectiveForType(troopData[troopType])
+  return TROOP_TYPE_KEYS.reduce((sum, t) => sum + effectiveForType(troopData[t]), 0)
 }
 
 /**
- * Detect the primary troop type from troop_data effective strengths.
+ * Detect the primary troop type from per-type effective strength (TG-aware).
  * Returns 'mixed' when the top type is within 20% of the second-highest.
  */
 export function detectPrimaryTroopType(
   troopData: TroopData | null | undefined
 ): 'infantry' | 'cavalry' | 'archer' | 'mixed' {
   if (!troopData) return 'mixed'
-  const strengths: Record<string, number> = { infantry: 0, cavalry: 0, archer: 0 }
-  for (const type of ['infantry', 'cavalry', 'archer']) {
-    const typeData = troopData[type]
-    if (!typeData || typeof typeData !== 'object') continue
-    for (const [tier, count] of Object.entries(typeData)) {
-      strengths[type] += (count || 0) * (TIER_MULTIPLIERS[tier] ?? 0.1)
-    }
+  const strengths: Record<string, number> = {
+    infantry: calculateEffectiveTroopStrength(troopData, 'infantry'),
+    cavalry: calculateEffectiveTroopStrength(troopData, 'cavalry'),
+    archer: calculateEffectiveTroopStrength(troopData, 'archer'),
   }
   const sorted = Object.entries(strengths).sort((a, b) => b[1] - a[1])
   const [first, second] = sorted
@@ -242,12 +285,12 @@ export function calculateJoinerDiversityBonus(joiners: MemberHero[]): number {
   return 0
 }
 
-/** Troop counter: Infantry > Archer > Cavalry > Infantry. */
+/** Troop counter: Infantry > Cavalry > Archer > Infantry. */
 export function getTroopCounterBonus(attackerType: string, defenderType: string): number {
   const counters: Record<string, string> = {
-    infantry: 'archer',
-    archer: 'cavalry',
-    cavalry: 'infantry',
+    infantry: 'cavalry',
+    cavalry: 'archer',
+    archer: 'infantry',
   }
   return counters[attackerType] === defenderType ? 0.35 : 0
 }

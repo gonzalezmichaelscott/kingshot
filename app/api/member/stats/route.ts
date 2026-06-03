@@ -45,11 +45,13 @@ export async function PATCH(request: NextRequest) {
 
     if (troop_data !== undefined) {
       updates.troop_data = troop_data
-      // Auto-calculate troop_count as sum of all tier values
+      // Auto-calculate troop_count as the sum of all tier counts.
+      // tg_level is a multiplier setting (0-10), NOT a troop count — exclude it.
       let computed = 0
       for (const typeData of Object.values(troop_data ?? {})) {
-        for (const v of Object.values(typeData ?? {})) {
-          computed += v || 0
+        for (const [key, v] of Object.entries(typeData ?? {})) {
+          if (key === 'tg_level') continue
+          computed += (v as number) || 0
         }
       }
       updates.troop_count = computed

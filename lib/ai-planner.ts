@@ -1,7 +1,7 @@
 ﻿// @ts-nocheck
 import Anthropic from '@anthropic-ai/sdk'
 import { createServiceClient } from '@/lib/supabase/server'
-import { calculateRoleScores, calculateHeroScore, calculateEffectiveTroopStrength, TIER_MULTIPLIERS } from '@/lib/scoring'
+import { calculateRoleScores, calculateHeroScore, calculateEffectiveTroopStrength, TIER_POWER } from '@/lib/scoring'
 import type { MemberHeroData, MemberProfile, TroopData } from '@/lib/scoring'
 import { generateMemberInstructions } from '@/lib/member-instructions'
 import { getKvkContext } from '@/lib/kvk'
@@ -25,14 +25,15 @@ CRITICAL RULES:
 9. LEADERS: all expedition skills from all 3 heroes they bring apply.
 
 TROOP COUNTER SYSTEM:
-- Infantry counters Archers: 25-50% bonus damage
-- Archers counter Cavalry: 25-50% bonus damage
-- Cavalry counters Infantry: 25-50% bonus damage
+- Infantry counters Cavalry: 25-50% bonus damage (weak vs Archers)
+- Cavalry counters Archers: 25-50% bonus damage (weak vs Infantry)
+- Archers counter Infantry: 25-50% bonus damage (weak vs Cavalry)
 
 OPTIMAL FORMATIONS:
-- Standard PvP attack rally: 50% Infantry / 20% Cavalry / 30% Archer
-- Amadeus Bear Hunt: 5% Infantry / 25% Cavalry / 70% Archer (min 5,000 infantry to activate his skills)
-- KvK Castle garrison defense: 60% Infantry / 20% Cavalry / 20% Archer
+- PvP Rally (attacking): 50% Infantry / 20% Cavalry / 30% Archer
+- Bear Hunt: 5% Infantry / 15% Cavalry / 80% Archer (Archers are the primary DPS)
+- Vikings: 65% Infantry / 35% Cavalry / 0% Archer
+- KVK / Castle garrison (defending): 60% Infantry / 20% Cavalry / 20% Archer
 
 RALLY LEADER SELECTION RULES:
 - Must have march_size >= rally_capacity to fill the rally
@@ -56,14 +57,13 @@ JOINER OPTIMIZATION:
 - NEVER recommend both Howard AND Quinn — identical effect_op 111, wastes a slot
 - Fewer fuller rallies beat many thin rallies — don't split joiner pool too thin
 
-TROOP TIER SYSTEM:
-- Standard tiers T1-T10: T1-T4 are negligible (0.1x), T5-T6 moderate (0.3x), T7-T8 decent (0.6x), T9 strong (0.85x), T10 baseline (1.0x)
-- True Gold tiers TG1-TG8 are substantially stronger: TG1=1.3x, TG2=1.5x, TG3=1.8x, TG4=2.1x, TG5=2.5x, TG6=3.0x, TG7=3.6x, TG8=4.2x
-- A joiner with 300k TG5 troops (effective: 750k) outperforms one with 2M T7 troops (effective: 1.2M)
-- Lower tier troops die off faster under enemy fire, reducing the joiner's contribution mid-rally
-- When assigning rally joiners, prioritize members with higher effective troop strength (TG1+ > T10 > T9 etc)
-- Ensure joiner troop types match the rally leader's formation where possible (+15% effectiveness)
-- Mismatched troop types reduce joiner effectiveness by 10%; mixed-troop joiners are neutral
+TROOP TIER & TRUEGOLD (TG) SYSTEM:
+- Troops exist as standard tiers T1-T10. T10 is the competitive baseline; in strong kingdoms nearly everyone has promoted most troops to T10, so T1-T9 are largely irrelevant for planning.
+- Truegold (TG) level is a multiplicative stat bonus applied to ALL troops of that type. A player at TG5 has significantly stronger troops than TG0 regardless of tier. TG is NOT a separate troop tier — it is a global multiplier (TG0-TG10) per troop type.
+- TG3+ unlocks a special combat skill (Infantry: 25% chance 36% damage reduction; Cavalry: 10% chance double damage; Archer: 20% chance 50% extra damage).
+- Prioritize high-TG joiners over raw troop count when assigning joiner roles. A player with 500k T10 Infantry at TG5 outperforms one with 1M T8 Infantry at TG0.
+- "effective troop strength" already folds in tier power AND the TG multiplier — rank joiners by it, not by raw troop_count.
+- Ensure joiner troop types match the rally leader's formation where possible (+15% effectiveness). Mismatched troop types reduce joiner effectiveness by 10%; mixed-troop joiners are neutral.
 
 Return a JSON battle plan with: summary, formations, assignments (each with member_id, player_name, role, squad, formation_recommendation, hero_recommendation, reasoning, is_primary, is_backup, time_window, and for cross-alliance KVK joiners: kvk_transfer, transfer_alliance, transfer_rally_leader), joiner_stacking_advice, coverage_gaps, backup_plan, warnings, and (when cross-alliance transfers are used) transfer_recommendations.
 Never include markdown code fences in your response — raw JSON only.`
@@ -240,16 +240,18 @@ ${members.map(m => {
   const troopBreakdown = m.troop_data
     ? (['infantry', 'cavalry', 'archer'] as const).map(type => {
         const typeData = m.troop_data[type]
-        if (!typeData) return null
-        const tiers = Object.entries(typeData)
-          .filter(([, v]) => (v as number) > 0)
-          .map(([tier, v]) => `${tier}=${(v as number).toLocaleString()}`)
-        if (!tiers.length) return null
-        const eff = tiers.length
-          ? Object.entries(typeData)
-              .reduce((s, [tier, v]) => s + (v as number) * (TIER_MULTIPLIERS[tier] ?? 0.1), 0)
-          : 0
-        return `    ${type}: ${tiers.join(', ')} (eff: ${Math.round(eff).toLocaleString()})`
+        if (!typeData || typeof typeData !== 'object') return null
+        const tgLevel = Number(typeData.tg_level) || 0
+        const tiers = Object.keys(TIER_POWER)
+          .map(tier => {
+            const v = Number(typeData[tier] ?? typeData[tier.toUpperCase()]) || 0
+            return v > 0 ? `${tier.toUpperCase()}=${v.toLocaleString()}` : null
+          })
+          .filter(Boolean)
+          .reverse() // show T10 first
+        if (!tiers.length && tgLevel === 0) return null
+        const eff = calculateEffectiveTroopStrength(m.troop_data, type)
+        return `    ${type}: TG${tgLevel}${tiers.length ? ` | ${tiers.join(', ')}` : ''} (eff: ${Math.round(eff).toLocaleString()})`
       }).filter(Boolean).join('\n')
     : null
 

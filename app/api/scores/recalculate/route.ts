@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     // Load all members with their data
     const { data: members } = await serviceClient
       .from('members')
-      .select('id, power, troop_count, march_size, rally_capacity, member_combat_stats(*), member_heroes(*, heroes(*))')
+      .select('id, power, troop_count, troop_data, march_size, rally_capacity, member_combat_stats(*), member_heroes(*, heroes(*))')
       .eq('alliance_id', allianceId)
 
     if (!members) return NextResponse.json({ updated: 0 })
@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
         marchSize: m.march_size || 0,
         rallyCapacity: m.rally_capacity || 0,
         primaryTroopType: (stats?.troop_type_primary || 'mixed') as any,
+        troopData: m.troop_data || null,
         heroes: heroData,
         combatStats: {
           infantryAttack: stats?.infantry_attack || 0,

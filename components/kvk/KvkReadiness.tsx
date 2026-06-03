@@ -5,8 +5,13 @@ import { Activity, AlertCircle, Crown, Users } from 'lucide-react'
 
 function isComplete(troopData: any) {
   if (!troopData || typeof troopData !== 'object') return false
+  // A type counts as filled only if it has at least one tier count > 0.
+  // tg_level is a multiplier setting, not a troop count — ignore it here.
   return Object.values(troopData).some(
-    (t: any) => t && typeof t === 'object' && Object.values(t).some((v: any) => (v || 0) > 0)
+    (t: any) =>
+      t &&
+      typeof t === 'object' &&
+      Object.entries(t).some(([key, v]: [string, any]) => key !== 'tg_level' && (v || 0) > 0)
   )
 }
 

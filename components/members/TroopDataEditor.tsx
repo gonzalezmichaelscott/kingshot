@@ -1,19 +1,22 @@
 // @ts-nocheck
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Sword } from 'lucide-react'
+import { Sword, ChevronDown, ChevronRight, Check } from 'lucide-react'
 
-const STANDARD_TIERS = ['T1','T2','T3','T4','T5','T6','T7','T8','T9','T10'] as const
-const TRUE_GOLD_TIERS = ['TG1','TG2','TG3','TG4','TG5','TG6','TG7','TG8'] as const
-const ALL_TIERS = [...STANDARD_TIERS, ...TRUE_GOLD_TIERS] as const
+// Standard tiers only — Truegold is a global multiplier, NOT a tier.
+const STANDARD_TIERS = ['t1','t2','t3','t4','t5','t6','t7','t8','t9','t10'] as const
+// Shown most-important first (T10 leads; the rest are collapsible).
+const LOWER_TIERS = ['t9','t8','t7','t6','t5','t4','t3','t2','t1'] as const
 const TROOP_TYPES = ['infantry', 'cavalry', 'archer'] as const
+const MAX_TG = 10
 
-type TroopTier = (typeof ALL_TIERS)[number]
+type TroopTier = (typeof STANDARD_TIERS)[number]
 type TroopType = (typeof TROOP_TYPES)[number]
-export type TroopData = Record<TroopType, Partial<Record<TroopTier, number>>>
+type TypeData = Record<TroopTier, number> & { tg_level: number }
+export type TroopData = Record<TroopType, TypeData>
 
 const TYPE_LABELS: Record<TroopType, string> = {
   infantry: 'Infantry',
@@ -21,32 +24,45 @@ const TYPE_LABELS: Record<TroopType, string> = {
   archer: 'Archers',
 }
 
-function emptyTroopData(): TroopData {
-  const base = ALL_TIERS.reduce((a, t) => ({ ...a, [t]: 0 }), {} as Partial<Record<TroopTier, number>>)
-  return {
-    infantry: { ...base },
-    cavalry: { ...base },
-    archer: { ...base },
-  }
+// TG3 special skill unlocked per troop type.
+const TG3_SKILL: Record<TroopType, string> = {
+  infantry: 'Unyielding Shield',
+  cavalry: 'Assault Lance',
+  archer: 'Howling Wind',
 }
 
-function mergeExisting(existing: any): TroopData {
-  const base = emptyTroopData()
-  if (!existing || typeof existing !== 'object') return base
-  for (const type of TROOP_TYPES) {
-    const src = existing[type]
-    if (src && typeof src === 'object') {
-      for (const tier of ALL_TIERS) {
-        const v = Number(src[tier])
-        if (!isNaN(v) && v > 0) base[type][tier] = v
-      }
-    }
-  }
+const SIMPLIFIED_KEY = 'ksc_troop_simplified'
+
+function emptyType(): TypeData {
+  const base: any = { tg_level: 0 }
+  for (const t of STANDARD_TIERS) base[t] = 0
   return base
 }
 
+function emptyTroopData(): TroopData {
+  return { infantry: emptyType(), cavalry: emptyType(), archer: emptyType() }
+}
+
+/** Read existing troop_data into the new structure, tolerating legacy keys. */
+function mergeExisting(existing: any): TroopData {
+  const data = emptyTroopData()
+  if (!existing || typeof existing !== 'object') return data
+  for (const type of TROOP_TYPES) {
+    const src = existing[type]
+    if (!src || typeof src !== 'object') continue
+    for (const tier of STANDARD_TIERS) {
+      // Accept both new (t10) and legacy (T10) keys.
+      const v = Number(src[tier] ?? src[tier.toUpperCase()])
+      if (!isNaN(v) && v > 0) data[type][tier] = v
+    }
+    const tg = Number(src.tg_level)
+    if (!isNaN(tg) && tg > 0) data[type].tg_level = Math.max(0, Math.min(MAX_TG, tg))
+  }
+  return data
+}
+
 function typeTotal(data: TroopData, type: TroopType): number {
-  return ALL_TIERS.reduce((s, t) => s + (data[type][t] || 0), 0)
+  return STANDARD_TIERS.reduce((s, t) => s + (data[type][t] || 0), 0)
 }
 
 function grandTotal(data: TroopData): number {
@@ -68,15 +84,39 @@ interface Props {
 export function TroopDataEditor({ accessToken, existing, onSaved }: Props) {
   const router = useRouter()
   const [data, setData] = useState<TroopData>(() => mergeExisting(existing))
-  const [activeType, setActiveType] = useState<TroopType>('infantry')
+  const [simplified, setSimplified] = useState(true)
+  // Per-type "show lower tiers" expansion (only relevant in full mode).
+  const [expanded, setExpanded] = useState<Record<TroopType, boolean>>({
+    infantry: false, cavalry: false, archer: false,
+  })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+
+  // Load the simplified-mode preference (default ON for new members).
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(SIMPLIFIED_KEY)
+      if (stored !== null) setSimplified(stored === '1')
+    } catch {}
+  }, [])
+
+  function toggleSimplified() {
+    setSimplified(prev => {
+      const next = !prev
+      try { localStorage.setItem(SIMPLIFIED_KEY, next ? '1' : '0') } catch {}
+      return next
+    })
+  }
 
   function setCount(type: TroopType, tier: TroopTier, raw: string) {
     const digits = raw.replace(/[^0-9]/g, '')
     const n = digits === '' ? 0 : parseInt(digits, 10)
     setData(d => ({ ...d, [type]: { ...d[type], [tier]: isNaN(n) ? 0 : n } }))
+  }
+
+  function setTgLevel(type: TroopType, level: number) {
+    setData(d => ({ ...d, [type]: { ...d[type], tg_level: level } }))
   }
 
   function inputValue(type: TroopType, tier: TroopTier): string {
@@ -111,6 +151,90 @@ export function TroopDataEditor({ accessToken, existing, onSaved }: Props) {
 
   const total = grandTotal(data)
 
+  function NumberInput({ type, tier, prominent }: { type: TroopType; tier: TroopTier; prominent?: boolean }) {
+    return (
+      <input
+        type="text"
+        inputMode="numeric"
+        value={inputValue(type, tier)}
+        onChange={e => setCount(type, tier, e.target.value)}
+        placeholder="—"
+        className={`w-full ${prominent ? 'h-11 text-base' : 'h-9 text-sm'} px-2 text-center bg-slate-800 border border-slate-700 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500 text-slate-200 placeholder-slate-600 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none`}
+      />
+    )
+  }
+
+  function TroopSection({ type }: { type: TroopType }) {
+    const tg = data[type].tg_level || 0
+    const showLower = expanded[type]
+    return (
+      <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3 space-y-3">
+        <p className="font-semibold text-slate-100">{TYPE_LABELS[type]}</p>
+
+        {/* Truegold level — prominent at the top of each section */}
+        <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-2.5 space-y-1.5">
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-sm font-medium text-amber-300">Truegold Level</label>
+            <select
+              value={tg}
+              onChange={e => setTgLevel(type, parseInt(e.target.value, 10))}
+              className="h-9 px-2 bg-slate-800 border border-slate-700 rounded-md text-sm text-slate-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+            >
+              <option value={0}>None (0)</option>
+              {Array.from({ length: MAX_TG }, (_, i) => i + 1).map(n => (
+                <option key={n} value={n}>TG{n}</option>
+              ))}
+            </select>
+          </div>
+          <p className="text-[11px] text-slate-500">Your TG level applies to ALL your troops of this type</p>
+          {tg >= 3 && (
+            <p className="text-xs text-amber-400 flex items-center gap-1">
+              <Check size={13} /> {TG3_SKILL[type]} unlocked
+            </p>
+          )}
+        </div>
+
+        {/* Troop counts by tier */}
+        <div className="space-y-2">
+          {/* T10 first and most prominent */}
+          <div className="flex items-center gap-2">
+            <label className="w-10 text-sm font-semibold text-amber-400 shrink-0">T10</label>
+            <div className="flex-1"><NumberInput type={type} tier="t10" prominent /></div>
+          </div>
+
+          {!simplified && (
+            <>
+              <button
+                type="button"
+                onClick={() => setExpanded(s => ({ ...s, [type]: !s[type] }))}
+                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
+              >
+                {showLower ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                {showLower ? 'Hide lower tiers' : 'Show lower tiers (T1–T9)'}
+              </button>
+              {showLower && (
+                <div className="grid grid-cols-3 gap-x-2 gap-y-1.5 pt-1">
+                  {LOWER_TIERS.map(tier => (
+                    <div key={tier} className="flex flex-col gap-0.5">
+                      <label className="text-[10px] text-slate-500 text-center uppercase">{tier}</label>
+                      <NumberInput type={type} tier={tier} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Type total */}
+        <div className="flex justify-between text-sm border-t border-slate-800 pt-2 text-slate-400">
+          <span>Total {TYPE_LABELS[type]}:</span>
+          <span className="font-semibold text-slate-200">{fmt(typeTotal(data, type))}</span>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -125,77 +249,34 @@ export function TroopDataEditor({ accessToken, existing, onSaved }: Props) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Troop type tabs */}
-        <div className="grid grid-cols-3 gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1">
-          {TROOP_TYPES.map(type => {
-            const t = typeTotal(data, type)
-            return (
-              <button
-                key={type}
-                onClick={() => setActiveType(type)}
-                className={`flex flex-col items-center py-2 px-1 rounded-lg text-xs font-medium transition-colors ${
-                  activeType === type
-                    ? 'bg-amber-500 text-slate-900'
-                    : 'text-slate-400 hover:text-slate-200'
-                }`}
-              >
-                <span>{TYPE_LABELS[type]}</span>
-                {t > 0 && (
-                  <span className="text-[10px] opacity-80 mt-0.5">{fmt(t)}</span>
-                )}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* Standard Troops */}
-        <div>
-          <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">
-            Standard Troops
-          </p>
-          <div className="grid grid-cols-5 gap-1.5">
-            {STANDARD_TIERS.map(tier => (
-              <div key={tier} className="flex flex-col gap-0.5">
-                <label className="text-[10px] text-slate-500 text-center">{tier}</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={inputValue(activeType, tier)}
-                  onChange={e => setCount(activeType, tier, e.target.value)}
-                  placeholder="—"
-                  className="w-full h-9 px-1 text-center text-sm bg-slate-800 border border-slate-700 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500 text-slate-200 placeholder-slate-600"
-                />
-              </div>
-            ))}
+        {/* Simplified mode toggle */}
+        <div className="flex items-center justify-between rounded-lg bg-slate-900 border border-slate-800 px-3 py-2">
+          <div>
+            <p className="text-sm font-medium text-slate-200">Simplified Mode</p>
+            <p className="text-[11px] text-slate-500">Just T10 count &amp; TG level — covers most competitive players</p>
           </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={simplified}
+            onClick={toggleSimplified}
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+              simplified ? 'bg-amber-500' : 'bg-slate-700'
+            }`}
+          >
+            <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${
+              simplified ? 'translate-x-5' : 'translate-x-0.5'
+            }`} />
+          </button>
         </div>
 
-        {/* True Gold Troops */}
-        <div>
-          <p className="text-xs font-semibold text-amber-500/80 uppercase tracking-wide mb-2">
-            True Gold Troops
-          </p>
-          <div className="grid grid-cols-4 gap-1.5">
-            {TRUE_GOLD_TIERS.map(tier => (
-              <div key={tier} className="flex flex-col gap-0.5">
-                <label className="text-[10px] text-amber-600 text-center">{tier}</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={inputValue(activeType, tier)}
-                  onChange={e => setCount(activeType, tier, e.target.value)}
-                  placeholder="—"
-                  className="w-full h-9 px-1 text-center text-sm bg-slate-800 border border-amber-900/50 rounded-md focus:outline-none focus:ring-1 focus:ring-amber-500 text-amber-100 placeholder-slate-600"
-                />
-              </div>
-            ))}
-          </div>
-        </div>
+        {/* Three troop sections */}
+        {TROOP_TYPES.map(type => <TroopSection key={type} type={type} />)}
 
-        {/* Type total */}
-        <div className="flex justify-between text-sm border-t border-slate-800 pt-2 text-slate-400">
-          <span>{TYPE_LABELS[activeType]} total:</span>
-          <span className="font-semibold text-slate-200">{fmt(typeTotal(data, activeType))}</span>
+        {/* Grand total all troops */}
+        <div className="flex justify-between text-sm border-t border-slate-700 pt-3">
+          <span className="font-medium text-slate-300">Grand Total All Troops:</span>
+          <span className="font-bold text-amber-400">{fmt(total)}</span>
         </div>
 
         {error && <p className="text-red-400 text-sm">{error}</p>}
