@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { UserPlus, Check, X } from 'lucide-react'
+import { UserPlus, Check, X, History } from 'lucide-react'
 import { roleLabel } from '@/lib/access'
 
 export function PendingProfileRequests({ requests, allianceId, currentUserId }: { requests: any[]; allianceId?: string; currentUserId?: string }) {
@@ -93,6 +93,12 @@ export function PendingProfileRequests({ requests, allianceId, currentUserId }: 
                     {r.player_id && <span className="text-slate-400 text-xs ml-2">ID: {r.player_id}</span>}
                   </p>
                   <p className="text-xs text-slate-400">Requested rank: <span className="text-amber-400">{roleLabel(r.requested_role)}</span> · {new Date(r.created_at).toLocaleDateString()}</p>
+                  {r.has_existing_profile && (
+                    <p className="mt-1.5 flex items-center gap-1.5 text-xs text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1.5">
+                      <History size={12} className="flex-shrink-0" />
+                      This player has an existing profile with stats. Approving will transfer their data to your alliance.
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Button size="sm" onClick={() => resolve(r.id, 'approve')} disabled={busy === r.id}>

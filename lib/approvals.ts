@@ -11,6 +11,31 @@ export interface ApprovalQueues {
   count: number
 }
 
+/**
+ * Given a SERVICE client and a list of auth user ids, return the set of users
+ * who already own a member record with carried-over stats (a "rejoin"). Uses the
+ * service client because the existing record lives in a different alliance (or
+ * none) and would be hidden from an alliance-scoped authed client by RLS.
+ */
+export async function usersWithExistingProfiles(svc: any, userIds: string[]): Promise<Set<string>> {
+  const ids = Array.from(new Set((userIds || []).filter(Boolean)))
+  if (ids.length === 0) return new Set()
+  const { data } = await svc
+    .from('members')
+    .select('linked_user_id')
+    .in('linked_user_id', ids)
+  const set = new Set<string>()
+  for (const m of data || []) if (m.linked_user_id) set.add(m.linked_user_id)
+  return set
+}
+
+/** Annotate profile requests with `has_existing_profile` (rejoin indicator). */
+export async function annotateExistingProfiles(svc: any, requests: any[]): Promise<any[]> {
+  if (!requests || requests.length === 0) return requests || []
+  const set = await usersWithExistingProfiles(svc, requests.map((r: any) => r.user_id))
+  return requests.map((r: any) => ({ ...r, has_existing_profile: set.has(r.user_id) }))
+}
+
 export async function loadApprovalQueues(supabase: any, profile: any): Promise<ApprovalQueues> {
   const role = profile?.role
   const allianceId = profile?.alliance_id

@@ -68,7 +68,8 @@ export function OnboardingFlow({ rejoin = null }: OnboardingFlowProps) {
     setStep('select_alliance')
   }
 
-  // FIX 4.2 — re-join: reuse the existing claimed member record (no approval).
+  // Re-join: submit a pending approval request that reuses the existing member
+  // record (stats kept). An R4/R5 must approve before the player joins.
   async function rejoinAlliance(a: any) {
     setLoading(true); setError('')
     const res = await fetch('/api/onboarding/rejoin', {
@@ -77,10 +78,10 @@ export function OnboardingFlow({ rejoin = null }: OnboardingFlowProps) {
     })
     const d = await res.json().catch(() => ({}))
     setLoading(false)
-    if (!res.ok) { setError(d.error || 'Failed to join alliance'); return }
-    // Land on the dashboard for the new alliance (server reads fresh state).
-    router.push('/dashboard')
-    router.refresh()
+    if (!res.ok) { setError(d.error || 'Failed to submit request'); return }
+    const allianceName = d.alliance_name || `[${a.tag}] ${a.name}`
+    setSubmittedMsg(`Your request to join ${allianceName} has been submitted. An R4 or R5 will approve your request shortly.`)
+    setStep('submitted')
   }
 
   async function submitProfileRequest() {

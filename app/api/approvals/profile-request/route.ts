@@ -56,13 +56,37 @@ export async function POST(request: NextRequest) {
       display_name: req.governor_name,
     })
 
-    // Create or relink a member record for this user in the alliance
-    const { data: existingMember } = await svc.from('members')
-      .select('id').eq('linked_user_id', req.user_id).eq('alliance_id', req.alliance_id).maybeSingle()
-    if (existingMember?.id) {
+    // Create or relink a member record for this user.
+    //  1) An existing record already in THIS alliance → just refresh identity.
+    //  2) A rejoin: the user owns a member record elsewhere / with no alliance
+    //     (they left). Move that SAME record here so all stats/heroes/troop data
+    //     carry over — do NOT create a new record.
+    //  3) Otherwise (brand-new member) → insert a fresh record.
+    const { data: ownMembers } = await svc.from('members')
+      .select('id, alliance_id')
+      .eq('linked_user_id', req.user_id)
+      .order('updated_at', { ascending: false })
+
+    const inThisAlliance = (ownMembers || []).find((m: any) => m.alliance_id === req.alliance_id)
+    const elsewhere = (ownMembers || []).find((m: any) => m.alliance_id !== req.alliance_id)
+
+    if (inThisAlliance?.id) {
       await svc.from('members').update({
-        player_name: req.governor_name, game_id: req.player_id || null,
-      }).eq('id', existingMember.id)
+        player_name: req.governor_name,
+        game_id: req.player_id || null,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      }).eq('id', inThisAlliance.id)
+    } else if (elsewhere?.id) {
+      // Rejoin / transfer: relink the existing record (stats intact).
+      await svc.from('members').update({
+        alliance_id: req.alliance_id,
+        previous_alliance_id: elsewhere.alliance_id || null,
+        is_active: true,
+        player_name: req.governor_name,
+        game_id: req.player_id || null,
+        updated_at: new Date().toISOString(),
+      }).eq('id', elsewhere.id)
     } else {
       await svc.from('members').insert({
         alliance_id: req.alliance_id,

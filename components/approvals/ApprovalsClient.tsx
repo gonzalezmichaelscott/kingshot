@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
-import { UserPlus, ShieldCheck, Crown, Check, X, AlertTriangle } from 'lucide-react'
+import { UserPlus, ShieldCheck, Crown, Check, X, AlertTriangle, History } from 'lucide-react'
 import { roleLabel } from '@/lib/access'
 
 function timeAgo(iso: string): string {
@@ -254,6 +254,13 @@ function ProfileCard({ req, busy, onResolve, leadership }: any) {
       {leadership && (
         <p className="flex items-center gap-1.5 text-xs text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1.5">
           <AlertTriangle size={12} /> Leadership rank — verify in-game before approving
+        </p>
+      )}
+
+      {req.has_existing_profile && (
+        <p className="flex items-center gap-1.5 text-xs text-amber-300/90 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1.5">
+          <History size={12} className="flex-shrink-0" />
+          This player has an existing profile with stats. Approving will transfer their data to your alliance.
         </p>
       )}
 

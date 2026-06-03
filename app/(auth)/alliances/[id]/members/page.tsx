@@ -1,5 +1,6 @@
 // @ts-nocheck
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { annotateExistingProfiles } from '@/lib/approvals'
 import { notFound } from 'next/navigation'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -51,6 +52,11 @@ export default async function MembersPage({ params }: { params: { id: string } }
     .eq('status', 'pending')
     .in('requested_role', visibleRequestRoles)
     .order('created_at', { ascending: false }) : { data: [] }
+
+  // Flag rejoin requests (player already has a profile with stats) for approvers.
+  const annotatedPendingRequests = canManage
+    ? await annotateExistingProfiles(createServiceClient(), pendingRequests || [])
+    : (pendingRequests || [])
 
   // Pending profile claim requests for this alliance
   const { data: rawClaimRequests } = canManage ? await supabase
@@ -110,7 +116,7 @@ export default async function MembersPage({ params }: { params: { id: string } }
         )}
       </div>
 
-      {canManage && <PendingProfileRequests requests={pendingRequests || []} allianceId={params.id} currentUserId={profile?.id} />}
+      {canManage && <PendingProfileRequests requests={annotatedPendingRequests} allianceId={params.id} currentUserId={profile?.id} />}
       {canManage && <PendingClaimRequests requests={claimRequests || []} />}
 
       <Card>

@@ -1,8 +1,8 @@
 // @ts-nocheck
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Inbox } from 'lucide-react'
-import { loadApprovalQueues } from '@/lib/approvals'
+import { loadApprovalQueues, annotateExistingProfiles } from '@/lib/approvals'
 import { ApprovalsClient } from '@/components/approvals/ApprovalsClient'
 
 export default async function ApprovalsPage() {
@@ -15,6 +15,13 @@ export default async function ApprovalsPage() {
 
   const queues = await loadApprovalQueues(supabase, profile)
 
+  // Flag rejoin requests (player already has a profile with stats) for approvers.
+  const svc = createServiceClient()
+  const [joinRequests, leadershipRequests] = await Promise.all([
+    annotateExistingProfiles(svc, queues.joinRequests),
+    annotateExistingProfiles(svc, queues.leadershipRequests),
+  ])
+
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -24,8 +31,8 @@ export default async function ApprovalsPage() {
       <ApprovalsClient
         role={profile?.role || ''}
         userId={user.id}
-        joinRequests={queues.joinRequests}
-        leadershipRequests={queues.leadershipRequests}
+        joinRequests={joinRequests}
+        leadershipRequests={leadershipRequests}
         kingdomRequests={queues.kingdomRequests}
         allianceRequests={queues.allianceRequests}
       />
