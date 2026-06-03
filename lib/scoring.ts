@@ -47,11 +47,14 @@ export interface CombatStats {
 /** Raw-ish member_heroes row joined with its hero. */
 export interface MemberHero {
   hero?: {
+    name?: string
     generation?: number
     troop_type?: string | null
     role?: string | null
     primary_role?: string | null
     has_widget?: boolean
+    is_economy_hero?: boolean
+    stat_bonuses?: Record<string, number> | null
     expedition_skills?: ExpeditionSkill[]
   } | null
   star_level?: number
@@ -232,44 +235,85 @@ export function calculateReliabilityBonus(skills?: ExpeditionSkill[]): number {
 }
 
 /**
+ * Get exact hero stat bonus percentage based on star level and shards.
+ * These are verified Attack/Defense bonus values from the game.
+ * Only matters for rally leaders (stat bonus applies to entire squad).
+ * For joiners, only expedition skill levels matter (not stat bonus).
+ */
+export function getHeroStatBonus(
+  statBonuses: Record<string, number> | null,
+  starLevel: number,
+  starShards: number
+): number {
+  if (!statBonuses) return 0
+  if (starLevel >= 5) return statBonuses['max'] || 0
+  const key = `${starLevel}_${starShards}`
+  return statBonuses[key] || 0
+}
+
+/**
  * RALLY LEADER hero score — leaders use ALL expedition skills from ALL 3 heroes.
- * Widget is highly multiplicative for leaders.
+ * Uses each hero's exact Attack/Defense stat bonus (star/shard lookup) where
+ * available; widget is multiplicative. Economy heroes contribute nothing.
  */
 export function calculateLeaderHeroScore(heroes: MemberHero[]): number {
   if (!heroes || heroes.length === 0) return 0
+
   return heroes.reduce((total, mh) => {
+    // Skip economy heroes entirely
+    if (mh.hero?.is_economy_hero) return total
+
+    const exactBonus = getHeroStatBonus(
+      mh.hero?.stat_bonuses as Record<string, number> | null,
+      mh.star_level || 0,
+      mh.star_shards || 0
+    )
+
+    // Use exact stat bonus if available, fall back to generation estimate
+    const statBonusScore = exactBonus > 0
+      ? exactBonus * 2
+      : (mh.hero?.generation || 1) * 18
+
+    // Widget multiplier (multiplicative for leaders)
     const gen = mh.hero?.generation || 1
-    const genBonus = gen * 18
-    const totalShards = (mh.star_level || 0) * 6 + (mh.star_shards || 0)
-    const starBonus = totalShards * 4
-    const widgetBonus = mh.widget_unlocked
-      ? (mh.widget_level || 0) * 25 * (gen >= 7 ? 1.5 : gen >= 6 ? 1.3 : gen >= 4 ? 1.1 : 1.0)
-      : 0
+    const widgetMultiplier = mh.widget_unlocked
+      ? 1 + ((mh.widget_level || 0) * 0.025 * (gen >= 7 ? 1.5 : gen >= 6 ? 1.3 : 1.0))
+      : 1.0
+
+    // All expedition skills count for leaders
     const skillLevels = (mh.expedition_skill_levels as Record<string, number>) || {}
     const skillBonus = Object.values(skillLevels).reduce((s, v) => s + (v as number) * 8, 0)
-    const reliabilityBonus = calculateReliabilityBonus(mh.hero?.expedition_skills)
-    return total + genBonus + starBonus + widgetBonus + skillBonus + reliabilityBonus
+
+    return total + (statBonusScore + skillBonus) * widgetMultiplier
   }, 0)
 }
 
 /**
- * RALLY JOINER hero score — only the FIRST expedition skill of the lead hero applies.
+ * RALLY JOINER hero score — only the FIRST expedition skill of the lead hero
+ * applies. Economy heroes contribute nothing.
  */
 export function calculateJoinerHeroScore(leadHero: MemberHero | null): number {
   if (!leadHero) return 0
-  const gen = leadHero.hero?.generation || 1
-  const genBonus = gen * 10
-  const totalShards = (leadHero.star_level || 0) * 6 + (leadHero.star_shards || 0)
-  const starBonus = totalShards * 2
+  if (leadHero.hero?.is_economy_hero) return 0
+
+  const exactBonus = getHeroStatBonus(
+    leadHero.hero?.stat_bonuses as Record<string, number> | null,
+    leadHero.star_level || 0,
+    leadHero.star_shards || 0
+  )
+
+  const statBonusScore = exactBonus > 0
+    ? exactBonus * 1.5
+    : (leadHero.hero?.generation || 1) * 10
+
   const widgetBonus = leadHero.widget_unlocked ? (leadHero.widget_level || 0) * 8 : 0
+
+  // Only first expedition skill for joiners
   const skillLevels = (leadHero.expedition_skill_levels as Record<string, number>) || {}
   const skillKeys = Object.keys(skillLevels)
-  const firstSkillLevel = skillKeys.length > 0 ? (skillLevels[skillKeys[0]] || 0) : 0
-  const firstSkillBonus = firstSkillLevel * 20
-  const firstOp = getFirstSkillEffectOp(leadHero.hero?.expedition_skills)
-  const isReliable = firstOp !== null && firstOp !== 103 && firstOp !== 999
-  const reliabilityBonus = isReliable ? 15 : 0
-  return genBonus + starBonus + widgetBonus + firstSkillBonus + reliabilityBonus
+  const firstSkillBonus = skillKeys.length > 0 ? (skillLevels[skillKeys[0]] || 0) * 20 : 0
+
+  return statBonusScore + widgetBonus + firstSkillBonus
 }
 
 /**

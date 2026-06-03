@@ -224,9 +224,11 @@ export interface Database {
           generation: number
           troop_type: 'infantry' | 'cavalry' | 'archer' | 'all' | null
           role: 'rally_leader' | 'joiner' | 'support' | 'garrison' | 'flex' | null
-          rarity: 'common' | 'rare' | 'epic' | 'legendary' | null
+          rarity: 'rare' | 'epic' | 'mythic' | 'legendary' | null
           expedition_skills: Json
           base_stats: Json
+          stat_bonuses: Json
+          is_economy_hero: boolean
           notes: string | null
           is_active: boolean
           created_at: string
@@ -237,9 +239,11 @@ export interface Database {
           generation: number
           troop_type?: 'infantry' | 'cavalry' | 'archer' | 'all' | null
           role?: 'rally_leader' | 'joiner' | 'support' | 'garrison' | 'flex' | null
-          rarity?: 'common' | 'rare' | 'epic' | 'legendary' | null
+          rarity?: 'rare' | 'epic' | 'mythic' | 'legendary' | null
           expedition_skills?: Json
           base_stats?: Json
+          stat_bonuses?: Json
+          is_economy_hero?: boolean
           notes?: string | null
           is_active?: boolean
           created_at?: string
@@ -250,9 +254,11 @@ export interface Database {
           generation?: number
           troop_type?: 'infantry' | 'cavalry' | 'archer' | 'all' | null
           role?: 'rally_leader' | 'joiner' | 'support' | 'garrison' | 'flex' | null
-          rarity?: 'common' | 'rare' | 'epic' | 'legendary' | null
+          rarity?: 'rare' | 'epic' | 'mythic' | 'legendary' | null
           expedition_skills?: Json
           base_stats?: Json
+          stat_bonuses?: Json
+          is_economy_hero?: boolean
           notes?: string | null
           is_active?: boolean
           created_at?: string

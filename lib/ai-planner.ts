@@ -1,12 +1,29 @@
 ﻿// @ts-nocheck
 import Anthropic from '@anthropic-ai/sdk'
 import { createServiceClient } from '@/lib/supabase/server'
-import { calculateRoleScores, calculateHeroScore, calculateEffectiveTroopStrength, TIER_POWER } from '@/lib/scoring'
+import { calculateRoleScores, calculateHeroScore, calculateEffectiveTroopStrength, getHeroStatBonus, TIER_POWER } from '@/lib/scoring'
 import type { MemberHeroData, MemberProfile, TroopData } from '@/lib/scoring'
 import { generateMemberInstructions } from '@/lib/member-instructions'
 import { getKvkContext } from '@/lib/kvk'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+/**
+ * Build the combat-hero summary for a member's AI prompt entry.
+ * Economy heroes are excluded entirely — they have no combat value.
+ * Each combat hero is annotated with its exact Attack/Defense stat bonus.
+ */
+function buildHeroDetail(heroData: any[]): { detail: string[]; hasCombat: boolean } {
+  const combat = (heroData || []).filter((h: any) => !h.hero?.is_economy_hero)
+  const detail = combat.map((h: any) => {
+    const bonus = getHeroStatBonus(h.hero?.stat_bonuses, h.star_level || 0, h.star_shards || 0)
+    const stars = h.star_level || 0
+    const sh = h.star_shards ? `+${h.star_shards}sh` : ''
+    const wid = h.widget_unlocked ? `, widget Lv${h.widget_level || 0}` : ''
+    return `${h.hero?.name || 'Unknown'} (${h.hero?.troop_type || '?'}, ${stars}★${sh}, +${bonus.toFixed(2)}% ATK/DEF${wid})`
+  })
+  return { detail, hasCombat: combat.length > 0 }
+}
 
 const BATTLE_PLANNER_SYSTEM_PROMPT = `You are an expert battle planner for the mobile strategy game Kingshot.
 
@@ -64,6 +81,8 @@ TROOP TIER & TRUEGOLD (TG) SYSTEM:
 - Prioritize high-TG joiners over raw troop count when assigning joiner roles. A player with 500k T10 Infantry at TG5 outperforms one with 1M T8 Infantry at TG0.
 - "effective troop strength" already folds in tier power AND the TG multiplier — rank joiners by it, not by raw troop_count.
 - Ensure joiner troop types match the rally leader's formation where possible (+15% effectiveness). Mismatched troop types reduce joiner effectiveness by 10%; mixed-troop joiners are neutral.
+
+HERO STAT BONUS: Each hero has an exact Attack/Defense bonus percentage based on star level and shards. This bonus applies to the rally leader's entire squad. Higher = stronger rallies. Economy heroes (Seth, Olive, Edwin, Forrest) provide no combat value and should never be recommended.
 
 Return a JSON battle plan with: summary, formations, assignments (each with member_id, player_name, role, squad, formation_recommendation, hero_recommendation, reasoning, is_primary, is_backup, time_window, and for cross-alliance KVK joiners: kvk_transfer, transfer_alliance, transfer_rally_leader), joiner_stacking_advice, coverage_gaps, backup_plan, warnings, and (when cross-alliance transfers are used) transfer_recommendations.
 Never include markdown code fences in your response — raw JSON only.`
@@ -183,6 +202,7 @@ async function loadAttendingMembersWithScores(eventId: string) {
 
     const scores = calculateRoleScores(profile, weights)
     const heroScore = calculateHeroScore(heroData)
+    const heroSummary = buildHeroDetail(heroData)
 
     const effectiveStrength = troopData ? calculateEffectiveTroopStrength(troopData) : (m.troop_count || 0)
 
@@ -197,6 +217,8 @@ async function loadAttendingMembersWithScores(eventId: string) {
       troop_type: stats?.troop_type_primary || 'unknown',
       troop_data: troopData,
       hero_score: heroScore,
+      heroes_detail: heroSummary.detail,
+      has_combat_heroes: heroSummary.hasCombat,
       scores,
       available_from: a.available_from_utc,
       available_to: a.available_to_utc,
@@ -264,6 +286,7 @@ ${members.map(m => {
   Troop Count: ${m.troop_count.toLocaleString()} | Effective Strength: ${m.effective_troop_strength.toLocaleString()}
   Primary Troop Type: ${m.troop_type}${troopBreakdown ? `\n  Troop Breakdown:\n${troopBreakdown}` : ''}
   Hero Score: ${m.hero_score.toFixed(1)}
+  Combat Heroes: ${m.heroes_detail && m.heroes_detail.length ? m.heroes_detail.join('; ') : 'none entered'}${!m.has_combat_heroes ? '\n  ⚠ No combat heroes entered — battle plan recommendations will be limited' : ''}
   Role Scores: Rally Leader=${m.scores.rallyLeader.toFixed(2)}, Joiner=${m.scores.joiner.toFixed(2)}, Castle=${m.scores.castle.toFixed(2)}, Turret=${m.scores.turret.toFixed(2)}, Support=${m.scores.support.toFixed(2)}
   Available: ${m.available_from || 'all event'} to ${m.available_to || 'all event'}
   Squad Preference: ${m.squad_preference || 'none'}`
@@ -418,6 +441,7 @@ async function loadKvkMembersForScoring(memberIds: string[], eventType: any, ava
 
     const scores = calculateRoleScores(profile, weights)
     const heroScore = calculateHeroScore(heroData)
+    const heroSummary = buildHeroDetail(heroData)
     const effectiveStrength = troopData ? calculateEffectiveTroopStrength(troopData) : (m.troop_count || 0)
     const a = availabilityMap[m.id]
 
@@ -435,6 +459,8 @@ async function loadKvkMembersForScoring(memberIds: string[], eventType: any, ava
       troop_type: stats?.troop_type_primary || 'unknown',
       troop_data: troopData,
       hero_score: heroScore,
+      heroes_detail: heroSummary.detail,
+      has_combat_heroes: heroSummary.hasCombat,
       scores,
       available_from: a?.available_from_utc || null,
       available_to: a?.available_to_utc || null,

@@ -6,13 +6,31 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Star, Plus, Trash2, Pencil, X } from 'lucide-react'
+import { Star, Plus, Trash2, Pencil, X, Coins, AlertTriangle } from 'lucide-react'
 import { troopTypeColor } from '@/lib/utils'
+import { getHeroStatBonus } from '@/lib/scoring'
 
 const SKILL_LABELS: Record<number, string> = {
   1: 'Skill 1 — Joiner Skill (applies when joining AND leading)',
   2: 'Skill 2 — Leader Only',
   3: 'Skill 3 — Leader Only',
+}
+
+/**
+ * Build the stat-bonus label shown on a saved hero card.
+ * - Economy heroes: no combat value.
+ * - Heroes without stat data (e.g. Gen 7): pending.
+ * - Otherwise: exact Attack/Defense % from the star/shard lookup table.
+ */
+function statBonusLabel(hero: any, starLevel: number, starShards: number) {
+  if (hero?.is_economy_hero) {
+    return { kind: 'economy' as const, text: 'Economy Hero — No combat bonus' }
+  }
+  const sb = hero?.stat_bonuses
+  const hasData = sb && typeof sb === 'object' && Object.keys(sb).length > 0
+  if (!hasData) return { kind: 'pending' as const, text: 'Stat data pending' }
+  const bonus = getHeroStatBonus(sb, starLevel || 0, starShards || 0)
+  return { kind: 'value' as const, text: `Stat Bonus: +${bonus.toFixed(2)}% ATK/DEF` }
 }
 
 interface Props {
@@ -36,8 +54,17 @@ export function HeroManager({ accessToken, memberHeroes, heroes }: Props) {
 
   const heroById = (id: string) => heroes.find(h => h.id === id)
 
-  // Group catalog by generation for the dropdown
-  const generations = Array.from(new Set(heroes.map(h => h.generation))).sort((a, b) => a - b)
+  // Catalog split for the dropdown: Combat Heroes vs Economy Heroes.
+  const combatCatalog = heroes
+    .filter(h => !h.is_economy_hero)
+    .sort((a, b) => a.generation - b.generation || a.name.localeCompare(b.name))
+  const economyCatalog = heroes
+    .filter(h => h.is_economy_hero)
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  // Warn when the member has heroes but none of them are combat heroes.
+  const combatHeroCount = memberHeroes.filter((mh: any) => !mh.heroes?.is_economy_hero).length
+  const onlyEconomyHeroes = memberHeroes.length > 0 && combatHeroCount === 0
 
   const blankForm = {
     member_hero_id: null as string | null,
@@ -78,13 +105,17 @@ export function HeroManager({ accessToken, memberHeroes, heroes }: Props) {
   }
 
   const selectedHero = heroById(form.hero_id)
+  const isEconomy = !!selectedHero?.is_economy_hero
   const hasWidget = !!selectedHero?.has_widget
   const baseSkillCount = selectedHero?.expedition_skill_count || (hasWidget ? 3 : 2)
   // Expedition skills are slots 1..3 for Mythic, 1..2 for Epic. The widget is
   // captured separately by the "Widget Level" field above — it is NOT a skill
-  // slot, so there is no slot 4 here.
+  // slot, so there is no slot 4 here. Economy heroes have no combat skills worth
+  // tracking, so they get no skill slots at all.
   const skillSlots: number[] = []
-  for (let s = 1; s <= Math.min(baseSkillCount, 3); s++) skillSlots.push(s)
+  if (!isEconomy) {
+    for (let s = 1; s <= Math.min(baseSkillCount, 3); s++) skillSlots.push(s)
+  }
 
   function skillName(slot: number): string {
     const sk = (selectedHero?.expedition_skills as any[])?.find(s => s.slot === slot)
@@ -136,10 +167,22 @@ export function HeroManager({ accessToken, memberHeroes, heroes }: Props) {
 
   return (
     <div className="space-y-3">
+      {/* Warning when the member has only economy heroes */}
+      {onlyEconomyHeroes && (
+        <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+          <AlertTriangle size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-amber-200">
+            No combat heroes entered — battle plan recommendations will be limited.
+          </p>
+        </div>
+      )}
+
       {/* Existing hero cards */}
       {memberHeroes.map((mh: any) => {
         const h = mh.heroes
         const levels = mh.expedition_skill_levels || {}
+        const isEco = !!h?.is_economy_hero
+        const statLabel = statBonusLabel(h, mh.star_level, mh.star_shards)
         return (
           <Card key={mh.id}>
             <CardContent className="py-3">
@@ -150,6 +193,11 @@ export function HeroManager({ accessToken, memberHeroes, heroes }: Props) {
                     <Badge variant="default">Gen {h?.generation}</Badge>
                     {h?.rarity && (
                       <Badge variant={h.rarity === 'mythic' ? 'amber' : 'blue'}>{h.rarity}</Badge>
+                    )}
+                    {isEco && (
+                      <Badge variant="default" className="bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                        <Coins size={11} className="mr-1" />Economy
+                      </Badge>
                     )}
                     {mh.is_primary && <Badge variant="green">Primary</Badge>}
                   </div>
@@ -162,7 +210,15 @@ export function HeroManager({ accessToken, memberHeroes, heroes }: Props) {
                     <span>Lvl {mh.hero_level}</span>
                     {h?.has_widget && mh.widget_unlocked && <span className="text-purple-400">Widget Lv {mh.widget_level}</span>}
                   </div>
-                  {Object.keys(levels).length > 0 && (
+                  {/* Stat bonus (value of upgrading) */}
+                  <p className={`text-xs mt-1.5 ${
+                    statLabel.kind === 'value' ? 'text-amber-400 font-medium'
+                      : statLabel.kind === 'economy' ? 'text-emerald-300'
+                      : 'text-slate-500 italic'
+                  }`}>
+                    {statLabel.text}
+                  </p>
+                  {!isEco && Object.keys(levels).length > 0 && (
                     <div className="flex gap-2 text-[11px] text-slate-500 flex-wrap mt-1">
                       {Object.entries(levels).map(([slot, lvl]) => (
                         <span key={slot} className="bg-slate-800 rounded px-1.5 py-0.5">S{slot}: {lvl as number}</span>
@@ -202,13 +258,22 @@ export function HeroManager({ accessToken, memberHeroes, heroes }: Props) {
                 disabled={editing !== 'new'}
                 className="w-full h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 disabled:opacity-60"
               >
-                {generations.map(gen => (
-                  <optgroup key={gen} label={`Gen ${gen}`}>
-                    {heroes.filter(h => h.generation === gen).map(h => (
-                      <option key={h.id} value={h.id}>{h.name}{h.troop_type ? ` (${h.troop_type})` : ''}</option>
+                <optgroup label="Combat Heroes">
+                  {combatCatalog.map(h => (
+                    <option key={h.id} value={h.id}>
+                      {h.name} (Gen {h.generation}{h.troop_type ? `, ${h.troop_type}` : ''})
+                    </option>
+                  ))}
+                </optgroup>
+                {economyCatalog.length > 0 && (
+                  <optgroup label="Economy Heroes">
+                    {economyCatalog.map(h => (
+                      <option key={h.id} value={h.id}>
+                        {h.name} (Gen {h.generation}{h.troop_type ? `, ${h.troop_type}` : ''})
+                      </option>
                     ))}
                   </optgroup>
-                ))}
+                )}
               </select>
             </div>
 
@@ -285,29 +350,39 @@ export function HeroManager({ accessToken, memberHeroes, heroes }: Props) {
               </div>
             )}
 
-            {/* Expedition skills */}
-            <div className="space-y-2">
-              <p className="text-xs font-medium text-slate-300">Expedition Skills</p>
-              {skillSlots.map(slot => (
-                <div key={slot} className="flex items-center gap-2">
-                  <label className="text-xs text-slate-400 flex-1 min-w-0">
-                    {SKILL_LABELS[slot]}<span className="text-slate-500">{skillName(slot)}</span>
-                  </label>
-                  <Input
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    value={form.skills[String(slot)] ?? ''}
-                    placeholder="0"
-                    onChange={e => {
-                      const v = numFromText(e.target.value, 0, 5, 0)
-                      setForm(f => ({ ...f, skills: { ...f.skills, [String(slot)]: v } }))
-                    }}
-                    className="w-16 h-8 text-xs text-center"
-                  />
-                </div>
-              ))}
-            </div>
+            {/* Economy heroes: no combat skills to track */}
+            {isEconomy ? (
+              <div className="flex items-start gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
+                <Coins size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-emerald-200">
+                  This hero provides no combat bonus. Their expedition skills boost resource gathering only.
+                </p>
+              </div>
+            ) : (
+              /* Expedition skills */
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-slate-300">Expedition Skills</p>
+                {skillSlots.map(slot => (
+                  <div key={slot} className="flex items-center gap-2">
+                    <label className="text-xs text-slate-400 flex-1 min-w-0">
+                      {SKILL_LABELS[slot]}<span className="text-slate-500">{skillName(slot)}</span>
+                    </label>
+                    <Input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={form.skills[String(slot)] ?? ''}
+                      placeholder="0"
+                      onChange={e => {
+                        const v = numFromText(e.target.value, 0, 5, 0)
+                        setForm(f => ({ ...f, skills: { ...f.skills, [String(slot)]: v } }))
+                      }}
+                      className="w-16 h-8 text-xs text-center"
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
 
             <label className="flex items-center gap-2 cursor-pointer">
               <input

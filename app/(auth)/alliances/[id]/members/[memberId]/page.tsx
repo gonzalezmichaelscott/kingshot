@@ -55,7 +55,7 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
   const { data: heroCatalog } = canEdit
     ? await supabase
         .from('heroes')
-        .select('id, name, generation, troop_type, role, rarity, primary_role, has_widget, expedition_skill_count, expedition_skills')
+        .select('id, name, generation, troop_type, role, rarity, primary_role, has_widget, expedition_skill_count, expedition_skills, stat_bonuses, is_economy_hero')
         .eq('is_active', true)
         .order('generation')
     : { data: [] }
