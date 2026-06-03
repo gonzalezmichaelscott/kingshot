@@ -2,115 +2,79 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { MessageSquare, Send, Globe, Trash2, X, Paperclip } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { Send, Globe, Trash2, X, Paperclip } from 'lucide-react'
 import { useNoSleep } from '@/hooks/useNoSleep'
 import { MentionText } from '@/components/chat/MentionText'
 import { MentionPopup } from '@/components/chat/MentionPopup'
 import { useMentionInput } from '@/hooks/useMentionInput'
-import { buildMemberByUser, resolveSenderName } from '@/lib/chat'
 import { useChatTranslation } from '@/hooks/useChatTranslation'
 import { languageLabel, DEFAULT_LANGUAGE } from '@/lib/languages'
+import { resolveWorldIdentity } from '@/lib/world-chat'
 
 interface Props {
-  allianceId: string
-  allianceName: string
   initialMessages: any[]
-  currentUser: any
+  currentUserId: string
+  currentUserRole: string
+  currentUserLang?: string
+  /** auth user id -> { name, allianceTag } for sender labels + own messages */
+  directory: Record<string, { name: string; allianceTag: string }>
+  /** members-shaped list ({ id, player_name, linked_user_id }) for @ autocomplete */
+  mentionMembers: any[]
+  canDelete: boolean
 }
 
-export function ChatRoom({ allianceId, allianceName, initialMessages, currentUser }: Props) {
+export function WorldChatRoom({
+  initialMessages,
+  currentUserId,
+  currentUserRole,
+  currentUserLang,
+  directory,
+  mentionMembers,
+  canDelete,
+}: Props) {
   const [messages, setMessages] = useState<any[]>(initialMessages)
   const [content, setContent] = useState('')
   const [sending, setSending] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
-  const [members, setMembers] = useState<any[]>([])
-  const [highlightId, setHighlightId] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  // Stable client reference — avoids creating multiple GoTrue clients across renders
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (!supabaseRef.current) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
 
-  // Live ref to current messages so the realtime callback never reads a stale closure
+  // Live ref so the realtime callback never reads a stale closure
   const messagesRef = useRef(messages)
   useEffect(() => { messagesRef.current = messages }, [messages])
 
-  // Unique channel name per component instance so multiple tabs/mounts don't collide
-  const channelIdRef = useRef<string>(`chat:${allianceId}:${Math.random().toString(36).slice(2)}`)
+  const channelIdRef = useRef<string>(`world-chat:${Math.random().toString(36).slice(2)}`)
 
-  const canDelete = ['r5', 'r4', 'system_admin'].includes(currentUser?.role || '')
+  // ---- Translation ----
+  const preferredLang = currentUserLang || DEFAULT_LANGUAGE
+  const tr = useChatTranslation(currentUserId || 'anon', preferredLang)
 
-  // ---- Translation (Feature 2) ----
-  const preferredLang = currentUser?.preferred_language || DEFAULT_LANGUAGE
-  const tr = useChatTranslation(currentUser?.id || 'anon', preferredLang)
+  // ---- Names + @ mention data ----
+  const memberNames = mentionMembers.map((m) => m.player_name)
+  const myIdentity = resolveWorldIdentity(currentUserId, directory)
+  const viewerName = myIdentity.name
 
-  // ---- Game-tag name resolution (Part 3) + @ mention data (Part 4) ----
-  const memberByUser = buildMemberByUser(members)
-  const memberNames = members.map((m) => m.player_name)
-  const viewerName = resolveSenderName(currentUser?.id, currentUser?.display_name, memberByUser)
-  const myMemberId = members.find((m) => m.linked_user_id === currentUser?.id)?.id || null
+  const mention = useMentionInput(mentionMembers, content, setContent, inputRef)
 
-  // Load alliance members for sender names + mention autocomplete
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      const { data } = await supabase
-        .from('members')
-        .select('id, player_name, linked_user_id')
-        .eq('alliance_id', allianceId)
-      if (!cancelled && data) setMembers(data)
-    })()
-    return () => { cancelled = true }
-  }, [allianceId])
-
-  // Opening the chat reads its messages → mark this user's mentions here as read (Part 5)
-  useEffect(() => {
-    if (!myMemberId) return
-    supabase
-      .from('chat_mentions')
-      .update({ is_read: true })
-      .eq('alliance_id', allianceId)
-      .eq('mentioned_member_id', myMemberId)
-      .eq('is_read', false)
-      .then(() => {})
-  }, [myMemberId, allianceId, messages.length])
-
-  const mention = useMentionInput(members, content, setContent, inputRef)
-
-  // Keep the screen awake while the chat room is open (silent — no badge)
   useNoSleep(true)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Jump-to-message from a notification (?msg=<id>): scroll to it and flash a highlight
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const msgId = new URLSearchParams(window.location.search).get('msg')
-    if (!msgId) return
-    const el = document.getElementById(`msg-${msgId}`)
-    if (!el) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    setHighlightId(msgId)
-    const t = setTimeout(() => setHighlightId(null), 2500)
-    return () => clearTimeout(t)
-  }, [messages.length])
-
-  // Realtime subscription — starts on mount, unsubscribes on unmount.
-  // Self-heals: resubscribes on CLOSED/TIMED_OUT.
+  // Realtime subscription — self-heals on CLOSED/TIMED_OUT.
   useEffect(() => {
     let channel: ReturnType<typeof supabase.channel> | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
     let cancelled = false
 
     const addMessage = (data: any) => {
-      // Dedupe against the live ref (avoids stale closure) before appending
       if (!data) return
       if (messagesRef.current.some(m => m.id === data.id)) return
       setMessages(prev => (prev.some(m => m.id === data.id) ? prev : [...prev, data]))
@@ -122,11 +86,11 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
         .channel(channelIdRef.current, { config: { broadcast: { self: false } } })
         .on(
           'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `alliance_id=eq.${allianceId}` },
+          { event: 'INSERT', schema: 'public', table: 'world_chat_messages' },
           async (payload) => {
             const { data } = await supabase
-              .from('chat_messages')
-              .select('*, user_profiles(display_name, role)')
+              .from('world_chat_messages')
+              .select('*')
               .eq('id', payload.new.id)
               .single()
             addMessage(data)
@@ -134,13 +98,13 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
         )
         .on(
           'postgres_changes',
-          { event: 'DELETE', schema: 'public', table: 'chat_messages', filter: `alliance_id=eq.${allianceId}` },
+          { event: 'DELETE', schema: 'public', table: 'world_chat_messages' },
           (payload) => {
             setMessages(prev => prev.filter(m => m.id !== payload.old.id))
           }
         )
         .subscribe((status, err) => {
-          console.log('[ChatRoom] Realtime status:', status, err ?? '')
+          console.log('[WorldChatRoom] Realtime status:', status, err ?? '')
           if ((status === 'CLOSED' || status === 'TIMED_OUT' || status === 'CHANNEL_ERROR') && !cancelled) {
             if (reconnectTimer) clearTimeout(reconnectTimer)
             reconnectTimer = setTimeout(() => {
@@ -159,15 +123,15 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
       if (reconnectTimer) clearTimeout(reconnectTimer)
       if (channel) supabase.removeChannel(channel)
     }
-  }, [allianceId])
+  }, [])
 
-  // Parse @mentions server-side so recipients get notifications
+  // Parse @mentions server-side so any mentioned user gets a notification.
   async function processMentions(messageId: string) {
     try {
-      await fetch('/api/chat/mentions', {
+      await fetch('/api/world-chat/mentions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageId, allianceId }),
+        body: JSON.stringify({ messageId }),
       })
     } catch {
       // Non-fatal: the message still sends even if mention parsing fails
@@ -181,17 +145,13 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
     const text = content.trim()
     setContent('')
     mention.close()
-    const { data: inserted } = await supabase.from('chat_messages').insert({
-      alliance_id: allianceId,
-      author_id: currentUser?.id,
+    const { data: inserted } = await supabase.from('world_chat_messages').insert({
+      author_id: currentUserId,
       content: text,
     }).select().single()
     setSending(false)
     if (inserted) {
-      setMessages(prev => [...prev, {
-        ...inserted,
-        user_profiles: { display_name: currentUser?.display_name, role: currentUser?.role },
-      }])
+      setMessages(prev => (prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]))
       processMentions(inserted.id)
     }
   }
@@ -200,20 +160,18 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
   useEffect(() => {
     if (!tr.autoTranslate) return
     for (const m of messages) {
-      if (m.author_id === currentUser?.id) continue
+      if (m.author_id === currentUserId) continue
       if (isImageMessage(m.content)) continue
       tr.ensureAuto(m.id, m.content)
     }
   }, [tr.autoTranslate, messages])
 
   async function deleteMessage(messageId: string) {
-    await supabase.from('chat_messages').delete().eq('id', messageId)
+    await supabase.from('world_chat_messages').delete().eq('id', messageId)
     setMessages(prev => prev.filter(m => m.id !== messageId))
   }
 
   function formatTime(ts: string) {
-    // Deterministic UTC formatting — identical on server and client, so the
-    // server-rendered timestamp matches client hydration (no #425/#418/#423).
     const d = new Date(ts)
     return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`
   }
@@ -248,7 +206,7 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
     }
     setUploading(true)
     const ext = file.name.split('.').pop() || 'jpg'
-    const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+    const filename = `world-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
     const { data, error } = await supabase.storage
       .from('chat-images')
       .upload(filename, file, { contentType: file.type })
@@ -259,16 +217,12 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
     }
     const { data: urlData } = supabase.storage.from('chat-images').getPublicUrl(data.path)
     setUploading(false)
-    const { data: inserted } = await supabase.from('chat_messages').insert({
-      alliance_id: allianceId,
-      author_id: currentUser?.id,
+    const { data: inserted } = await supabase.from('world_chat_messages').insert({
+      author_id: currentUserId,
       content: urlData.publicUrl,
     }).select().single()
     if (inserted) {
-      setMessages(prev => [...prev, {
-        ...inserted,
-        user_profiles: { display_name: currentUser?.display_name, role: currentUser?.role },
-      }])
+      setMessages(prev => (prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]))
     }
   }
 
@@ -310,8 +264,8 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
       <div className="flex flex-col flex-1 min-h-0 w-full max-w-3xl mx-auto">
         {/* Header — fixed at top */}
         <div className="flex items-center gap-2 pb-4 border-b border-slate-800 flex-shrink-0">
-          <MessageSquare className="text-amber-500" size={20} />
-          <h1 className="font-bold">{allianceName} — Chat</h1>
+          <Globe className="text-amber-500" size={20} />
+          <h1 className="font-bold">World Chat — All Kingdoms</h1>
           {/* Auto-translate toggle */}
           <label className="ml-auto flex items-center gap-2 cursor-pointer select-none text-xs text-slate-400">
             <Globe size={13} className="text-amber-500" />
@@ -330,17 +284,19 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
 
         {/* Messages — the only scrolling region */}
         <div className="flex-1 min-h-0 overflow-y-auto py-4 space-y-3">
+          {messages.length === 0 && (
+            <p className="text-center text-sm text-slate-500 py-8">No messages yet. Say hello to the world!</p>
+          )}
           {messages.map(msg => {
-            const isOwn = msg.author_id === currentUser?.id
+            const isOwn = msg.author_id === currentUserId
             const isImage = isImageMessage(msg.content)
-            const senderName = resolveSenderName(msg.author_id, msg.user_profiles?.display_name, memberByUser)
+            const identity = resolveWorldIdentity(msg.author_id, directory)
             return (
-              <div key={msg.id} id={`msg-${msg.id}`} className={`flex gap-2 ${isOwn ? 'flex-row-reverse' : ''} ${highlightId === msg.id ? 'ring-2 ring-amber-400 rounded-2xl -m-1 p-1' : ''}`}>
+              <div key={msg.id} id={`worldmsg-${msg.id}`} className={`flex gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
                 <div className={`max-w-[80%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
                   {!isOwn && (
                     <span className="text-xs text-slate-400 px-1">
-                      {senderName}
-                      {msg.user_profiles?.role && <Badge className="ml-1" variant="default">{msg.user_profiles.role}</Badge>}
+                      <span className="text-amber-500/80 font-medium">[{identity.allianceTag}]</span> {identity.name}
                     </span>
                   )}
                   <div className={`rounded-2xl text-sm ${isOwn ? 'bg-amber-500 text-slate-900 rounded-tr-sm' : 'bg-slate-800 text-slate-100 rounded-tl-sm'} ${isImage ? 'p-1' : 'px-4 py-2'}`}>
@@ -379,7 +335,7 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
                         {tr.pending[msg.id] ? '...' : tr.visible[msg.id] ? 'Show Original' : 'Translate'}
                       </button>
                     )}
-                    {canDelete && (
+                    {(canDelete || isOwn) && (
                       <button onClick={() => deleteMessage(msg.id)} className="text-xs text-red-500/50 hover:text-red-400">
                         <Trash2 size={10} />
                       </button>
@@ -394,7 +350,7 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
 
         {/* Upload progress */}
         {uploading && (
-          <div className="py-2 flex items-center gap-2 text-sm text-amber-400 border-t border-slate-800">
+          <div className="py-2 flex items-center gap-2 text-sm text-amber-400 border-t border-slate-800 flex-shrink-0">
             <span className="inline-block w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
             Uploading image…
           </div>
@@ -402,7 +358,7 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
 
         {/* Error toast */}
         {errorMsg && (
-          <div className="mb-2 px-4 py-2 bg-red-900/60 text-red-300 text-sm rounded-lg border border-red-800/60">
+          <div className="mb-2 px-4 py-2 bg-red-900/60 text-red-300 text-sm rounded-lg border border-red-800/60 flex-shrink-0">
             {errorMsg}
           </div>
         )}
@@ -445,7 +401,7 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
               onChange={mention.onChange}
               onKeyDown={e => { if (mention.onKeyDown(e)) return }}
               onPaste={handlePaste}
-              placeholder="Type a message... (@ to mention)"
+              placeholder="Message the world... (@ to mention)"
               className="flex-1 px-4 h-11 bg-slate-800 border border-slate-700 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
               maxLength={1000}
             />
@@ -459,7 +415,7 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
           </div>
           {/* Confirm which name others will see */}
           <p className="text-xs text-slate-500 mt-1.5 px-1">
-            Sending as: <span className="text-amber-400 font-medium">{viewerName}</span>
+            Sending as: <span className="text-amber-400 font-medium">[{myIdentity.allianceTag}] {viewerName}</span>
           </p>
         </form>
       </div>

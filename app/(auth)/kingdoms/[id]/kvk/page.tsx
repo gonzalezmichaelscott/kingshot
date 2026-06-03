@@ -57,6 +57,20 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
 
   const attendingMembers = await loadAttendingKvkMembers(activeEventIds)
 
+  // KVK chat is cross-alliance, but members RLS only exposes the viewer's own
+  // alliance. Build a name directory with the service client so every sender shows
+  // their in-game tag (player_name) instead of their real auth name (Fix 4).
+  const kvkSvc = createServiceClient()
+  const { data: kvkMembers } = await kvkSvc
+    .from('members')
+    .select('player_name, linked_user_id')
+    .in('alliance_id', kingdomAllianceIds.length ? kingdomAllianceIds : ['00000000-0000-0000-0000-000000000000'])
+    .not('linked_user_id', 'is', null)
+  const kvkNameDirectory: Record<string, string> = {}
+  for (const m of kvkMembers || []) {
+    if (m.linked_user_id && m.player_name) kvkNameDirectory[m.linked_user_id] = m.player_name
+  }
+
   // Per-alliance attendance counts + warnings
   const attendingByAlliance: Record<string, number> = {}
   for (const m of attendingMembers) attendingByAlliance[m.alliance_id] = (attendingByAlliance[m.alliance_id] || 0) + 1
@@ -386,6 +400,7 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
           currentUserId={user.id}
           currentUserRole={role}
           allianceId={profile?.alliance_id || ''}
+          nameDirectory={kvkNameDirectory}
         />
       )}
 

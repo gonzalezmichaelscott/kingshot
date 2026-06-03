@@ -37,8 +37,14 @@ export default async function ChatPage({ params }: { params: { id: string } }) {
     .limit(50)
 
   return (
-    <div className="space-y-3">
-      <Breadcrumbs items={breadcrumbs} />
+    // Fill the viewport below the top bar (pt-14 = 3.5rem) and cancel the main's
+    // bottom padding so the column ends exactly at the viewport edge. overflow-hidden
+    // means the page itself never scrolls — only the message list inside does.
+    // This is the single-scrollbar layout (Fix 3).
+    <div className="flex flex-col h-[calc(100vh-4.5rem)] lg:h-[calc(100vh-5rem)] -mb-4 lg:-mb-6 overflow-hidden">
+      <div className="flex-shrink-0 pb-2">
+        <Breadcrumbs items={breadcrumbs} />
+      </div>
       <ChatRoom
         allianceId={params.id}
         allianceName={`[${alliance.tag}] ${alliance.name}`}

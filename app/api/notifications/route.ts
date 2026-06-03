@@ -23,18 +23,40 @@ export async function GET() {
     const items: any[] = []
 
     // ---- Chat mentions ----
+    // NOTE: we deliberately fetch the related chat_messages / alliances rows in
+    // separate queries instead of PostgREST embeds. Embeds silently return null
+    // (swallowing the whole mentions list) whenever a foreign-key relationship is
+    // ambiguous — which is exactly what left this dropdown empty.
     const memberIds = await getMemberIds(svc, user.id)
     if (memberIds.length > 0) {
-      const { data: mentions } = await svc
+      const { data: mentions, error: mentionsErr } = await svc
         .from('chat_mentions')
-        .select('id, message_id, alliance_id, created_at, is_read, chat_messages(content, author_id), alliances(name, tag)')
+        .select('id, message_id, alliance_id, created_at, is_read')
         .in('mentioned_member_id', memberIds)
         .eq('is_read', false)
         .order('created_at', { ascending: false })
         .limit(50)
+      if (mentionsErr) console.error('[api/notifications] chat_mentions query error:', mentionsErr.message)
       const rows = mentions || []
 
-      const authorIds = [...new Set(rows.map((r: any) => r.chat_messages?.author_id).filter(Boolean))]
+      // Resolve message content + author, and alliance tag, via id lookups.
+      const messageIds = [...new Set(rows.map((r: any) => r.message_id).filter(Boolean))]
+      const allianceIds = [...new Set(rows.map((r: any) => r.alliance_id).filter(Boolean))]
+
+      const messageById = new Map<string, any>()
+      if (messageIds.length > 0) {
+        const { data: msgs } = await svc
+          .from('chat_messages').select('id, content, author_id').in('id', messageIds)
+        for (const m of msgs || []) messageById.set(m.id, m)
+      }
+      const allianceById = new Map<string, any>()
+      if (allianceIds.length > 0) {
+        const { data: als } = await svc
+          .from('alliances').select('id, name, tag').in('id', allianceIds)
+        for (const a of als || []) allianceById.set(a.id, a)
+      }
+
+      const authorIds = [...new Set([...messageById.values()].map((m: any) => m.author_id).filter(Boolean))]
       const nameByUser = new Map<string, string>()
       if (authorIds.length > 0) {
         const { data: authorMembers } = await svc
@@ -50,10 +72,11 @@ export async function GET() {
       }
 
       for (const r of rows) {
-        const content: string = r.chat_messages?.content || ''
-        const alliance = r.alliances
+        const msg = messageById.get(r.message_id)
+        const content: string = msg?.content || ''
+        const alliance = allianceById.get(r.alliance_id)
         const allianceName = alliance ? `[${alliance.tag}] ${alliance.name}` : 'Alliance'
-        const authorName = nameByUser.get(r.chat_messages?.author_id) || 'Someone'
+        const authorName = nameByUser.get(msg?.author_id) || 'Someone'
         items.push({
           kind: 'mention',
           id: r.id,
@@ -66,14 +89,15 @@ export async function GET() {
       }
     }
 
-    // ---- Generic notifications (approval_request, etc.) ----
-    const { data: notifs } = await svc
+    // ---- Generic notifications (approval_request, world-chat mention, etc.) ----
+    const { data: notifs, error: notifErr } = await svc
       .from('notifications')
       .select('id, type, title, message, link, created_at')
       .eq('user_id', user.id)
       .eq('is_read', false)
       .order('created_at', { ascending: false })
       .limit(50)
+    if (notifErr) console.error('[api/notifications] notifications query error:', notifErr.message)
     for (const n of notifs || []) {
       items.push({
         kind: n.type,
@@ -86,6 +110,7 @@ export async function GET() {
     }
 
     items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    console.log(`[api/notifications] user=${user.id} returning ${items.length} items`, items)
     return NextResponse.json({ count: items.length, items })
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Error' }, { status: 500 })

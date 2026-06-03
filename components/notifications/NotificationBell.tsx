@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Bell, X, MessageSquare, ShieldCheck } from 'lucide-react'
+import { Bell, X, AtSign, ShieldCheck } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 
 interface NotificationItem {
@@ -60,8 +60,12 @@ export function NotificationBell({ userId, role }: Props) {
   const refresh = useCallback(async () => {
     try {
       const res = await fetch('/api/notifications', { cache: 'no-store' })
-      if (!res.ok) return
+      if (!res.ok) {
+        console.warn('[NotificationBell] /api/notifications returned', res.status)
+        return
+      }
       const data = await res.json()
+      console.log('[NotificationBell] received', data?.count ?? 0, 'items', data?.items)
       setItems(data.items || [])
       setAppBadge(data.count || 0)
     } catch {
@@ -107,7 +111,8 @@ export function NotificationBell({ userId, role }: Props) {
       body: JSON.stringify({ id: n.id, kind: n.kind }),
     }).catch(() => {})
 
-    if (n.kind === 'mention') {
+    if (n.kind === 'mention' && n.allianceId && n.messageId) {
+      // Alliance-chat mention — jump to the message.
       if (isBackend) {
         router.push(`/alliances/${n.allianceId}/chat?msg=${n.messageId}`)
       } else {
@@ -117,6 +122,9 @@ export function NotificationBell({ userId, role }: Props) {
           })
         )
       }
+    } else if (n.kind === 'mention') {
+      // World-chat (or other link-based) mention.
+      router.push(n.link || '/world-chat')
     } else {
       router.push(n.link || '/approvals')
     }
@@ -138,14 +146,15 @@ export function NotificationBell({ userId, role }: Props) {
         )}
       </button>
 
-      {/* Backdrop */}
+      {/* Backdrop — above the install banner (z-[120]/z-[150]) so the panel is
+           never hidden behind other fixed overlays. */}
       {open && (
-        <div className="fixed inset-0 bg-black/40 z-[90]" onClick={() => setOpen(false)} />
+        <div className="fixed inset-0 bg-black/40 z-[160]" onClick={() => setOpen(false)} />
       )}
 
       {/* Slide-in panel */}
       <div
-        className={`fixed right-0 top-0 h-full w-80 max-w-full bg-slate-900 border-l border-slate-800 z-[95] flex flex-col shadow-2xl transition-transform duration-200 ${
+        className={`fixed right-0 top-0 h-full w-80 max-w-full bg-slate-900 border-l border-slate-800 z-[165] flex flex-col shadow-2xl transition-transform duration-200 ${
           open ? 'translate-x-0' : 'translate-x-full'
         }`}
       >
@@ -183,7 +192,7 @@ export function NotificationBell({ userId, role }: Props) {
                     {isApproval ? (
                       <ShieldCheck size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
                     ) : (
-                      <MessageSquare size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
+                      <AtSign size={15} className="text-amber-500 flex-shrink-0 mt-0.5" />
                     )}
                     <div className="min-w-0">
                       <p className="text-sm text-slate-200">{n.title}</p>

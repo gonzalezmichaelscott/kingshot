@@ -13,6 +13,8 @@ interface Reply {
   content: string
   created_at: string
   author_id: string | null
+  // Privacy-safe game tag resolved on the server (player_name -> display_name).
+  authorName?: string | null
   user_profiles?: { display_name: string | null } | null
 }
 interface Post {
@@ -22,6 +24,7 @@ interface Post {
   is_pinned: boolean
   created_at: string
   author_id: string | null
+  authorName?: string | null
   user_profiles?: { display_name: string | null } | null
   post_replies?: Reply[]
 }
@@ -115,7 +118,7 @@ function PostCard({ post, currentUserId, currentUserName, canModerate, viewerLan
       .single()
     setSending(false)
     if (!error && data) {
-      onReplyAdded(post.id, { ...data, user_profiles: { display_name: currentUserName } })
+      onReplyAdded(post.id, { ...data, authorName: currentUserName })
       setReplyText('')
       setReplying(false)
       setExpanded(true)
@@ -140,7 +143,7 @@ function PostCard({ post, currentUserId, currentUserName, canModerate, viewerLan
               </div>
             )}
             <div className="flex items-center gap-3 mt-2 text-xs text-slate-400 flex-wrap">
-              <span>{post.user_profiles?.display_name || 'Member'}</span>
+              <span>{post.authorName || 'Member'}</span>
               <span>{fmt(post.created_at)}</span>
               <button onClick={() => setExpanded(e => !e)} className="flex items-center gap-1 hover:text-amber-400 transition-colors">
                 <MessageSquare size={12} />
@@ -181,7 +184,7 @@ function PostCard({ post, currentUserId, currentUserName, canModerate, viewerLan
                 {replies.map(r => (
                   <div key={r.id} className="bg-slate-800/60 rounded-lg p-2.5">
                     <div className="flex items-center gap-2 text-xs text-slate-400 mb-0.5">
-                      <span className="font-medium text-slate-300">{r.user_profiles?.display_name || 'Member'}</span>
+                      <span className="font-medium text-slate-300">{r.authorName || 'Member'}</span>
                       <span>{fmt(r.created_at)}</span>
                     </div>
                     <p className="text-sm text-slate-200 whitespace-pre-wrap">{r.content}</p>

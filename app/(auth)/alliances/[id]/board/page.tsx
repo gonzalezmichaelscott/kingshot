@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { MessageSquare } from 'lucide-react'
 import { NewPostForm } from '@/components/board/NewPostForm'
 import { BoardClient } from '@/components/board/BoardClient'
+import { buildMemberByUser, resolveSenderName } from '@/lib/chat'
 
 export default async function BoardPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
@@ -21,13 +22,28 @@ export default async function BoardPage({ params }: { params: { id: string } }) 
     .order('is_pinned', { ascending: false })
     .order('created_at', { ascending: false })
 
-  // Sort replies oldest-first within each post for natural thread reading.
+  // Resolve every author name to their in-game tag (player_name) with the same
+  // display_name fallback as chat. The real name from Google/Discord auth must
+  // never be shown to other users (Fix 4).
+  const { data: members } = await supabase
+    .from('members')
+    .select('id, player_name, linked_user_id')
+    .eq('alliance_id', params.id)
+  const memberByUser = buildMemberByUser((members as any[]) || [])
+  const nameFor = (authorId: string | null | undefined, prof: any) =>
+    resolveSenderName(authorId, prof?.display_name, memberByUser)
+
+  // Sort replies oldest-first within each post for natural thread reading, and
+  // attach a privacy-safe authorName to every post + reply.
   const sortedPosts = (posts || []).map(p => ({
     ...p,
-    post_replies: [...((p.post_replies as any[]) || [])].sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    ),
+    authorName: nameFor(p.author_id, p.user_profiles),
+    post_replies: [...((p.post_replies as any[]) || [])]
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
+      .map(r => ({ ...r, authorName: nameFor(r.author_id, r.user_profiles) })),
   }))
+
+  const viewerName = resolveSenderName(profile?.id, profile?.display_name, memberByUser)
 
   const canPost = ['r5', 'r4', 'system_admin', 'member'].includes(profile?.role || '')
   const canModerate = ['r5', 'r4', 'system_admin'].includes(profile?.role || '')
@@ -48,7 +64,7 @@ export default async function BoardPage({ params }: { params: { id: string } }) 
       <BoardClient
         initialPosts={sortedPosts}
         currentUserId={profile?.id || ''}
-        currentUserName={profile?.display_name || 'You'}
+        currentUserName={viewerName}
         canModerate={canModerate}
         viewerLang={profile?.preferred_language || 'en'}
       />

@@ -166,3 +166,59 @@ UPDATE heroes SET stat_bonuses = '{
 }' WHERE name IN ('Triton','Yang','Sophia');
 
 -- Gen 7 heroes (Ava, Charles, Wee & Woo) - stat data not yet available, leave empty
+
+-- ---------------------------------------------------------------------------
+-- PART 3 — Helga expedition skills + widget effect (rally-leader profile)
+-- ---------------------------------------------------------------------------
+UPDATE heroes SET
+  expedition_skills = '[
+    {
+      "slot": 1,
+      "name": "Oath of Guardian",
+      "effect_op": 111,
+      "effect_type": "DamageReduction",
+      "base_value": 40,
+      "chance": 40,
+      "is_joiner_skill": true,
+      "notes": "40% chance to reduce damage taken by 50% for all squads. Scales: Lv1=8%, Lv2=16%, Lv3=24%, Lv4=32%, Lv5=40% reduction. effect_op 111 same as Howard/Quinn — multiplicative with other defense ops."
+    },
+    {
+      "slot": 2,
+      "name": "Echoes of Valhalla",
+      "effect_op": 101,
+      "effect_type": "DamageUp",
+      "base_value": 25,
+      "is_joiner_skill": false,
+      "notes": "Squad Attack +25%. Scales: Lv1=5% through Lv5=25%. effect_op 101."
+    },
+    {
+      "slot": 3,
+      "name": "Nature Balance",
+      "effect_op": 101,
+      "effect_type": "DamageUp",
+      "base_value": 25,
+      "is_joiner_skill": false,
+      "notes": "Squad Lethality +25%. Scales: Lv1=5% through Lv5=25%. effect_op 101."
+    },
+    {
+      "slot": 4,
+      "name": "Zeal",
+      "effect_op": 101,
+      "effect_type": "RallyLethality",
+      "base_value": 15,
+      "is_joiner_skill": false,
+      "requires_widget": true,
+      "notes": "Rally Troops Lethality +15% at max level. Widget skill. Scales: Lv1=5%, Lv2=7.5%, Lv3=10%, Lv4=12.5%, Lv5=15%."
+    }
+  ]',
+  widget_effect = '{
+    "type": "offensive",
+    "name": "Bands of Tyre",
+    "power": 247500,
+    "stats": {"attack": 379, "defense": 495, "health": 7425},
+    "infantry_lethality_pct": 55.50,
+    "infantry_health_pct": 55.50,
+    "notes": "Strong offensive widget. +55.5% Infantry Lethality and Health. Widget expedition skill Zeal adds Rally Troops Lethality."
+  }',
+  primary_role = 'rally_leader'
+WHERE name = 'Helga';

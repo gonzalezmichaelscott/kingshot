@@ -78,9 +78,16 @@ export function ApprovalsClient({
           removeProfileReq(row.id)
           if (row.reviewed_by && row.reviewed_by !== userId) {
             let name = 'another approver'
-            const { data: rp } = await supabase
-              .from('user_profiles').select('display_name').eq('id', row.reviewed_by).maybeSingle()
-            if (rp?.display_name) name = rp.display_name
+            // Prefer the reviewer's in-game tag; never surface their real auth name (Fix 4).
+            const { data: rm } = await supabase
+              .from('members').select('player_name').eq('linked_user_id', row.reviewed_by).maybeSingle()
+            if (rm?.player_name) {
+              name = rm.player_name
+            } else {
+              const { data: rp } = await supabase
+                .from('user_profiles').select('display_name').eq('id', row.reviewed_by).maybeSingle()
+              if (rp?.display_name) name = rp.display_name
+            }
             const verb = row.status === 'approved' ? 'approved' : 'rejected'
             showToast(`Request ${verb} by ${name}`)
           }

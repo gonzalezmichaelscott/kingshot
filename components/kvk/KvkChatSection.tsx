@@ -11,9 +11,11 @@ interface Props {
   currentUserId: string
   currentUserRole: string
   allianceId: string
+  /** auth user id -> in-game player_name, resolved server-side across alliances */
+  nameDirectory?: Record<string, string>
 }
 
-export function KvkChatSection({ kingdomId, currentUserId, currentUserRole, allianceId }: Props) {
+export function KvkChatSection({ kingdomId, currentUserId, currentUserRole, allianceId, nameDirectory = {} }: Props) {
   const [messages, setMessages] = useState<any[]>([])
   const [content, setContent] = useState('')
   const [sending, setSending] = useState(false)
@@ -130,12 +132,14 @@ export function KvkChatSection({ kingdomId, currentUserId, currentUserRole, alli
           {messages.map(msg => {
             const author = msg.user_profiles
             const isOwn = msg.author_id === currentUserId
+            // Game tag first; never show the real auth name (Fix 4).
+            const senderName = nameDirectory[msg.author_id] || author?.display_name || 'Unknown'
             return (
               <div key={msg.id} className={`flex gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
                 <div className={`max-w-[80%] flex flex-col gap-0.5 ${isOwn ? 'items-end' : 'items-start'}`}>
                   {!isOwn && (
                     <span className="text-[10px] text-slate-400 px-1">
-                      {author?.display_name || 'Unknown'}
+                      {senderName}
                       {author?.role && <Badge className="ml-1 text-[9px] py-0" variant="default">{author.role.toUpperCase()}</Badge>}
                     </span>
                   )}

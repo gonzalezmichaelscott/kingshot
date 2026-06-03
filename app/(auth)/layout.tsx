@@ -24,10 +24,13 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
 
   const path = headers().get('x-pathname') || ''
   const onOnboarding = path.startsWith('/onboarding')
+  // World Chat is open to ALL logged-in users, including those with no alliance
+  // yet ("Guest"), so it must stay reachable before onboarding completes.
+  const onWorldChat = path.startsWith('/world-chat')
 
   // No alliance yet (and not system_admin) → onboarding
   if (!profile?.alliance_id && profile?.role !== 'system_admin') {
-    if (!onOnboarding) redirect('/onboarding')
+    if (!onOnboarding && !onWorldChat) redirect('/onboarding')
   } else if (isMemberRole(profile?.role)) {
     // R3, R2, R1 cannot access the Alliance Hub backend
     const onBackend = BACKEND_PREFIXES.some(p => path === p || path.startsWith(p + '/'))
