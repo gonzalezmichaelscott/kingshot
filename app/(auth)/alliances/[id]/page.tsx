@@ -9,6 +9,7 @@ import { formatPower, formatUtcDateTime } from '@/lib/utils'
 import { requireAllianceAccess } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { KvkToggle } from '@/components/alliance/KvkToggle'
+import { EditAllianceButton } from '@/components/alliance/EditAllianceButton'
 import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
 import { upcomingOccurrences, CALENDAR_COLORS } from '@/lib/calendar'
 
@@ -72,7 +73,16 @@ export default async function AllianceHubPage({ params }: { params: { id: string
             </p>
           )}
         </div>
-        {alliance.kvk_enabled && <Badge variant="green">KVK Active</Badge>}
+        <div className="flex items-center gap-3 flex-wrap">
+          {alliance.kvk_enabled && <Badge variant="green">KVK Active</Badge>}
+          {['r5', 'system_admin'].includes(profile?.role || '') && (
+            <EditAllianceButton
+              allianceId={params.id}
+              currentName={alliance.name}
+              currentTag={alliance.tag}
+            />
+          )}
+        </div>
       </div>
 
       {/* KVK participation toggle + command link */}
