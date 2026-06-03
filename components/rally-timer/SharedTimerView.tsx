@@ -125,6 +125,9 @@ export function SharedTimerView({ session }: Props) {
           <div className="flex items-center gap-2">
             <Timer className="text-amber-500" size={22} />
             <h1 className="text-xl font-bold">{label}</h1>
+            <span className="text-[11px] bg-slate-700 text-slate-300 border border-slate-600 px-2 py-0.5 rounded-full font-semibold">
+              View Only
+            </span>
           </div>
           <button onClick={() => setAudioOn(a => !a)} className={`p-2 rounded-lg ${audioOn ? 'text-amber-400' : 'text-slate-600'}`}>
             {audioOn ? <Volume2 size={18} /> : <VolumeX size={18} />}

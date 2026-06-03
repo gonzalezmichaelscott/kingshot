@@ -33,6 +33,14 @@ export default async function MembersPage({ params }: { params: { id: string } }
   const canManage = canManageAlliance(profile?.role)
   const isAdmin = profile?.role === 'system_admin'
 
+  // FIX 8 — a cached avatar is "fresh" for 14 days; after that PlayerAvatar
+  // re-fetches and re-caches it.
+  const AVATAR_TTL_MS = 14 * 24 * 60 * 60 * 1000
+  const freshAvatar = (m: any) =>
+    m.avatar_url && m.avatar_fetched_at && (Date.now() - new Date(m.avatar_fetched_at).getTime() < AVATAR_TTL_MS)
+      ? m.avatar_url
+      : null
+
   // R5 sees R1-R5 requests for their alliance (elevated R4/R5 requests route to
   // the alliance R5 when one exists); R4 sees only R1-R3.
   const visibleRequestRoles = visibleRequestRolesFor(profile?.role)
@@ -132,6 +140,7 @@ export default async function MembersPage({ params }: { params: { id: string } }
                         <div className="flex items-center gap-2">
                           <PlayerAvatar
                             gameId={m.game_id}
+                            avatarUrl={freshAvatar(m)}
                             playerName={m.player_name}
                             sizeClass="w-7 h-7"
                           />

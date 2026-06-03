@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
-import { Search, AlertTriangle, CheckCircle2, UserCheck } from 'lucide-react'
+import { Search, CheckCircle2, UserCheck } from 'lucide-react'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 import { formatPower } from '@/lib/utils'
 
@@ -37,7 +37,10 @@ export function ProfileClaimStep({ allianceId, allianceName, onClaimed, onSkip }
   const [claimError, setClaimError] = useState('')
 
   async function search() {
-    if (!query.trim()) return
+    if (!/^\d+$/.test(query.trim())) {
+      setSearchError('Enter a valid numeric Player ID')
+      return
+    }
     setSearching(true)
     setSearchError('')
     setFound(null)
@@ -101,16 +104,16 @@ export function ProfileClaimStep({ allianceId, allianceName, onClaimed, onSkip }
           <p className="text-sm font-medium">Already have a profile in {allianceName}?</p>
         </div>
         <p className="text-xs text-slate-400">
-          If an R4/R5 created a profile for you, search for it below to claim it instead of creating a new one.
-        </p>
-        <p className="text-xs text-amber-400/80">
-          Player ID is recommended — names can change and may not be unique across servers.
+          Enter your Player ID (the number shown under your governor name in-game).
         </p>
         <div className="flex gap-2">
           <Input
-            placeholder="Player ID or Governor Name"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            placeholder="Player ID"
             value={query}
-            onChange={e => setQuery(e.target.value)}
+            onChange={e => setQuery(e.target.value.replace(/[^0-9]/g, ''))}
             onKeyDown={e => e.key === 'Enter' && search()}
           />
           <Button size="sm" onClick={search} disabled={searching || !query.trim()}>
@@ -122,7 +125,9 @@ export function ProfileClaimStep({ allianceId, allianceName, onClaimed, onSkip }
         {searchError && <p className="text-red-400 text-xs">{searchError}</p>}
 
         {searched && !found && !searchError && (
-          <p className="text-slate-400 text-xs">No unclaimed profile found. You can create a new one below.</p>
+          <p className="text-slate-400 text-xs">
+            No profile found with that Player ID. Ask your R4/R5 to create your profile, or create a new one.
+          </p>
         )}
 
         {found && (
@@ -138,16 +143,9 @@ export function ProfileClaimStep({ allianceId, allianceName, onClaimed, onSkip }
               </div>
             </div>
 
-            {!found.has_game_id && (
-              <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-2">
-                <AlertTriangle size={14} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-300">No Player ID on file — name-only matching is less secure. R4/R5 will need to verify carefully.</p>
-              </div>
-            )}
-
             {found.already_linked ? (
               <p className="text-xs text-slate-400 bg-slate-800 rounded p-2">
-                This profile is already linked to an account. Contact your R4/R5 if this is an error.
+                This profile is already linked to an account.
               </p>
             ) : (
               <>

@@ -43,9 +43,13 @@ export default async function MemberTokenPage({
   // Whether the current viewer is the logged-in owner of this claimed profile
   // (controls the "Move to Different Alliance" self-service transfer option).
   let viewerIsOwner = false
+  // Whether the current viewer has any active account session (controls the
+  // "Back to Dashboard" link — hidden for members opening the link anonymously).
+  let viewerIsLoggedIn = false
   try {
     const authClient = createClient()
     const { data: { user } } = await authClient.auth.getUser()
+    if (user) viewerIsLoggedIn = true
     if (user && member.linked_user_id && user.id === member.linked_user_id) {
       viewerIsOwner = true
     }
@@ -89,13 +93,15 @@ export default async function MemberTokenPage({
   // Use 7 days ago as cutoff so we capture recently-started events without a set end date
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
   const nowIso = new Date().toISOString()
-  const { data: rawEvents } = await supabase
+  // A claimed profile may not currently be in any alliance (e.g. just left one).
+  // The self-service page still works — there are simply no alliance events.
+  const { data: rawEvents } = member.alliance_id ? await supabase
     .from('events')
     .select('*, event_types(name, slug), is_custom, custom_instructions_html, custom_images, battle_end_utc')
-    .eq('alliance_id', member.alliance_id!)
+    .eq('alliance_id', member.alliance_id)
     .in('status', ['planning', 'registration', 'active'])
     .gte('battle_start_utc', sevenDaysAgo)
-    .order('battle_start_utc')
+    .order('battle_start_utc') : { data: [] }
 
   // Client-side filter: keep upcoming events AND custom events still within their active window
   const now = new Date()
@@ -136,6 +142,7 @@ export default async function MemberTokenPage({
         upcomingEvents={upcomingEvents || []}
         memberAssignments={memberAssignments || []}
         canTransfer={viewerIsOwner}
+        isLoggedIn={viewerIsLoggedIn}
         wasRedirected={wasRedirected}
       />
     </>

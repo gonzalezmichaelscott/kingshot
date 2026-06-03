@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Search, Shield, Crown, ArrowLeft, CheckCircle, Users } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { ProfileClaimStep } from '@/components/members/ProfileClaimStep'
 
 type Step = 'search' | 'select_alliance' | 'claim_or_create' | 'create_profile' | 'new_kingdom' | 'new_alliance' | 'submitted'
@@ -13,8 +14,16 @@ type Step = 'search' | 'select_alliance' | 'claim_or_create' | 'create_profile' 
 const RANKS = ['r1', 'r2', 'r3', 'r4', 'r5']
 const LEADER_RANKS = ['r4', 'r5']
 
-export function OnboardingFlow() {
+interface OnboardingFlowProps {
+  /** FIX 4.2 — when set, the user already owns a claimed profile and is simply
+   *  re-joining a new alliance. The find/claim/create steps are skipped: picking
+   *  an alliance immediately re-links their existing record. */
+  rejoin?: { playerName: string; previousAllianceName: string | null } | null
+}
+
+export function OnboardingFlow({ rejoin = null }: OnboardingFlowProps) {
   const supabase = createClient()
+  const router = useRouter()
   const [step, setStep] = useState<Step>('search')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -54,6 +63,21 @@ export function OnboardingFlow() {
     setAlliances(al || [])
     setLoading(false)
     setStep('select_alliance')
+  }
+
+  // FIX 4.2 — re-join: reuse the existing claimed member record (no approval).
+  async function rejoinAlliance(a: any) {
+    setLoading(true); setError('')
+    const res = await fetch('/api/onboarding/rejoin', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alliance_id: a.id }),
+    })
+    const d = await res.json().catch(() => ({}))
+    setLoading(false)
+    if (!res.ok) { setError(d.error || 'Failed to join alliance'); return }
+    // Land on the dashboard for the new alliance (server reads fresh state).
+    router.push('/dashboard')
+    router.refresh()
   }
 
   async function submitProfileRequest() {
@@ -157,17 +181,27 @@ export function OnboardingFlow() {
             <p className="text-sm text-slate-400">Select your alliance:</p>
             <div className="grid sm:grid-cols-2 gap-3">
               {alliances.map(a => (
-                <button key={a.id} onClick={() => { setSelectedAlliance(a); setRank('r3'); setStep('claim_or_create') }}
-                  className="text-left bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-amber-500/50 rounded-lg p-3 transition-colors">
+                <button key={a.id}
+                  disabled={loading}
+                  onClick={() => {
+                    if (rejoin) { rejoinAlliance(a); return }
+                    setSelectedAlliance(a); setRank('r3'); setStep('claim_or_create')
+                  }}
+                  className="text-left bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-amber-500/50 rounded-lg p-3 transition-colors disabled:opacity-50">
                   <p className="font-semibold text-amber-400">[{a.tag}]</p>
                   <p className="text-sm text-slate-300">{a.name}</p>
-                  <span className="text-xs text-amber-500 mt-1 inline-block">Join {a.name} →</span>
+                  <span className="text-xs text-amber-500 mt-1 inline-block">
+                    {rejoin ? (loading ? 'Joining…' : `Join ${a.name} →`) : `Join ${a.name} →`}
+                  </span>
                 </button>
               ))}
               {alliances.length === 0 && <p className="text-slate-400 text-sm col-span-2">No alliances registered under this kingdom yet.</p>}
             </div>
-            <button onClick={() => { setAllianceName(''); setAllianceTag(''); setRank('r4'); setStep('new_alliance') }}
-              className="text-sm text-amber-500 hover:text-amber-400">My alliance is not listed →</button>
+            {!rejoin && (
+              <button onClick={() => { setAllianceName(''); setAllianceTag(''); setRank('r4'); setStep('new_alliance') }}
+                className="text-sm text-amber-500 hover:text-amber-400">My alliance is not listed →</button>
+            )}
+            {error && <p className="text-red-400 text-sm">{error}</p>}
             <div>
               <button onClick={() => setStep('search')} className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1"><ArrowLeft size={12} />Back to search</button>
             </div>

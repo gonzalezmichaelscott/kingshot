@@ -62,7 +62,7 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
   }
 
   async function searchProfile() {
-    if (!query.trim()) return
+    if (!/^\d+$/.test(query.trim())) { setError('Enter a valid numeric Player ID'); return }
     setLoading(true); setError(''); setFoundProfile(null); setSearchedProfile(false)
     const res = await fetch('/api/profile-claim/search', {
       method: 'POST',
@@ -199,9 +199,11 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
                 </p>
                 <div className="flex gap-2">
                   <Input
-                    placeholder="Player ID or Governor Name"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Player ID"
                     value={query}
-                    onChange={e => setQuery(e.target.value)}
+                    onChange={e => setQuery(e.target.value.replace(/[^0-9]/g, ''))}
                     onKeyDown={e => e.key === 'Enter' && searchProfile()}
                   />
                   <Button size="sm" onClick={searchProfile} disabled={loading || !query.trim()}>

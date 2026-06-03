@@ -17,6 +17,12 @@ export default async function RallyTimerPage() {
   const allianceId = profile?.alliance_id || null
   const canEdit = ['r5', 'r4', 'system_admin'].includes(profile?.role || '')
 
+  // FIX 7 — the rally timer is managed by alliance leadership. Regular members
+  // (R1/R2/R3) cannot open the dashboard; they receive a shared link instead.
+  if (!canEdit) {
+    redirect('/dashboard?notice=rally-timer-leadership')
+  }
+
   // Load existing sessions for this alliance (if any)
   let sessions: any[] = []
   if (allianceId) {

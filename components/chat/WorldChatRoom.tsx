@@ -39,7 +39,10 @@ export function WorldChatRoom({
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [reported, setReported] = useState<Set<string>>(new Set())
+  const [showNewMsg, setShowNewMsg] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const didInitialScrollRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
@@ -65,8 +68,24 @@ export function WorldChatRoom({
 
   useNoSleep(true)
 
+  // FIX 9 — default to the newest message (see ChatRoom for the rationale).
+  function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
+    const el = listRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior })
+    setShowNewMsg(false)
+  }
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = listRef.current
+    if (!el) return
+    if (!didInitialScrollRef.current) {
+      didInitialScrollRef.current = true
+      scrollToBottom('auto')
+      return
+    }
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+    if (nearBottom) scrollToBottom('smooth')
+    else setShowNewMsg(true)
   }, [messages])
 
   // Realtime subscription — self-heals on CLOSED/TIMED_OUT.
@@ -323,7 +342,7 @@ export function WorldChatRoom({
         </div>
 
         {/* Messages — the only scrolling region */}
-        <div className="flex-1 min-h-0 overflow-y-auto py-4 space-y-3">
+        <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto py-4 space-y-3">
           {messages.length === 0 && (
             <p className="text-center text-sm text-slate-500 py-8">No messages yet. Say hello to the world!</p>
           )}
@@ -402,6 +421,18 @@ export function WorldChatRoom({
           })}
           <div ref={bottomRef} />
         </div>
+
+        {/* New message jump button (shown when scrolled up) */}
+        {showNewMsg && (
+          <div className="relative">
+            <button
+              onClick={() => scrollToBottom('smooth')}
+              className="absolute -top-12 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 text-xs font-semibold rounded-full shadow-lg transition-colors"
+            >
+              New message ↓
+            </button>
+          </div>
+        )}
 
         {/* Upload progress */}
         {uploading && (

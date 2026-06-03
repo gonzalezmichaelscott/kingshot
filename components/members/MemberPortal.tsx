@@ -5,13 +5,13 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { User, Shield, Calendar, Star, Sword, Copy, Check, Trash2, AlertTriangle, Gift } from 'lucide-react'
+import { User, Shield, Calendar, Star, Sword, Copy, Check, Trash2, AlertTriangle, Gift, ArrowLeft } from 'lucide-react'
+import Link from 'next/link'
 import { parseMarkdownToHtml } from '@/components/ui/RichTextEditor'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { HeroManager } from '@/components/members/HeroManager'
 import { TroopDataEditor } from '@/components/members/TroopDataEditor'
-import { LeaveAllianceButton } from '@/components/members/LeaveAllianceButton'
 import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
 import { PreferredLanguageSelect } from '@/components/members/PreferredLanguageSelect'
 import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
@@ -44,20 +44,20 @@ interface Props {
   memberAssignments?: any[]
   /** Viewer is the logged-in owner of this claimed profile (enables transfer). */
   canTransfer?: boolean
+  /** Viewer has an active account session (enables "Back to Dashboard"). */
+  isLoggedIn?: boolean
   /** Arrived here via an old transferred self-service link. */
   wasRedirected?: boolean
 }
 
-export function MemberPortal({ member, memberHeroes, memberAvailability, heroes, upcomingEvents, memberAssignments = [], canTransfer = false, wasRedirected = false }: Props) {
+export function MemberPortal({ member, memberHeroes, memberAvailability, heroes, upcomingEvents, memberAssignments = [], canTransfer = false, isLoggedIn = false, wasRedirected = false }: Props) {
   const alliance = member.alliances
   const router = useRouter()
 
   const [stats, setStats] = useState({
     power: member.power || '',
-    troop_count: member.troop_count || '',
     march_size: member.march_size || '',
     rally_capacity: member.rally_capacity || '',
-    timezone: member.timezone || 'UTC',
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -73,10 +73,8 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
     const payload = {
       access_token: member.access_token,
       power: parseInt(String(stats.power)) || 0,
-      troop_count: parseInt(String(stats.troop_count)) || 0,
       march_size: parseInt(String(stats.march_size)) || 0,
       rally_capacity: parseInt(String(stats.rally_capacity)) || 0,
-      timezone: stats.timezone || 'UTC',
     }
     await fetch('/api/member/stats', {
       method: 'PATCH',
@@ -93,6 +91,19 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
   return (
     <div className="min-h-screen bg-slate-950 p-4">
       <div className="max-w-lg mx-auto space-y-5">
+        {/* Back to Dashboard — only for logged-in users (hidden for anonymous
+            members opening the share link without an account). */}
+        {isLoggedIn && (
+          <div className="pt-4">
+            <Link
+              href="/dashboard"
+              className="inline-flex items-center gap-1.5 text-sm text-amber-500 hover:text-amber-400 font-medium"
+            >
+              <ArrowLeft size={15} /> Back to Dashboard
+            </Link>
+          </div>
+        )}
+
         {/* Redirected from an old (transferred) self-service link */}
         {wasRedirected && (
           <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl px-4 py-3 flex items-center gap-3 mt-4">
@@ -120,7 +131,7 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
             <div>
               <h1 className="text-xl font-bold">{member.player_name}</h1>
               <p className="text-slate-400 text-sm">
-                [{alliance?.tag}] {alliance?.name}
+                {alliance ? `[${alliance.tag}] ${alliance.name}` : 'Not in an alliance'}
               </p>
               {/* Kingdom and level are lazily populated by PlayerAvatar's fetch;
                   we display them inline here via a sibling fetcher */}
@@ -129,14 +140,6 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
               )}
             </div>
           </div>
-          {alliance && (
-            <LeaveAllianceButton
-              memberId={member.id}
-              allianceName={`[${alliance.tag}] ${alliance.name}`}
-              accessToken={member.access_token}
-              redirectTo="/onboarding"
-            />
-          )}
         </div>
 
         {/* Tabs */}
@@ -174,7 +177,6 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
             <CardContent className="space-y-3">
               {[
                 { label: 'Power', key: 'power' as const },
-                { label: 'Troop Count', key: 'troop_count' as const },
                 { label: 'March Size', key: 'march_size' as const },
                 { label: 'Rally Capacity', key: 'rally_capacity' as const },
               ].map(({ label, key }) => (
@@ -192,14 +194,9 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
                   />
                 </div>
               ))}
-              <div>
-                <label className="text-sm text-slate-400 block mb-1">Timezone</label>
-                <Input
-                  placeholder="UTC, America/New_York, Europe/London..."
-                  value={stats.timezone}
-                  onChange={e => setStats(s => ({ ...s, timezone: e.target.value }))}
-                />
-              </div>
+              <p className="text-xs text-slate-500">
+                Troop count is calculated automatically from your Troops tab.
+              </p>
               <Button className="w-full" onClick={saveStats} disabled={saving}>
                 {saving ? 'Saving…' : saved ? 'Saved! ✓' : 'Update Stats'}
               </Button>
@@ -332,7 +329,10 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
         {/* Profile deletion is intentionally NOT available here. Deleting a profile
             requires a claimed, logged-in account (or an R4/R5/admin acting on the
             member's behalf) so it can't be done by anyone holding the share link. */}
-        <div className="mt-8 border-t border-slate-800 pt-6">
+        <div className="mt-8 border-t border-slate-800 pt-6 space-y-2">
+          <p className="text-xs text-slate-500 leading-relaxed">
+            To leave this alliance, log in to your account and manage your alliance from your dashboard.
+          </p>
           <p className="text-xs text-slate-500 leading-relaxed">
             To delete your profile, log in and claim your profile first. Contact your R4 or R5 if you need help.
           </p>

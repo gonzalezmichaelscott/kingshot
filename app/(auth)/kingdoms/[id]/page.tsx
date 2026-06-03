@@ -7,6 +7,7 @@ import { notFound } from 'next/navigation'
 import { AddAllianceForm } from '@/components/alliance/AddAllianceForm'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { BackButton } from '@/components/nav/BackButton'
+import { KingdomAgeBar } from '@/components/kingdoms/KingdomAgeBar'
 
 export default async function KingdomPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
@@ -46,6 +47,7 @@ export default async function KingdomPage({ params }: { params: { id: string } }
           {kingdom.name}
           {kingdom.server_number && <span className="text-slate-400 font-normal">#{kingdom.server_number}</span>}
         </h1>
+        {kingdom.server_number && <KingdomAgeBar kingdomNumber={kingdom.server_number} />}
       </div>
 
       <div className="flex gap-3 flex-wrap">

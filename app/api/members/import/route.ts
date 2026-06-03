@@ -6,7 +6,8 @@ import { rateLimitResponse, HOUR_MS } from '@/lib/rate-limit'
 import { z } from 'zod'
 
 // Hard caps (Security Fix 8): block memory exhaustion / bulk abuse.
-const MAX_ROWS = 500
+// FIX 6 — bulk import accepts Player IDs only, max 115 players per import.
+const MAX_ROWS = 115
 
 // Neutralize spreadsheet formula injection: a leading =,+,-,@ (or tab/CR) makes
 // Excel/Sheets evaluate the cell as a formula when the data is later exported.
@@ -24,17 +25,11 @@ function sanitizePlayerName(name: string): string {
     .slice(0, 50)
 }
 
+// FIX 6 — only Player ID (game_id) is accepted. The player name is fetched from
+// the game API on the client and may be blank if the lookup failed.
 const rowSchema = z.object({
-  // game_id (Player ID) is the only required field; player_name is optional and
-  // is normally fetched from the game on the client (may be blank on failure).
-  game_id: z.string().min(1).regex(/^\d+$/, 'must be numeric'),
+  game_id: z.string().regex(/^\d{1,9}$/, 'Player ID must be numeric, max 9 digits'),
   player_name: z.string().optional().default(''),
-  power: z.coerce.number().int().min(0).max(10_000_000_000).optional().default(0),
-  troop_count: z.coerce.number().int().min(0).max(50_000_000).optional().default(0),
-  march_size: z.coerce.number().int().min(0).max(5_000_000).optional().default(0),
-  rally_capacity: z.coerce.number().int().min(0).max(10_000_000).optional().default(0),
-  timezone: z.string().max(64).optional().default('UTC'),
-  notes: z.string().max(2000).optional().default(''),
 })
 
 const bodySchema = z.object({
@@ -91,21 +86,19 @@ export async function POST(request: NextRequest) {
       }
 
       const gameId = (row.game_id || '').trim()
-      // Sanitize free-text fields against CSV/formula injection + HTML before save.
+      // Sanitize the fetched name against CSV/formula injection + HTML before save.
       const name = sanitizePlayerName(sanitizeCsvField((row.player_name || '').trim()))
-      const timezone = sanitizeCsvField((row.timezone || '').trim()) || 'UTC'
-      const notes = sanitizeCsvField((row.notes || '').trim())
       // Label used in skipped-row feedback when there's no name yet.
       const label = name || (gameId ? `Player ID ${gameId}` : '(empty)')
 
       if (!gameId) {
-        skipped.push({ player_name: label, reason: 'game_id (Player ID) is required' })
+        skipped.push({ player_name: label, reason: 'Player ID is required' })
         continue
       }
 
-      // Player IDs must be numeric strings only.
-      if (!/^\d+$/.test(gameId)) {
-        skipped.push({ player_name: label, reason: `Invalid Player ID format: ${gameId} — must be numeric` })
+      // Player IDs must be numeric strings, max 9 digits.
+      if (!/^\d{1,9}$/.test(gameId)) {
+        skipped.push({ player_name: label, reason: `Invalid Player ID: ${gameId} — must be numeric, max 9 digits` })
         continue
       }
 
@@ -114,16 +107,7 @@ export async function POST(request: NextRequest) {
         continue
       }
 
-      const parsed = rowSchema.safeParse({
-        game_id: gameId,
-        player_name: name,
-        power: row.power || 0,
-        troop_count: row.troop_count || 0,
-        march_size: row.march_size || 0,
-        rally_capacity: row.rally_capacity || 0,
-        timezone,
-        notes,
-      })
+      const parsed = rowSchema.safeParse({ game_id: gameId, player_name: name })
 
       if (!parsed.success) {
         skipped.push({ player_name: label, reason: parsed.error.issues[0]?.message || 'Invalid data' })
@@ -137,12 +121,6 @@ export async function POST(request: NextRequest) {
           // player_name is NOT NULL in the schema — store '' when no name is available yet
           player_name: parsed.data.player_name || '',
           game_id: parsed.data.game_id,
-          power: parsed.data.power,
-          troop_count: parsed.data.troop_count,
-          march_size: parsed.data.march_size,
-          rally_capacity: parsed.data.rally_capacity,
-          timezone: parsed.data.timezone,
-          notes: parsed.data.notes,
         })
         .select('id, access_token')
         .single()

@@ -28,7 +28,10 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [members, setMembers] = useState<any[]>([])
   const [highlightId, setHighlightId] = useState<string | null>(null)
+  const [showNewMsg, setShowNewMsg] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const listRef = useRef<HTMLDivElement>(null)
+  const didInitialScrollRef = useRef(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   // Stable client reference — avoids creating multiple GoTrue clients across renders
@@ -85,8 +88,26 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
   // Keep the screen awake while the chat room is open (silent — no badge)
   useNoSleep(true)
 
+  // FIX 9 — default to the newest message. On first load jump to the bottom
+  // instantly; afterwards auto-scroll only when the user is already near the
+  // bottom, otherwise surface a "New message ↓" button.
+  function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
+    const el = listRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior })
+    setShowNewMsg(false)
+  }
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    const el = listRef.current
+    if (!el) return
+    if (!didInitialScrollRef.current) {
+      didInitialScrollRef.current = true
+      scrollToBottom('auto')
+      return
+    }
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100
+    if (nearBottom) scrollToBottom('smooth')
+    else setShowNewMsg(true)
   }, [messages])
 
   // Jump-to-message from a notification (?msg=<id>): scroll to it and flash a highlight
@@ -343,7 +364,7 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
         </div>
 
         {/* Messages — the only scrolling region */}
-        <div className="flex-1 min-h-0 overflow-y-auto py-4 space-y-3">
+        <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto py-4 space-y-3 relative">
           {messages.map(msg => {
             const isOwn = msg.author_id === currentUser?.id
             const isImage = isImageMessage(msg.content)
@@ -405,6 +426,18 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
           })}
           <div ref={bottomRef} />
         </div>
+
+        {/* New message jump button (shown when scrolled up) */}
+        {showNewMsg && (
+          <div className="relative">
+            <button
+              onClick={() => scrollToBottom('smooth')}
+              className="absolute -top-12 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 text-xs font-semibold rounded-full shadow-lg transition-colors"
+            >
+              New message ↓
+            </button>
+          </div>
+        )}
 
         {/* Upload progress */}
         {uploading && (

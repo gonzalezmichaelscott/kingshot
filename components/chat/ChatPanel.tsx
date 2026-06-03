@@ -37,6 +37,7 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
   const [myDisplayName, setMyDisplayName] = useState<string | null>(null)
   const [myPreferredLang, setMyPreferredLang] = useState<string>(DEFAULT_LANGUAGE)
   const [highlightId, setHighlightId] = useState<string | null>(null)
+  const [showNewMsg, setShowNewMsg] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -139,12 +140,16 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
     return () => clearTimeout(t)
   }, [open, targetMessageId, targetNonce, initialized, messages.length])
 
-  // Auto-scroll on new messages only when near the bottom
+  // Auto-scroll on new messages only when near the bottom; otherwise show the
+  // "New message ↓" button (FIX 9).
   useEffect(() => {
     if (messages.length > 0) {
       const list = listRef.current
-      if (list && list.scrollTop > list.scrollHeight - list.clientHeight - 200) {
+      if (list && list.scrollHeight - list.scrollTop - list.clientHeight < 100) {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+        setShowNewMsg(false)
+      } else {
+        setShowNewMsg(true)
       }
     }
   }, [messages])
@@ -461,6 +466,18 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
           })}
           <div ref={bottomRef} />
         </div>
+
+        {/* New message jump button (shown when scrolled up) */}
+        {showNewMsg && (
+          <div className="relative">
+            <button
+              onClick={() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); setShowNewMsg(false) }}
+              className="absolute -top-11 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 text-[11px] font-semibold rounded-full shadow-lg transition-colors"
+            >
+              New message ↓
+            </button>
+          </div>
+        )}
 
         {/* Upload progress */}
         {uploading && (

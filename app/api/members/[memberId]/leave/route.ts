@@ -63,8 +63,16 @@ export async function POST(request: NextRequest, { params }: { params: { memberI
       }
     }
 
-    // Set member alliance_id to NULL
-    await service.from('members').update({ alliance_id: null }).eq('id', member.id)
+    // Remove the member from the alliance directory: clear the alliance link and
+    // mark the record inactive so they no longer appear in the members list.
+    // We remember the previous alliance so onboarding can greet them by name and
+    // so the SAME record can be reused (stats intact) when they join a new one.
+    await service.from('members').update({
+      alliance_id: null,
+      is_active: false,
+      previous_alliance_id: member.alliance_id,
+      updated_at: new Date().toISOString(),
+    }).eq('id', member.id)
 
     // Set linked user's alliance_id to NULL
     if (member.linked_user_id) {

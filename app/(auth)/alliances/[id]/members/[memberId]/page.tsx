@@ -20,6 +20,7 @@ import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { BackButton } from '@/components/nav/BackButton'
 import { RemoveMemberButton } from '@/components/members/RemoveMemberButton'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
+import { RefreshAvatarButton } from '@/components/members/RefreshAvatarButton'
 
 export default async function MemberProfilePage({ params }: { params: { id: string; memberId: string } }) {
   const supabase = createClient()
@@ -50,6 +51,13 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
 
   const canEdit = canManageAlliance(profile?.role)
   const isAdmin = profile?.role === 'system_admin'
+
+  // FIX 8 — use the cached avatar when it was fetched within the last 14 days.
+  const AVATAR_TTL_MS = 14 * 24 * 60 * 60 * 1000
+  const freshAvatarUrl =
+    member.avatar_url && member.avatar_fetched_at && (Date.now() - new Date(member.avatar_fetched_at).getTime() < AVATAR_TTL_MS)
+      ? member.avatar_url
+      : null
 
   // Full hero catalog for the hero entry form (officers only)
   const { data: heroCatalog } = canEdit
@@ -135,6 +143,7 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <PlayerAvatar
               gameId={member.game_id}
+              avatarUrl={freshAvatarUrl}
               playerName={member.player_name}
               sizeClass="w-10 h-10"
               showLevel
@@ -142,6 +151,9 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
             {member.player_name}
           </h1>
           {member.game_id && <p className="text-slate-400 text-sm mt-0.5">Game ID: {member.game_id}</p>}
+          {canEdit && member.game_id && (
+            <RefreshAvatarButton memberId={member.id} />
+          )}
           {canEdit && (
             <EditNameButton
               memberId={member.id}

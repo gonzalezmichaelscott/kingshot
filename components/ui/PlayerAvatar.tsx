@@ -20,6 +20,11 @@ function colorFor(name: string): string {
 interface PlayerAvatarProps {
   /** The player's in-game ID (game_id). Avatar is only fetched when this is set. */
   gameId?: string | null
+  /**
+   * Pre-fetched avatar URL from the database (members.avatar_url). When provided
+   * the component uses it directly and makes NO client-side API call. (FIX 8)
+   */
+  avatarUrl?: string | null
   /** Player display name — used for initials fallback and accessible alt text. */
   playerName: string
   /**
@@ -45,12 +50,13 @@ interface PlayerAvatarProps {
  */
 export function PlayerAvatar({
   gameId,
+  avatarUrl: cachedAvatarUrl = null,
   playerName,
   sizeClass = 'w-9 h-9',
   showLevel = false,
   showKingdom = false,
 }: PlayerAvatarProps) {
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(cachedAvatarUrl || null)
   const [level, setLevel] = useState<number | null>(null)
   const [kingdom, setKingdom] = useState<number | null>(null)
   const [loading, setLoading] = useState(false)
@@ -61,6 +67,8 @@ export function PlayerAvatar({
 
   useEffect(() => {
     if (!gameId) return
+    // FIX 8 — a cached avatar URL from the DB means no API call is needed.
+    if (cachedAvatarUrl) { setAvatarUrl(cachedAvatarUrl); return }
     const el = circleRef.current
     if (!el) return
 
@@ -74,7 +82,15 @@ export function PlayerAvatar({
           .then((r) => (r.ok ? r.json() : null))
           .then((json) => {
             if (json?.data) {
-              if (json.data.profilePhoto) setAvatarUrl(json.data.profilePhoto)
+              if (json.data.profilePhoto) {
+                setAvatarUrl(json.data.profilePhoto)
+                // Persist to the DB so future loads skip the API entirely.
+                fetch('/api/member/cache-avatar', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ game_id: gameId, avatar_url: json.data.profilePhoto }),
+                }).catch(() => {/* non-fatal */})
+              }
               if (json.data.level) setLevel(json.data.level)
               if (json.data.kingdom) setKingdom(json.data.kingdom)
             }
@@ -88,7 +104,7 @@ export function PlayerAvatar({
 
     observer.observe(el)
     return () => observer.disconnect()
-  }, [gameId])
+  }, [gameId, cachedAvatarUrl])
 
   return (
     <div className="flex items-center gap-1.5 flex-shrink-0">

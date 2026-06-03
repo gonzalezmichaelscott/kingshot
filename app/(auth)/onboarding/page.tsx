@@ -18,6 +18,27 @@ export default async function OnboardingPage() {
   // Already onboarded → go to the app
   if (profile?.alliance_id) redirect('/dashboard')
 
+  // FIX 4.2 — If this logged-in user already owns a claimed profile (e.g. they
+  // just left an alliance), skip the "find your profile" step entirely. They
+  // re-join by simply picking a new alliance; their existing record is reused.
+  const { data: claimedMember } = await supabase
+    .from('members')
+    .select('id, player_name, previous_alliance_id')
+    .eq('linked_user_id', user.id)
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  let previousAllianceName: string | null = null
+  if (claimedMember?.previous_alliance_id) {
+    const { data: prevAlliance } = await supabase
+      .from('alliances')
+      .select('name, tag')
+      .eq('id', claimedMember.previous_alliance_id)
+      .maybeSingle()
+    if (prevAlliance) previousAllianceName = `[${prevAlliance.tag}] ${prevAlliance.name}`
+  }
+
   // Pending requests block re-submission
   const [{ data: pendingProfile }, { data: pendingKingdom }] = await Promise.all([
     supabase.from('profile_requests').select('*').eq('user_id', user.id).eq('status', 'pending').order('created_at', { ascending: false }).limit(1),
@@ -43,16 +64,31 @@ export default async function OnboardingPage() {
     )
   }
 
+  const isRejoin = !!claimedMember
+
   return (
     <div className="max-w-2xl mx-auto py-8">
       <div className="flex items-center gap-3 mb-6">
         <Shield className="text-amber-500" size={28} />
         <div>
-          <h1 className="text-2xl font-bold">Welcome to Kingshot Hub</h1>
-          <p className="text-slate-400 text-sm">Let's get you set up. Start by finding your kingdom.</p>
+          {isRejoin ? (
+            <>
+              <h1 className="text-2xl font-bold">
+                {previousAllianceName ? `You have left ${previousAllianceName}` : 'You are not in an alliance'}
+              </h1>
+              <p className="text-slate-400 text-sm">Search for a new alliance to join — your profile and stats are kept.</p>
+            </>
+          ) : (
+            <>
+              <h1 className="text-2xl font-bold">Welcome to Kingshot Hub</h1>
+              <p className="text-slate-400 text-sm">Let's get you set up. Start by finding your kingdom.</p>
+            </>
+          )}
         </div>
       </div>
-      <OnboardingFlow />
+      <OnboardingFlow
+        rejoin={isRejoin ? { playerName: claimedMember!.player_name, previousAllianceName } : null}
+      />
     </div>
   )
 }

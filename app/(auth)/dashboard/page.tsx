@@ -14,8 +14,14 @@ import { TransferAllianceFlow } from '@/components/members/TransferAllianceFlow'
 import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
 import { Gift } from 'lucide-react'
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams?: { [key: string]: string | undefined }
+}) {
   const supabase = createClient()
+  // FIX 7 — shown when an R1/R2/R3 was redirected away from the rally timer.
+  const showRallyNotice = searchParams?.notice === 'rally-timer-leadership'
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/')
 
@@ -80,6 +86,12 @@ export default async function DashboardPage() {
 
     return (
       <div className="max-w-3xl mx-auto space-y-6">
+        {showRallyNotice && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-sm text-amber-200">
+            The rally timer is managed by alliance leadership. You will receive a shared link when a timer is active.
+          </div>
+        )}
+
         {/* New custom event notification banners */}
         {newCustomEvents && newCustomEvents.length > 0 && (
           <div className="space-y-2">
@@ -235,6 +247,11 @@ export default async function DashboardPage() {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
+      {showRallyNotice && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-sm text-amber-200">
+          The rally timer is managed by alliance leadership. You will receive a shared link when a timer is active.
+        </div>
+      )}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
