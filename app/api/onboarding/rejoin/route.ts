@@ -86,6 +86,20 @@ export async function POST(request: NextRequest) {
     }).select('id').single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+    // Immediately remove the player from their CURRENT alliance while the request
+    // is pending — they must not linger in the old alliance's member list. Their
+    // member record (with all stats/heroes) is preserved but deactivated and
+    // detached; it is relinked to the new alliance only if/when the request is
+    // approved. On rejection they simply remain with no alliance.
+    const currentAllianceId = existing.alliance_id
+    await svc.from('members').update({
+      is_active: false,
+      alliance_id: null,
+      previous_alliance_id: currentAllianceId,
+      updated_at: new Date().toISOString(),
+    }).eq('id', existing.id)
+    await svc.from('user_profiles').update({ alliance_id: null }).eq('id', user.id)
+
     // Notify every eligible approver (same as a new join request).
     try {
       const approverIds = await eligibleApproverUserIds(svc, body.alliance_id, requestedRole)
