@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Clock, Shield } from 'lucide-react'
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow'
@@ -18,10 +18,16 @@ export default async function OnboardingPage() {
   // Already onboarded → go to the app
   if (profile?.alliance_id) redirect('/dashboard')
 
-  // FIX 4.2 — If this logged-in user already owns a claimed profile (e.g. they
-  // just left an alliance), skip the "find your profile" step entirely. They
-  // re-join by simply picking a new alliance; their existing record is reused.
-  const { data: claimedMember } = await supabase
+  // FIX 1 — If this logged-in user already owns a claimed profile (e.g. they
+  // just left an alliance), skip the "find your profile" / "create profile"
+  // steps entirely. They re-join by simply picking a new alliance; their existing
+  // record (stats/heroes/troop data) is reused.
+  //
+  // We MUST use the service client here: once the user has left, their member row
+  // has alliance_id = null and the members RLS policy (alliance-scoped reads)
+  // would hide it from the authed client, so the re-join flow would never trigger.
+  const svc = createServiceClient()
+  const { data: claimedMember } = await svc
     .from('members')
     .select('id, player_name, previous_alliance_id')
     .eq('linked_user_id', user.id)
@@ -31,7 +37,7 @@ export default async function OnboardingPage() {
 
   let previousAllianceName: string | null = null
   if (claimedMember?.previous_alliance_id) {
-    const { data: prevAlliance } = await supabase
+    const { data: prevAlliance } = await svc
       .from('alliances')
       .select('name, tag')
       .eq('id', claimedMember.previous_alliance_id)

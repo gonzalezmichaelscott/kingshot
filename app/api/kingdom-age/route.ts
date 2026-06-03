@@ -42,9 +42,27 @@ export async function GET(request: NextRequest) {
     }
 
     const json = await upstream.json().catch(() => null)
-    const data = json?.data ?? json ?? null
+    // The Kingdom Tracker API shape is:
+    //   { status, data: { servers: [ { kingdomId, openTime, isExclusive,
+    //     languages, isVerified, ... } ], total, filters }, message }
+    // Pick the matching server (by kingdomId) or the first one returned.
+    const servers = json?.data?.servers
+    const server = Array.isArray(servers)
+      ? (servers.find((s: any) => String(s?.kingdomId) === kingdomId) ?? servers[0])
+      // Tolerate older/alternate shapes that returned the object directly.
+      : (json?.data?.openTime ? json.data : null)
 
-    if (!data || !data.openTime) {
+    const data = server && server.openTime
+      ? {
+          kingdomId: server.kingdomId ?? Number(kingdomId),
+          openTime: server.openTime,
+          isExclusive: server.isExclusive ?? false,
+          languages: server.languages ?? null,
+          isVerified: server.isVerified ?? false,
+        }
+      : null
+
+    if (!data) {
       cache.set(kingdomId, { data: null, expiresAt: Date.now() + CACHE_TTL_MS })
       return NextResponse.json({ data: null }, { status: 404 })
     }

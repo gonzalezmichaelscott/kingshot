@@ -1,63 +1,75 @@
 // @ts-nocheck
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, X, Loader2 } from 'lucide-react'
+import { Plus, X, Loader2, Check, AlertTriangle } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 
+type FetchStatus = 'idle' | 'fetching' | 'found' | 'failed'
+
 export function AddMemberButton({ allianceId }: { allianceId: string }) {
   const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
   const [gameId, setGameId] = useState('')
+  const [fetchedName, setFetchedName] = useState('')
+  const [fetchStatus, setFetchStatus] = useState<FetchStatus>('idle')
   const [loading, setLoading] = useState(false)
-  const [fetchingPlayer, setFetchingPlayer] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
   if (!supabaseRef.current) supabaseRef.current = createClient()
   const supabase = supabaseRef.current
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  async function fetchPlayerInfo(id: string) {
-    if (!id.trim()) return
-    setFetchingPlayer(true)
-    try {
-      const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(id.trim())}`)
-      if (res.ok) {
-        const json = await res.json()
-        if (json.data?.name && !name.trim()) {
-          setName(json.data.name)
+  // FIX 2 — auto-fetch the player name from the game whenever the Player ID
+  // changes (debounced). The name is never entered manually.
+  useEffect(() => {
+    const id = gameId.trim()
+    if (!id) { setFetchStatus('idle'); setFetchedName(''); return }
+    setFetchStatus('fetching')
+    setFetchedName('')
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    let cancelled = false
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(id)}`)
+        if (cancelled) return
+        if (res.ok) {
+          const json = await res.json()
+          const name = (json.data?.name || '').trim()
+          if (name) { setFetchedName(name); setFetchStatus('found'); return }
         }
+        setFetchStatus('failed')
+      } catch {
+        if (!cancelled) setFetchStatus('failed')
       }
-    } catch {
-      // Silently ignore — player lookup is optional
-    } finally {
-      setFetchingPlayer(false)
-    }
-  }
+    }, 500)
+    return () => { cancelled = true; if (debounceRef.current) clearTimeout(debounceRef.current) }
+  }, [gameId])
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
+    if (!gameId.trim()) return
     setLoading(true)
     setError('')
     const { error: err } = await supabase.from('members').insert({
       alliance_id: allianceId,
-      player_name: name.trim(),
-      game_id: gameId.trim() || null,
+      // Use the fetched name, or blank if the lookup failed (fillable later).
+      player_name: fetchedName.trim(),
+      game_id: gameId.trim(),
     })
     setLoading(false)
     if (err) { setError(err.message); return }
-    setOpen(false)
-    setName('')
-    setGameId('')
+    handleClose()
     router.refresh()
   }
 
   function handleClose() {
     setOpen(false)
-    setName('')
     setGameId('')
+    setFetchedName('')
+    setFetchStatus('idle')
     setError('')
   }
 
@@ -82,46 +94,40 @@ export function AddMemberButton({ allianceId }: { allianceId: string }) {
         <form onSubmit={handleAdd} className="space-y-3">
           <div>
             <label className="text-xs text-slate-400 block mb-1">
-              Player ID (optional) — in-game numeric ID shown under governor name
+              Player ID <span className="text-red-400">*</span> — in-game numeric ID shown under governor name
             </label>
-            <div className="flex gap-2">
-              <Input
-                type="text"
-                inputMode="numeric"
-                placeholder="e.g. 123456789"
-                value={gameId}
-                onChange={e => setGameId(e.target.value.replace(/[^0-9]/g, ''))}
-                className="flex-1"
-              />
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={!gameId.trim() || fetchingPlayer}
-                onClick={() => fetchPlayerInfo(gameId)}
-              >
-                {fetchingPlayer ? <Loader2 size={14} className="animate-spin" /> : 'Fetch'}
-              </Button>
-            </div>
-            <p className="text-xs text-slate-500 mt-1">Click Fetch to auto-fill name from game</p>
-          </div>
-
-          <div>
-            <label className="text-xs text-slate-400 block mb-1">Player Name <span className="text-red-400">*</span></label>
             <Input
-              autoFocus={!gameId}
-              required
-              placeholder="Governor name"
-              value={name}
-              onChange={e => setName(e.target.value)}
+              autoFocus
+              type="text"
+              inputMode="numeric"
+              placeholder="e.g. 123456789"
+              value={gameId}
+              onChange={e => setGameId(e.target.value.replace(/[^0-9]/g, ''))}
             />
+
+            {/* Name fetch status */}
+            {fetchStatus === 'fetching' && (
+              <p className="text-xs text-amber-400 mt-1.5 flex items-center gap-1.5">
+                <Loader2 size={12} className="animate-spin" /> Fetching name…
+              </p>
+            )}
+            {fetchStatus === 'found' && (
+              <p className="text-xs text-green-400 mt-1.5 flex items-center gap-1.5">
+                <Check size={12} /> Found: {fetchedName}
+              </p>
+            )}
+            {fetchStatus === 'failed' && (
+              <p className="text-xs text-amber-400 mt-1.5 flex items-center gap-1.5">
+                <AlertTriangle size={12} /> Could not fetch name — member will be added with blank name
+              </p>
+            )}
           </div>
 
           {error && <p className="text-red-400 text-xs">{error}</p>}
 
           <div className="flex gap-2 justify-end pt-1">
             <Button type="button" variant="ghost" size="sm" onClick={handleClose}>Cancel</Button>
-            <Button type="submit" size="sm" disabled={loading || !name.trim()}>
+            <Button type="submit" size="sm" disabled={loading || !gameId.trim() || fetchStatus === 'fetching'}>
               {loading ? 'Adding…' : 'Add Member'}
             </Button>
           </div>

@@ -54,6 +54,9 @@ export function OnboardingFlow({ rejoin = null }: OnboardingFlowProps) {
     const { data: k } = await supabase.from('kingdoms').select('*').eq('server_number', num).maybeSingle()
     if (!k) {
       setLoading(false)
+      // Re-joining users only pick an EXISTING alliance — never register a new
+      // kingdom/profile. Show an error instead of the profile-creation flow.
+      if (rejoin) { setError('No kingdom found with that number. Check the number and try again.'); return }
       setRank('r4')
       setStep('new_kingdom')
       return
