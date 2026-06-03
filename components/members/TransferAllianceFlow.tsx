@@ -1,6 +1,6 @@
 // @ts-nocheck
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,7 +9,7 @@ import {
   CheckCircle2, UserCheck, X, Loader2,
 } from 'lucide-react'
 
-type Step = 'warning' | 'search' | 'select_alliance' | 'profile' | 'confirm' | 'done'
+type Step = 'loading' | 'warning' | 'search' | 'select_alliance' | 'profile' | 'confirm' | 'done'
 
 interface Props {
   /** Visual style of the trigger. */
@@ -21,9 +21,14 @@ interface Props {
 export function TransferAllianceFlow({ variant = 'button', label }: Props) {
   const supabase = createClient()
   const [open, setOpen] = useState(false)
-  const [step, setStep] = useState<Step>('warning')
+  const [step, setStep] = useState<Step>('loading')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  // Whether the logged-in user already owns a claimed member profile. When true
+  // we KNOW who they are, so the Player ID step is skipped and the move goes
+  // through the approval-based rejoin flow reusing their existing record.
+  const [hasProfile, setHasProfile] = useState<boolean | null>(null)
 
   // kingdom search
   const [serverNumber, setServerNumber] = useState('')
@@ -31,16 +36,46 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
   const [alliances, setAlliances] = useState<any[]>([])
   const [selectedAlliance, setSelectedAlliance] = useState<any>(null)
 
-  // existing-profile search within the new alliance
+  // existing-profile search within the new alliance (only when NO claimed profile)
   const [query, setQuery] = useState('')
   const [searchedProfile, setSearchedProfile] = useState(false)
   const [foundProfile, setFoundProfile] = useState<any>(null)
   const [mode, setMode] = useState<'create' | 'claim'>('create')
 
+  // Detect whether the user already has a claimed member profile when the modal
+  // opens, then route to the correct first step.
+  useEffect(() => {
+    if (!open || hasProfile !== null) return
+    let cancelled = false
+    ;(async () => {
+      let claimed = false
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user) {
+          const { data } = await supabase
+            .from('members')
+            .select('id')
+            .eq('linked_user_id', user.id)
+            .limit(1)
+            .maybeSingle()
+          claimed = !!data
+        }
+      } catch {
+        claimed = false
+      }
+      if (cancelled) return
+      setHasProfile(claimed)
+      // Claimed users go straight to the kingdom search (no Player ID needed);
+      // unclaimed users see the carry-over warning first.
+      setStep(claimed ? 'search' : 'warning')
+    })()
+    return () => { cancelled = true }
+  }, [open, hasProfile, supabase])
+
   function reset() {
-    setStep('warning'); setError(''); setServerNumber(''); setKingdom(null)
+    setStep('loading'); setError(''); setServerNumber(''); setKingdom(null)
     setAlliances([]); setSelectedAlliance(null); setQuery(''); setSearchedProfile(false)
-    setFoundProfile(null); setMode('create'); setLoading(false)
+    setFoundProfile(null); setMode('create'); setLoading(false); setHasProfile(null)
   }
 
   function close() { setOpen(false); reset() }
@@ -58,7 +93,8 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
   function pickAlliance(a: any) {
     setSelectedAlliance(a)
     setQuery(''); setSearchedProfile(false); setFoundProfile(null); setMode('create')
-    setStep('profile')
+    // Claimed users skip the Player ID step and go straight to confirmation.
+    setStep(hasProfile ? 'confirm' : 'profile')
   }
 
   async function searchProfile() {
@@ -76,6 +112,23 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
     if (member && !member.already_linked) setMode('claim')
   }
 
+  // Claimed users: submit an approval-gated rejoin request that reuses their
+  // existing member record (no new profile, no Player ID needed).
+  async function submitRejoin() {
+    setLoading(true); setError('')
+    const res = await fetch('/api/onboarding/rejoin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alliance_id: selectedAlliance.id }),
+    })
+    const d = await res.json().catch(() => ({}))
+    setLoading(false)
+    if (!res.ok) { setError(d.error || 'Failed to submit request'); return }
+    setStep('done')
+    setTimeout(() => { window.location.href = '/dashboard' }, 2200)
+  }
+
+  // Unclaimed users: immediate transfer (claim/merge or create in the new alliance).
   async function confirmTransfer() {
     setLoading(true); setError('')
     const res = await fetch('/api/member/transfer', {
@@ -90,7 +143,6 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
     setLoading(false)
     if (!res.ok) { setError(d.error || 'Transfer failed'); return }
     setStep('done')
-    // Land the player on their new self-service profile.
     setTimeout(() => {
       if (d.access_token) window.location.href = `/member/${d.access_token}`
       else window.location.href = '/dashboard'
@@ -115,6 +167,8 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
 
   if (!open) return trigger
 
+  const allianceName = selectedAlliance ? `[${selectedAlliance.tag}] ${selectedAlliance.name}` : ''
+
   return (
     <>
       {trigger}
@@ -130,7 +184,14 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
           <div className="p-5 space-y-4">
             {error && <p className="text-red-400 text-sm">{error}</p>}
 
-            {/* WARNING */}
+            {/* LOADING (detecting claimed profile) */}
+            {step === 'loading' && (
+              <div className="py-8 flex items-center justify-center text-slate-400">
+                <Loader2 size={20} className="animate-spin" />
+              </div>
+            )}
+
+            {/* WARNING — only shown to users WITHOUT a claimed profile */}
             {step === 'warning' && (
               <div className="space-y-4">
                 <div className="flex items-start gap-3 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
@@ -163,7 +224,9 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
                     {loading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
                   </Button>
                 </div>
-                <button onClick={() => setStep('warning')} className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1"><ArrowLeft size={12} />Back</button>
+                {!hasProfile && (
+                  <button onClick={() => setStep('warning')} className="text-xs text-slate-400 hover:text-slate-200 flex items-center gap-1"><ArrowLeft size={12} />Back</button>
+                )}
               </div>
             )}
 
@@ -187,7 +250,7 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
               </div>
             )}
 
-            {/* FIND EXISTING PROFILE OR CREATE NEW */}
+            {/* FIND EXISTING PROFILE OR CREATE NEW — only when NO claimed profile */}
             {step === 'profile' && (
               <div className="space-y-3">
                 <p className="text-sm text-slate-300 flex items-center gap-2">
@@ -239,33 +302,65 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
 
             {/* CONFIRM */}
             {step === 'confirm' && (
-              <div className="space-y-4">
-                <p className="text-sm text-slate-300">You are about to move to:</p>
-                <div className="bg-slate-800 border border-slate-700 rounded-lg p-3">
-                  <p className="text-sm"><span className="text-amber-400 font-semibold">[{selectedAlliance?.tag}] {selectedAlliance?.name}</span></p>
-                  <p className="text-xs text-slate-400 mt-1">{kingdom?.name}{kingdom?.server_number ? ` #${kingdom.server_number}` : ''}</p>
-                  <p className="text-xs text-slate-400 mt-2">
-                    {mode === 'claim' && foundProfile
-                      ? <>Merging into existing profile <span className="text-slate-200">{foundProfile.player_name}</span>.</>
-                      : 'A new profile will be created with your stats copied over.'}
-                  </p>
+              hasProfile ? (
+                /* Claimed user — approval-gated rejoin */
+                <div className="space-y-4">
+                  <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 space-y-2">
+                    <p className="text-sm">You are requesting to join <span className="text-amber-400 font-semibold">{allianceName}</span></p>
+                    <p className="text-xs text-slate-400">{kingdom?.name}{kingdom?.server_number ? ` #${kingdom.server_number}` : ''}</p>
+                  </div>
+                  <ul className="text-xs text-slate-400 space-y-1.5 list-disc list-inside">
+                    <li>Your existing stats and hero data will transfer to this alliance.</li>
+                    <li>Your request will need to be approved by an R4 or R5.</li>
+                  </ul>
+                  <div className="flex gap-2">
+                    <Button className="flex-1" onClick={submitRejoin} disabled={loading}>
+                      {loading ? <><Loader2 size={16} className="animate-spin mr-1" />Submitting…</> : <><UserCheck size={16} className="mr-1" />Submit Request</>}
+                    </Button>
+                    <Button variant="ghost" onClick={() => setStep('select_alliance')} disabled={loading}>Back</Button>
+                  </div>
                 </div>
-                <p className="text-xs text-amber-400">Your stats and hero data will carry over. Event history and chat stay with your old alliance.</p>
-                <div className="flex gap-2">
-                  <Button className="flex-1" onClick={confirmTransfer} disabled={loading}>
-                    {loading ? <><Loader2 size={16} className="animate-spin mr-1" />Transferring…</> : <><UserCheck size={16} className="mr-1" />Confirm Transfer</>}
-                  </Button>
-                  <Button variant="ghost" onClick={() => setStep('profile')} disabled={loading}>Back</Button>
+              ) : (
+                /* Unclaimed user — immediate transfer */
+                <div className="space-y-4">
+                  <p className="text-sm text-slate-300">You are about to move to:</p>
+                  <div className="bg-slate-800 border border-slate-700 rounded-lg p-3">
+                    <p className="text-sm"><span className="text-amber-400 font-semibold">{allianceName}</span></p>
+                    <p className="text-xs text-slate-400 mt-1">{kingdom?.name}{kingdom?.server_number ? ` #${kingdom.server_number}` : ''}</p>
+                    <p className="text-xs text-slate-400 mt-2">
+                      {mode === 'claim' && foundProfile
+                        ? <>Merging into existing profile <span className="text-slate-200">{foundProfile.player_name}</span>.</>
+                        : 'A new profile will be created with your stats copied over.'}
+                    </p>
+                  </div>
+                  <p className="text-xs text-amber-400">Your stats and hero data will carry over. Event history and chat stay with your old alliance.</p>
+                  <div className="flex gap-2">
+                    <Button className="flex-1" onClick={confirmTransfer} disabled={loading}>
+                      {loading ? <><Loader2 size={16} className="animate-spin mr-1" />Transferring…</> : <><UserCheck size={16} className="mr-1" />Confirm Transfer</>}
+                    </Button>
+                    <Button variant="ghost" onClick={() => setStep('profile')} disabled={loading}>Back</Button>
+                  </div>
                 </div>
-              </div>
+              )
             )}
 
             {/* DONE */}
             {step === 'done' && (
               <div className="py-6 text-center space-y-3">
                 <CheckCircle2 className="mx-auto text-green-400" size={40} />
-                <p className="font-medium">Transfer complete!</p>
-                <p className="text-sm text-slate-400">Your stats and hero data have moved to your new alliance. Redirecting to your updated profile…</p>
+                {hasProfile ? (
+                  <>
+                    <p className="font-medium">Request submitted!</p>
+                    <p className="text-sm text-slate-400">
+                      Your request to join {allianceName} has been submitted. An R4 or R5 will approve it shortly. Your stats and hero data will transfer on approval.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-medium">Transfer complete!</p>
+                    <p className="text-sm text-slate-400">Your stats and hero data have moved to your new alliance. Redirecting to your updated profile…</p>
+                  </>
+                )}
               </div>
             )}
           </div>
