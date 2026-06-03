@@ -4,7 +4,8 @@ import { createServiceClient } from '@/lib/supabase/server'
 import { z } from 'zod'
 import { calculateEffectiveTroopStrength, detectPrimaryTroopType } from '@/lib/scoring'
 
-const troopTierSchema = z.record(z.number().int().min(0))
+// Tier counts are bounded so a single tier can't carry an absurd/overflow value.
+const troopTierSchema = z.record(z.number().int().min(0).max(50_000_000))
 const troopDataSchema = z
   .object({
     infantry: troopTierSchema.optional(),
@@ -13,13 +14,14 @@ const troopDataSchema = z
   })
   .optional()
 
+// Reasonable upper bounds (Security Fix 1) to block absurd / overflow values.
 const schema = z.object({
-  access_token: z.string(),
-  power: z.number().int().min(0).optional(),
-  troop_count: z.number().int().min(0).optional(),
-  march_size: z.number().int().min(0).optional(),
-  rally_capacity: z.number().int().min(0).optional(),
-  timezone: z.string().optional(),
+  access_token: z.string().min(10).max(100),
+  power: z.number().int().min(0).max(10_000_000_000).optional(),
+  troop_count: z.number().int().min(0).max(50_000_000).optional(),
+  march_size: z.number().int().min(0).max(5_000_000).optional(),
+  rally_capacity: z.number().int().min(0).max(10_000_000).optional(),
+  timezone: z.string().max(64).optional(),
   kvk_willing_to_move: z.boolean().optional(),
   troop_data: troopDataSchema,
 })

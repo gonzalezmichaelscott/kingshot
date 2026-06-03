@@ -2,7 +2,7 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Send, Globe, Trash2, X, Paperclip } from 'lucide-react'
+import { Send, Globe, Trash2, X, Paperclip, Flag } from 'lucide-react'
 import { useNoSleep } from '@/hooks/useNoSleep'
 import { MentionText } from '@/components/chat/MentionText'
 import { MentionPopup } from '@/components/chat/MentionPopup'
@@ -38,6 +38,7 @@ export function WorldChatRoom({
   const [uploading, setUploading] = useState(false)
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  const [reported, setReported] = useState<Set<string>>(new Set())
   const bottomRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -145,11 +146,20 @@ export function WorldChatRoom({
     const text = content.trim()
     setContent('')
     mention.close()
-    const { data: inserted } = await supabase.from('world_chat_messages').insert({
-      author_id: currentUserId,
-      content: text,
-    }).select().single()
+    // Send via the rate-limited API route (30 msgs/min/user).
+    const res = await fetch('/api/world-chat/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: text }),
+    })
     setSending(false)
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      showError(d.error || 'Failed to send message.')
+      setContent(text)
+      return
+    }
+    const { message: inserted } = await res.json()
     if (inserted) {
       setMessages(prev => (prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]))
       processMentions(inserted.id)
@@ -167,8 +177,31 @@ export function WorldChatRoom({
   }, [tr.autoTranslate, messages])
 
   async function deleteMessage(messageId: string) {
-    await supabase.from('world_chat_messages').delete().eq('id', messageId)
-    setMessages(prev => prev.filter(m => m.id !== messageId))
+    // Moderation delete: System Admin/R5 can remove any message; authors their own.
+    const res = await fetch('/api/world-chat/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId }),
+    })
+    if (res.ok) {
+      setMessages(prev => prev.filter(m => m.id !== messageId))
+    } else {
+      const d = await res.json().catch(() => ({}))
+      showError(d.error || 'Failed to delete message.')
+    }
+  }
+
+  async function reportMessage(messageId: string) {
+    setReported(prev => new Set(prev).add(messageId)) // optimistic
+    const res = await fetch('/api/world-chat/report', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageId }),
+    })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      showError(d.error || 'Failed to report message.')
+    }
   }
 
   function formatTime(ts: string) {
@@ -205,22 +238,29 @@ export function WorldChatRoom({
       return
     }
     setUploading(true)
-    const ext = file.name.split('.').pop() || 'jpg'
-    const filename = `world-${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-    const { data, error } = await supabase.storage
-      .from('chat-images')
-      .upload(filename, file, { contentType: file.type })
-    if (error || !data) {
+    // Upload via the hardened server route (re-validates MIME/size/magic bytes).
+    const fd = new FormData()
+    fd.append('file', file)
+    const upRes = await fetch('/api/chat/upload-image', { method: 'POST', body: fd })
+    if (!upRes.ok) {
       setUploading(false)
-      showError('Failed to upload image. Please try again.')
+      const d = await upRes.json().catch(() => ({}))
+      showError(d.error || 'Failed to upload image. Please try again.')
       return
     }
-    const { data: urlData } = supabase.storage.from('chat-images').getPublicUrl(data.path)
+    const { url } = await upRes.json()
     setUploading(false)
-    const { data: inserted } = await supabase.from('world_chat_messages').insert({
-      author_id: currentUserId,
-      content: urlData.publicUrl,
-    }).select().single()
+    const res = await fetch('/api/world-chat/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: url }),
+    })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      showError(d.error || 'Failed to send image.')
+      return
+    }
+    const { message: inserted } = await res.json()
     if (inserted) {
       setMessages(prev => (prev.some(m => m.id === inserted.id) ? prev : [...prev, inserted]))
     }
@@ -335,8 +375,23 @@ export function WorldChatRoom({
                         {tr.pending[msg.id] ? '...' : tr.visible[msg.id] ? 'Show Original' : 'Translate'}
                       </button>
                     )}
+                    {!isOwn && (
+                      reported.has(msg.id) ? (
+                        <span className="text-[11px] text-slate-500 flex items-center gap-0.5">
+                          <Flag size={10} /> Reported
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => reportMessage(msg.id)}
+                          title="Report this message"
+                          className="text-xs text-slate-500 hover:text-amber-400 flex items-center gap-0.5"
+                        >
+                          <Flag size={10} />
+                        </button>
+                      )
+                    )}
                     {(canDelete || isOwn) && (
-                      <button onClick={() => deleteMessage(msg.id)} className="text-xs text-red-500/50 hover:text-red-400">
+                      <button onClick={() => deleteMessage(msg.id)} title="Delete message" className="text-xs text-red-500/50 hover:text-red-400">
                         <Trash2 size={10} />
                       </button>
                     )}

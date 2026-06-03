@@ -1,12 +1,10 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server'
-import { z } from 'zod'
+import { createClient } from '@/lib/supabase/server'
+import { rateLimit, HOUR_MS } from '@/lib/rate-limit'
+import { translateSchema } from '@/lib/validation'
 
-const schema = z.object({
-  text: z.string(),
-  targetLanguage: z.string().min(1),
-  sourceLanguage: z.string().optional(),
-})
+const schema = translateSchema
 
 // Simple in-memory cache: same text + same target (+ optional source) is only
 // ever sent to Google once per server instance.
@@ -27,7 +25,24 @@ export async function POST(request: NextRequest) {
     targetLanguage = parsed.targetLanguage
     sourceLanguage = parsed.sourceLanguage
   } catch {
-    return NextResponse.json({ error: 'Bad request' }, { status: 400 })
+    return NextResponse.json({ error: 'Bad request — text must be ≤ 5000 chars' }, { status: 400 })
+  }
+
+  // Rate limit: 100 translations per hour, per user (falls back to client IP).
+  let identifier = ''
+  try {
+    const { data: { user } } = await createClient().auth.getUser()
+    identifier = user?.id || ''
+  } catch { /* anonymous */ }
+  if (!identifier) {
+    identifier = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'anon'
+  }
+  const rl = rateLimit(`translate:${identifier}`, 100, HOUR_MS)
+  if (!rl.success) {
+    return NextResponse.json(
+      { error: 'Too many requests — please wait before trying again.' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } }
+    )
   }
 
   // Nothing to translate.

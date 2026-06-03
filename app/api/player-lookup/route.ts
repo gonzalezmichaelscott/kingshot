@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+import { rateLimit, MINUTE_MS } from '@/lib/rate-limit'
 
 interface PlayerData {
   profilePhoto: string
@@ -23,6 +25,28 @@ export async function GET(request: NextRequest) {
 
   if (!playerId) {
     return NextResponse.json({ error: 'playerId is required' }, { status: 400 })
+  }
+  // Player IDs are numeric strings only — reject anything else early.
+  if (!/^\d{1,32}$/.test(playerId)) {
+    return NextResponse.json({ error: 'Invalid playerId format' }, { status: 400 })
+  }
+
+  // Rate limit: 6 lookups per minute, per user (falls back to client IP). The
+  // upstream kingshot.net API is itself rate-limited, so this protects us too.
+  let identifier = ''
+  try {
+    const { data: { user } } = await createClient().auth.getUser()
+    identifier = user?.id || ''
+  } catch { /* anonymous (public route) */ }
+  if (!identifier) {
+    identifier = request.headers.get('x-forwarded-for')?.split(',')[0].trim() || 'anon'
+  }
+  const rl = rateLimit(`player-lookup:${identifier}`, 6, MINUTE_MS)
+  if (!rl.success) {
+    return NextResponse.json(
+      { error: 'Too many requests — please wait before trying again.' },
+      { status: 429, headers: { 'Retry-After': String(Math.ceil(rl.retryAfterMs / 1000)) } }
+    )
   }
 
   // --- Cache hit ---

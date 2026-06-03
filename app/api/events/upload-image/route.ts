@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { validateImageFile, safeStorageFilename } from '@/lib/image-validation'
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,6 +21,17 @@ export async function POST(request: NextRequest) {
     if (!file || !eventId) {
       return NextResponse.json({ error: 'Missing file or eventId' }, { status: 400 })
     }
+    // eventId is part of the storage path — keep it to a safe id shape.
+    if (!/^[a-zA-Z0-9-]{1,64}$/.test(eventId)) {
+      return NextResponse.json({ error: 'Invalid eventId' }, { status: 400 })
+    }
+
+    // Validate MIME + size + true file header (magic bytes). Rejects spoofed types.
+    const check = await validateImageFile(file)
+    if (!check.valid) {
+      return NextResponse.json({ error: check.error }, { status: 400 })
+    }
+    const buffer = Buffer.from(check.buffer)
 
     const supabase = createServiceClient()
 
@@ -30,10 +42,8 @@ export async function POST(request: NextRequest) {
       await supabase.storage.createBucket('event-images', { public: true })
     }
 
-    const ext = file.name.split('.').pop() || 'jpg'
-    const path = `${eventId}/${Date.now()}.${ext}`
-    const bytes = await file.arrayBuffer()
-    const buffer = Buffer.from(bytes)
+    // Server-generated filename (no caller path separators / spoofed extension).
+    const path = `${eventId}/${safeStorageFilename(file.type)}`
 
     const { error } = await supabase.storage
       .from('event-images')

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { User, Shield, Calendar, Star, Sword, Copy, Check, Trash2, AlertTriangle, Gift } from 'lucide-react'
 import { parseMarkdownToHtml } from '@/components/ui/RichTextEditor'
+import { sanitizeHtml } from '@/lib/sanitize'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
 import { HeroManager } from '@/components/members/HeroManager'
 import { TroopDataEditor } from '@/components/members/TroopDataEditor'
@@ -794,7 +795,7 @@ function CustomEventCard({ event, accessToken, existing }: { event: any; accessT
   const [saved, setSaved] = useState(false)
   const [showFull, setShowFull] = useState(false)
 
-  const html = event.custom_instructions_html || ''
+  const html = sanitizeHtml(event.custom_instructions_html || '')
   const status = event.status
 
   async function toggleAttend(attend: boolean) {

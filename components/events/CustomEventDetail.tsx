@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { UtcDateTimePicker } from '@/components/ui/UtcDateTimePicker'
 import { RichTextEditor, parseMarkdownToHtml } from '@/components/ui/RichTextEditor'
+import { sanitizeHtml } from '@/lib/sanitize'
 import { Calendar, Edit2, X, Save, ImagePlus, ZoomIn } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
@@ -333,7 +334,8 @@ function InlineImageLightbox({ html }: { html: string }) {
 export function CustomEventDetail({ event, canManage, allianceId, memberId, memberAttendance, accessToken, viewerLang = 'en' }: Props) {
   const [editing, setEditing] = useState(false)
   const images: Image[] = (event.custom_images as Image[]) || []
-  const html = event.custom_instructions_html || parseMarkdownToHtml(event.custom_instructions || '')
+  // Sanitize stored HTML at render too — older rows may predate sanitization.
+  const html = sanitizeHtml(event.custom_instructions_html || parseMarkdownToHtml(event.custom_instructions || ''))
   const status = event.status || 'planning'
   // Plain-text source for translating the battle plan instructions.
   const instructionsText = (event.custom_instructions || '').trim() || htmlToPlainText(html)

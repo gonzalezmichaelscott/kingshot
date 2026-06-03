@@ -198,12 +198,20 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
     const text = content.trim()
     setContent('')
     mention.close()
-    const { data: inserted } = await supabase.from('chat_messages').insert({
-      alliance_id: allianceId,
-      author_id: currentUserId,
-      content: text,
-    }).select().single()
+    // Send via the rate-limited API route (60 msgs/min/user).
+    const res = await fetch('/api/chat/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: text, allianceId }),
+    })
     setSending(false)
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      showError(d.error || 'Failed to send message.')
+      setContent(text)
+      return
+    }
+    const { message: inserted } = await res.json()
     if (inserted) {
       setMessages(prev => [...prev, {
         ...inserted,
@@ -269,23 +277,29 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
       return
     }
     setUploading(true)
-    const ext = file.name.split('.').pop() || 'jpg'
-    const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
-    const { data, error } = await supabase.storage
-      .from('chat-images')
-      .upload(filename, file, { contentType: file.type })
-    if (error || !data) {
+    // Upload via the hardened server route (re-validates MIME/size/magic bytes).
+    const fd = new FormData()
+    fd.append('file', file)
+    const upRes = await fetch('/api/chat/upload-image', { method: 'POST', body: fd })
+    if (!upRes.ok) {
       setUploading(false)
-      showError('Failed to upload image. Please try again.')
+      const d = await upRes.json().catch(() => ({}))
+      showError(d.error || 'Failed to upload image. Please try again.')
       return
     }
-    const { data: urlData } = supabase.storage.from('chat-images').getPublicUrl(data.path)
+    const { url } = await upRes.json()
     setUploading(false)
-    const { data: inserted } = await supabase.from('chat_messages').insert({
-      alliance_id: allianceId,
-      author_id: currentUserId,
-      content: urlData.publicUrl,
-    }).select().single()
+    const res = await fetch('/api/chat/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: url, allianceId }),
+    })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      showError(d.error || 'Failed to send image.')
+      return
+    }
+    const { message: inserted } = await res.json()
     if (inserted) {
       setMessages(prev => [...prev, {
         ...inserted,

@@ -97,6 +97,8 @@ export function ImportMembersButton({ allianceId }: Props) {
   // Name lookups keyed by game_id, plus overall fetch progress.
   const [nameFetch, setNameFetch] = useState<NameFetchState>({})
   const [fetchProgress, setFetchProgress] = useState<{ done: number; total: number } | null>(null)
+  // True once the avatar/name lookup API returns 429 — remaining rows skip the fetch.
+  const [rateLimitedNames, setRateLimitedNames] = useState(false)
 
   // Detect duplicates within the uploaded file itself — keyed by game_id (identity).
   const seenIds = new Set<string>()
@@ -144,11 +146,22 @@ export function ImportMembersButton({ allianceId }: Props) {
     setNameFetch(Object.fromEntries(idsToFetch.map(id => [id, { status: 'fetching' as const }])))
     setFetchProgress({ done: 0, total: idsToFetch.length })
 
+    setRateLimitedNames(false)
     const callTimes: number[] = []
     ;(async () => {
       let done = 0
+      let rateLimitHit = false
       for (const id of idsToFetch) {
         if (cancelled) return
+
+        // If the server has rate-limited us, stop fetching avatars/names for the
+        // remaining rows rather than failing the whole import (Security Fix 8.6).
+        if (rateLimitHit) {
+          setNameFetch(prev => ({ ...prev, [id]: { status: 'failed' } }))
+          done++
+          setFetchProgress({ done, total: idsToFetch.length })
+          continue
+        }
 
         // Rate limit: allow a burst of RATE_LIMIT_PER_MIN, then throttle so we
         // never exceed that many calls in any rolling 60-second window.
@@ -163,7 +176,10 @@ export function ImportMembersButton({ allianceId }: Props) {
         let name = ''
         try {
           const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(id)}`)
-          if (res.ok) {
+          if (res.status === 429) {
+            rateLimitHit = true
+            setRateLimitedNames(true)
+          } else if (res.ok) {
             const json = await res.json()
             name = (json.data?.name || '').trim()
           }
@@ -183,13 +199,25 @@ export function ImportMembersButton({ allianceId }: Props) {
   }, [rows])
 
   function handleFile(file: File) {
-    setFileName(file.name)
     setResult(null)
     setImportError('')
+    // Reject oversized files before reading them into memory (Security Fix 8).
+    if (file.size > 5 * 1024 * 1024) {
+      setFileName('')
+      setRows([])
+      setImportError('CSV file is too large — maximum size is 5MB.')
+      return
+    }
+    setFileName(file.name)
     const reader = new FileReader()
     reader.onload = e => {
       const text = e.target?.result as string
       const parsed = parseCSV(text)
+      if (parsed.length > 500) {
+        setRows([])
+        setImportError('Too many rows — maximum 500 members per import.')
+        return
+      }
       setRows(parsed)
     }
     reader.readAsText(file)
@@ -400,6 +428,14 @@ export function ImportMembersButton({ allianceId }: Props) {
                       <Loader2 size={14} className="animate-spin flex-shrink-0" />
                       Fetching player names from the game… {fetchProgress!.done}/{fetchProgress!.total}
                       <span className="text-slate-500">(rate-limited to {RATE_LIMIT_PER_MIN}/min)</span>
+                    </div>
+                  )}
+
+                  {/* Avatar/name lookups hit the server rate limit — import still proceeds */}
+                  {rateLimitedNames && (
+                    <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
+                      <AlertTriangle size={14} className="flex-shrink-0" />
+                      Avatar fetch rate limited — some avatars not loaded. You can add missing names later.
                     </div>
                   )}
 

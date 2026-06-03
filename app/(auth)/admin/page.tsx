@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { Shield, Star, Calendar, BarChart3, Globe, Inbox } from 'lucide-react'
+import { Shield, Star, Calendar, BarChart3, Globe, Inbox, Flag } from 'lucide-react'
 import Link from 'next/link'
 
 export default async function AdminPage() {
@@ -15,11 +15,14 @@ export default async function AdminPage() {
   const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
   if (profile?.role !== 'system_admin') redirect('/dashboard')
 
-  const [{ count: kReq }, { count: rReq }] = await Promise.all([
+  const [{ count: kReq }, { count: rReq }, { data: flagRows }] = await Promise.all([
     supabase.from('kingdom_creation_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending'),
     supabase.from('profile_requests').select('*', { count: 'exact', head: true }).eq('status', 'pending').in('requested_role', ['r4', 'r5']),
+    supabase.from('report_flags').select('message_id').eq('status', 'pending'),
   ])
   const pendingCount = (kReq || 0) + (rReq || 0)
+  // Count distinct flagged messages awaiting review.
+  const flaggedCount = new Set((flagRows || []).map((f: any) => f.message_id)).size
 
   const adminSections = [
     { href: '/admin/heroes', icon: Star, label: 'Hero Database', desc: 'Add, edit, and manage the hero roster' },
@@ -47,6 +50,22 @@ export default async function AdminPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-slate-400">Review new kingdom/alliance registrations and R4/R5 rank requests</p>
+          </CardContent>
+        </Card>
+      </Link>
+
+      {/* Flagged Messages — World Chat moderation queue */}
+      <Link href="/admin/flagged">
+        <Card className="hover:border-amber-500/50 transition-colors border-red-500/30">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Flag size={18} className="text-red-400" />
+              Flagged Messages
+              {flaggedCount > 0 && <Badge variant="amber">{flaggedCount}</Badge>}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-slate-400">Review reported World Chat messages — delete or dismiss</p>
           </CardContent>
         </Card>
       </Link>

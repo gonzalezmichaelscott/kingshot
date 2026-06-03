@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react'
 import { Bold, Italic, Underline, Heading2, Heading3, List, ListOrdered, Eye, Edit2, ImagePlus, X, Loader2 } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
+import { sanitizeHtml } from '@/lib/sanitize'
 
 export function parseMarkdownToHtml(md: string): string {
   let html = md
@@ -52,7 +53,9 @@ export function parseMarkdownToHtml(md: string): string {
   html = html.replace(/\n\n+/g, '<br/><br/>')
   html = html.replace(/\n/g, '<br/>')
 
-  return html
+  // Final defense: strip anything outside the allowed tag/attr set (e.g. a
+  // crafted image URL that tries to inject attributes or scripts).
+  return sanitizeHtml(html)
 }
 
 interface Props {

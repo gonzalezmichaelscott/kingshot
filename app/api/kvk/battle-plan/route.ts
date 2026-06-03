@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { generateKingdomKvkBattlePlan } from '@/lib/ai-planner'
 import { z } from 'zod'
+import { rateLimitResponse, HOUR_MS } from '@/lib/rate-limit'
 
 const schema = z.object({ kingdomId: z.string().uuid(), planMode: z.enum(['A', 'B']).optional().default('A') })
 
@@ -25,6 +26,10 @@ export async function POST(request: NextRequest) {
     if (!['r5', 'system_admin'].includes(profile?.role || '')) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
+
+    // Protect against Anthropic cost abuse: 10 generations per hour per user.
+    const limited = rateLimitResponse(`kvk-battle-plan:${user.id}`, 10, HOUR_MS)
+    if (limited) return limited
 
     const { plan, eventIds } = await generateKingdomKvkBattlePlan(kingdomId, planMode)
     return NextResponse.json({ plan, eventIds })
