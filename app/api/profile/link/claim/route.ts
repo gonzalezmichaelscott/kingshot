@@ -2,14 +2,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { ensureUserProfileLinks, MAX_PROFILES_PER_ACCOUNT } from '@/lib/profiles'
+import { eligibleApproverUserIds } from '@/lib/leadership'
 import { z } from 'zod'
 
 // FEATURE 1 — directly claim an UNCLAIMED member record as an additional profile.
-// Per spec the claim itself needs no R4/R5 approval (it only links the login to a
-// record a leader already created). It does NOT grant alliance access on its own:
-// permissions only change when the user SWITCHES to this profile, and the role/
-// alliance come from the member record a leader set up. A profile with no alliance
-// still requires the normal join flow before it grants any access.
+// The claim links the login to a record a leader already created. R1–R3 profiles
+// are usable immediately. SECURITY: an unclaimed R4/R5 profile must NOT hand out
+// leadership access on claim — the profile is linked at r3 and the elevated rank
+// goes through the normal R5/admin approval flow (a pending profile_request).
 const schema = z.object({ memberId: z.string().uuid() })
 
 export async function POST(request: NextRequest) {
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
 
   const { data: member } = await svc
     .from('members')
-    .select('id, linked_user_id, is_active, transferred_to')
+    .select('id, linked_user_id, is_active, transferred_to, role, alliance_id, player_name, game_id')
     .eq('id', memberId)
     .maybeSingle()
 
@@ -72,6 +72,60 @@ export async function POST(request: NextRequest) {
       { error: 'This profile was just claimed by another account. If you believe this is an error, please use the Report Impersonation form.' },
       { status: 409 }
     )
+  }
+
+  // SECURITY — an unclaimed leadership (R4/R5) profile must not grant that rank on
+  // claim. Downgrade the linked profile to r3 and route the elevated rank through
+  // the normal approval flow (an R5 / System Admin approves the pending request).
+  const claimedRole = member.role
+  const isElevated = (claimedRole === 'r4' || claimedRole === 'r5') && !!member.alliance_id
+  if (isElevated) {
+    await svc.from('members').update({ role: 'r3', updated_at: new Date().toISOString() }).eq('id', memberId)
+
+    const governorName = (member.player_name || '').trim() || `Player ${member.game_id || ''}`.trim() || 'Returning Player'
+
+    // Replace any prior pending request from this user for this alliance.
+    await svc.from('profile_requests')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('alliance_id', member.alliance_id)
+      .eq('status', 'pending')
+
+    const { data: created } = await svc.from('profile_requests').insert({
+      user_id: user.id,
+      alliance_id: member.alliance_id,
+      governor_name: governorName,
+      player_id: member.game_id || null,
+      requested_role: claimedRole,
+      status: 'pending',
+      is_alt: false,
+    }).select('id').single()
+
+    // Notify the eligible approvers (best-effort — must not block the claim).
+    try {
+      const approverIds = await eligibleApproverUserIds(svc, member.alliance_id, claimedRole)
+      if (created?.id && approverIds.length > 0) {
+        const { data: alliance } = await svc.from('alliances').select('name, tag').eq('id', member.alliance_id).maybeSingle()
+        const allianceName = alliance ? `[${alliance.tag}] ${alliance.name}` : 'an alliance'
+        await svc.from('notifications').insert(approverIds.map((uid) => ({
+          user_id: uid,
+          type: 'approval_request',
+          title: `${governorName} claimed a profile and is requesting ${claimedRole.toUpperCase()} in ${allianceName}`,
+          message: member.game_id ? `Player ID: ${member.game_id}` : null,
+          link: '/approvals',
+          related_id: created.id,
+        })))
+      }
+    } catch { /* notification failure is non-fatal */ }
+
+    // Mirror into user_member_profiles (and backfill any pre-existing linked rows).
+    await ensureUserProfileLinks(svc, user.id)
+
+    return NextResponse.json({
+      ok: true,
+      pending_role: true,
+      message: 'Profile claimed successfully. Your R4/R5 rank request has been submitted for approval.',
+    })
   }
 
   // Mirror into user_member_profiles (and backfill any pre-existing linked rows).

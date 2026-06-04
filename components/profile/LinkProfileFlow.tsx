@@ -26,6 +26,7 @@ export function LinkProfileFlow({ onClose, onLinked }: Props) {
   const [error, setError] = useState('')
   const [claiming, setClaiming] = useState(false)
   const [claimed, setClaimed] = useState(false)
+  const [claimMessage, setClaimMessage] = useState('')
 
   async function search() {
     if (!/^\d+$/.test(playerId.trim())) { setError('Enter a valid numeric Player ID'); return }
@@ -55,7 +56,10 @@ export function LinkProfileFlow({ onClose, onLinked }: Props) {
       const d = await res.json().catch(() => ({}))
       if (!res.ok) { setError(d.error || 'Failed to claim profile'); return }
       setClaimed(true)
-      setTimeout(onLinked, 1200)
+      if (d.message) setClaimMessage(d.message)
+      // When an R4/R5 rank request is pending, keep the message on screen for the
+      // user to read; otherwise refresh into the new profile shortly.
+      if (!d.pending_role) setTimeout(onLinked, 1200)
     } catch {
       setError('Network error — please try again.')
     } finally {
@@ -75,8 +79,11 @@ export function LinkProfileFlow({ onClose, onLinked }: Props) {
           {claimed ? (
             <div className="text-center py-6 space-y-3">
               <CheckCircle2 className="mx-auto text-green-400" size={40} />
-              <p className="font-medium">Profile linked!</p>
-              <p className="text-sm text-slate-400">It now appears in your profile switcher.</p>
+              <p className="font-medium">Profile claimed!</p>
+              <p className="text-sm text-slate-400">{claimMessage || 'It now appears in your profile switcher.'}</p>
+              {claimMessage && (
+                <Button size="sm" className="mt-2" onClick={onLinked}>Done</Button>
+              )}
             </div>
           ) : (
             <>
