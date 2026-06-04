@@ -45,7 +45,7 @@ export function RoleAssigner({ memberId, linkedUserId, currentRole, actorRole }:
     })
     setSaving(false)
     if (!res.ok) { const d = await res.json().catch(() => ({})); setError(d.error || 'Failed'); return }
-    setMsg('Role updated ✓')
+    setMsg('In-game rank updated ✓')
     router.refresh()
   }
 
@@ -54,7 +54,7 @@ export function RoleAssigner({ memberId, linkedUserId, currentRole, actorRole }:
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <ShieldCheck size={16} className="text-amber-500" />
-          Role
+          In-Game Rank
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -65,7 +65,7 @@ export function RoleAssigner({ memberId, linkedUserId, currentRole, actorRole }:
         ) : (
           <div className="flex items-end gap-2 flex-wrap">
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Assign role</label>
+              <label className="text-xs text-slate-400 block mb-1">Assign in-game rank</label>
               <select
                 value={role}
                 onChange={e => setRole(e.target.value)}
@@ -88,7 +88,7 @@ export function RoleAssigner({ memberId, linkedUserId, currentRole, actorRole }:
               </select>
             </div>
             <Button size="sm" onClick={save} disabled={saving || role === currentRole || isDisabled(role)}>
-              {saving ? 'Saving…' : 'Update Role'}
+              {saving ? 'Saving…' : 'Update Rank'}
             </Button>
             {msg && <span className="text-green-400 text-sm">{msg}</span>}
             {error && <span className="text-red-400 text-sm">{error}</span>}

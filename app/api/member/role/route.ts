@@ -43,12 +43,24 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "You don't have permission to assign this role" }, { status: 403 })
     }
 
-    const { error } = await svc.from('user_profiles').upsert({
-      id: member.linked_user_id,
-      alliance_id: member.alliance_id,
-      role: body.new_role,
-    })
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // Always update the member's IN-GAME rank.
+    const { error: memberErr } = await svc.from('members')
+      .update({ role: body.new_role, updated_at: new Date().toISOString() })
+      .eq('id', member.id)
+    if (memberErr) return NextResponse.json({ error: memberErr.message }, { status: 500 })
+
+    // SECURITY — `system_admin` is a platform-level role. If the target user is a
+    // system_admin, NEVER overwrite their user_profiles.role: they keep platform
+    // access while their in-game rank (members.role) changes freely. Non-admins
+    // update both, as before.
+    if (currentRole !== 'system_admin') {
+      const { error } = await svc.from('user_profiles').upsert({
+        id: member.linked_user_id,
+        alliance_id: member.alliance_id,
+        role: body.new_role,
+      })
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    }
 
     return NextResponse.json({ ok: true })
   } catch (error: any) {

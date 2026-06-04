@@ -61,6 +61,11 @@ export async function POST(request: NextRequest) {
     .select('active_member_id, alliance_id, role')
     .eq('id', user.id)
     .maybeSingle()
+  // SECURITY — `system_admin` is a platform-level role that must be preserved
+  // permanently. For an admin we NEVER touch user_profiles.role (and never persist
+  // 'system_admin' into a member's in-game rank, which the members CHECK rejects).
+  const isAdmin = current?.role === 'system_admin'
+
   let outgoingId = current?.active_member_id || null
   if (!outgoingId && current?.alliance_id) {
     // Legacy: no explicit active_member_id — the active profile is the member in
@@ -74,21 +79,25 @@ export async function POST(request: NextRequest) {
       .maybeSingle()
     outgoingId = cm?.id || null
   }
-  if (outgoingId && outgoingId !== memberId && current?.role) {
+  if (!isAdmin && outgoingId && outgoingId !== memberId && current?.role) {
     await svc.from('members')
       .update({ role: current.role })
       .eq('id', outgoingId)
       .eq('linked_user_id', user.id)
   }
 
-  // Atomic single update: active profile + alliance + role all change together.
+  // Atomic single update: active profile + alliance (+ role for non-admins).
+  const updatePayload: Record<string, any> = {
+    active_member_id: member.id,
+    alliance_id: member.alliance_id,
+  }
+  if (!isAdmin) {
+    // Only non-admins adopt the target profile's in-game rank as their role.
+    updatePayload.role = member.role || 'r3'
+  }
   const { error } = await svc
     .from('user_profiles')
-    .update({
-      active_member_id: member.id,
-      alliance_id: member.alliance_id,
-      role: member.role || 'r3',
-    })
+    .update(updatePayload)
     .eq('id', user.id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
