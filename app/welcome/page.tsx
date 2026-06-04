@@ -197,7 +197,10 @@ export default function WelcomePage() {
             <Sword className="text-amber-500/70" size={16} />
             <span>KS Command</span>
           </div>
-          <Link href="/login" className="hover:text-amber-400">Sign In</Link>
+          <div className="flex items-center gap-4">
+            <Link href="/report-impersonation" className="hover:text-amber-400">Report Impersonation</Link>
+            <Link href="/login" className="hover:text-amber-400">Sign In</Link>
+          </div>
         </div>
       </footer>
 

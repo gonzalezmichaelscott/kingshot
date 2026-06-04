@@ -4,16 +4,41 @@ import { redirect } from 'next/navigation'
 import { Clock, Shield } from 'lucide-react'
 import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow'
 
-export default async function OnboardingPage() {
+export default async function OnboardingPage({
+  searchParams,
+}: {
+  searchParams?: { [key: string]: string | undefined }
+}) {
   const supabase = createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/')
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('alliance_id, role')
+    .select('alliance_id, role, display_name')
     .eq('id', user.id)
     .single()
+
+  // FEATURE 1 — alt mode: a logged-in user with an existing profile is setting up
+  // an ADDITIONAL account. Skip the "already onboarded → dashboard" redirect and
+  // the rejoin/pending gates; the new profile goes through the normal join flow
+  // and is linked as a separate profile.
+  const altMode = searchParams?.alt === '1'
+  const prefillPlayerId = (searchParams?.playerId || '').replace(/[^0-9]/g, '')
+  if (altMode && profile?.alliance_id) {
+    return (
+      <div className="max-w-2xl mx-auto py-8">
+        <div className="flex items-center gap-3 mb-6">
+          <Shield className="text-amber-500" size={28} />
+          <div>
+            <h1 className="text-2xl font-bold">Add another account</h1>
+            <p className="text-slate-400 text-sm">Set up an additional in-game account as a separate profile.</p>
+          </div>
+        </div>
+        <OnboardingFlow rejoin={null} altMode existingName={profile?.display_name || 'your current profile'} prefillPlayerId={prefillPlayerId} />
+      </div>
+    )
+  }
 
   // Already onboarded → go to the app
   if (profile?.alliance_id) redirect('/dashboard')

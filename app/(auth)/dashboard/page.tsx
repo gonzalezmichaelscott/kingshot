@@ -1,6 +1,8 @@
 // @ts-nocheck
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { listUserProfiles } from '@/lib/profiles'
+import { MyProfilesCard } from '@/components/profile/MyProfilesCard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Calendar, Shield, Swords, User } from 'lucide-react'
@@ -37,6 +39,10 @@ export default async function DashboardPage({
 
   const alliance = profile.alliances as any
   const allianceId = profile.alliance_id
+
+  // FEATURE 1 — the user's linked profiles (alts) for the "My Profiles" card.
+  const profileSvc = createServiceClient()
+  const myProfiles = await listUserProfiles(profileSvc, user.id, profile?.active_member_id || null, allianceId || null)
 
   // ---------- MEMBER DASHBOARD (R3 and below) ----------
   if (isMemberRole(profile.role)) {
@@ -138,6 +144,9 @@ export default async function DashboardPage({
             {member && <div className="text-right"><p className="text-xs text-slate-400">Power</p><p className="font-semibold">{formatPower(member.power)}</p></div>}
           </CardContent>
         </Card>
+
+        {/* My Profiles — multi-account switcher (FEATURE 1) */}
+        {myProfiles.length > 0 && <MyProfilesCard profiles={myProfiles} />}
 
         {/* My Assignments */}
         <Card>
@@ -271,6 +280,9 @@ export default async function DashboardPage({
         </div>
         <Badge variant={profile.role === 'r5' ? 'amber' : profile.role === 'r4' ? 'blue' : 'default'}>{roleLabel(profile.role)}</Badge>
       </div>
+
+      {/* My Profiles — multi-account switcher (FEATURE 1) */}
+      {myProfiles.length > 1 && <MyProfilesCard profiles={myProfiles} />}
 
       {alliance && (
         <Card>

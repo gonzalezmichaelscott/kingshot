@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { canApproveProfileRequest } from '@/lib/access'
 import { allianceHasR5 } from '@/lib/leadership'
+import { ensureUserProfileLinks, MAX_PROFILES_PER_ACCOUNT } from '@/lib/profiles'
 import { z } from 'zod'
 
 const schema = z.object({
@@ -49,6 +50,39 @@ export async function POST(request: NextRequest) {
     // Approve — assign role (admin may override via assigned_role), set alliance, create member
     const finalRole = body.assigned_role || req.requested_role
 
+    // FEATURE 1 — ALT request: create a brand-new linked member and add it as an
+    // additional profile. Do NOT touch user_profiles (the user's active/primary
+    // profile is unaffected) and do NOT relink their existing records.
+    if (req.is_alt) {
+      const { count } = await svc.from('members')
+        .select('id', { count: 'exact', head: true })
+        .eq('linked_user_id', req.user_id)
+        .eq('is_active', true)
+      if ((count || 0) >= MAX_PROFILES_PER_ACCOUNT) {
+        return NextResponse.json({ error: `This user already has the maximum of ${MAX_PROFILES_PER_ACCOUNT} profiles.` }, { status: 400 })
+      }
+      const { data: newMember, error: insErr } = await svc.from('members').insert({
+        alliance_id: req.alliance_id,
+        player_name: req.governor_name,
+        game_id: req.player_id || null,
+        linked_user_id: req.user_id,
+        role: finalRole,
+        is_active: true,
+      }).select('id').single()
+      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
+
+      await svc.from('user_member_profiles').upsert(
+        { user_id: req.user_id, member_id: newMember.id },
+        { onConflict: 'user_id,member_id', ignoreDuplicates: true }
+      )
+
+      await svc.from('profile_requests').update({
+        status: 'approved', reviewed_by: user.id, updated_at: new Date().toISOString(),
+      }).eq('id', req.id)
+      await svc.from('notifications').update({ is_read: true }).eq('related_id', req.id)
+      return NextResponse.json({ ok: true, alt: true })
+    }
+
     await svc.from('user_profiles').upsert({
       id: req.user_id,
       alliance_id: req.alliance_id,
@@ -70,30 +104,43 @@ export async function POST(request: NextRequest) {
     const inThisAlliance = (ownMembers || []).find((m: any) => m.alliance_id === req.alliance_id)
     const elsewhere = (ownMembers || []).find((m: any) => m.alliance_id !== req.alliance_id)
 
+    let resultMemberId: string | null = null
     if (inThisAlliance?.id) {
       await svc.from('members').update({
         player_name: req.governor_name,
         game_id: req.player_id || null,
+        role: finalRole,
         is_active: true,
         updated_at: new Date().toISOString(),
       }).eq('id', inThisAlliance.id)
+      resultMemberId = inThisAlliance.id
     } else if (elsewhere?.id) {
       // Rejoin / transfer: relink the existing record (stats intact).
       await svc.from('members').update({
         alliance_id: req.alliance_id,
         previous_alliance_id: elsewhere.alliance_id || null,
+        role: finalRole,
         is_active: true,
         player_name: req.governor_name,
         game_id: req.player_id || null,
         updated_at: new Date().toISOString(),
       }).eq('id', elsewhere.id)
+      resultMemberId = elsewhere.id
     } else {
-      await svc.from('members').insert({
+      const { data: insertedMember } = await svc.from('members').insert({
         alliance_id: req.alliance_id,
         player_name: req.governor_name,
         game_id: req.player_id || null,
+        role: finalRole,
         linked_user_id: req.user_id,
-      })
+      }).select('id').single()
+      resultMemberId = insertedMember?.id || null
+    }
+
+    // This becomes the user's active profile; mirror it and keep the switcher in sync.
+    if (resultMemberId) {
+      await svc.from('user_profiles').update({ active_member_id: resultMemberId }).eq('id', req.user_id)
+      await ensureUserProfileLinks(svc, req.user_id)
     }
 
     await svc.from('profile_requests').update({

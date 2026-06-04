@@ -9,7 +9,7 @@ import { Search, Shield, Crown, ArrowLeft, CheckCircle, Users } from 'lucide-rea
 import { useRouter } from 'next/navigation'
 import { ProfileClaimStep } from '@/components/members/ProfileClaimStep'
 
-type Step = 'search' | 'select_alliance' | 'claim_or_create' | 'create_profile' | 'new_kingdom' | 'new_alliance' | 'submitted'
+type Step = 'alt_confirm' | 'search' | 'select_alliance' | 'claim_or_create' | 'create_profile' | 'new_kingdom' | 'new_alliance' | 'submitted'
 
 const RANKS = ['r1', 'r2', 'r3', 'r4', 'r5']
 const LEADER_RANKS = ['r4', 'r5']
@@ -19,12 +19,18 @@ interface OnboardingFlowProps {
    *  re-joining a new alliance. The find/claim/create steps are skipped: picking
    *  an alliance immediately re-links their existing record. */
   rejoin?: { playerName: string; previousAllianceName: string | null } | null
+  /** FEATURE 1 — alt mode: the user already has a profile and is setting up an
+   *  additional account. The request is tagged is_alt so approval creates a NEW
+   *  linked member rather than relinking their existing one. */
+  altMode?: boolean
+  existingName?: string
+  prefillPlayerId?: string
 }
 
-export function OnboardingFlow({ rejoin = null }: OnboardingFlowProps) {
+export function OnboardingFlow({ rejoin = null, altMode = false, existingName = '', prefillPlayerId = '' }: OnboardingFlowProps) {
   const supabase = createClient()
   const router = useRouter()
-  const [step, setStep] = useState<Step>('search')
+  const [step, setStep] = useState<Step>(altMode ? 'alt_confirm' : 'search')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [submittedMsg, setSubmittedMsg] = useState('')
@@ -39,7 +45,7 @@ export function OnboardingFlow({ rejoin = null }: OnboardingFlowProps) {
 
   // profile fields
   const [governorName, setGovernorName] = useState('')
-  const [playerId, setPlayerId] = useState('')
+  const [playerId, setPlayerId] = useState(prefillPlayerId || '')
   const [rank, setRank] = useState('r3')
 
   // new kingdom / alliance fields
@@ -93,11 +99,14 @@ export function OnboardingFlow({ rejoin = null }: OnboardingFlowProps) {
         governor_name: governorName,
         player_id: playerId,
         requested_role: rank,
+        is_alt: altMode,
       }),
     })
     setLoading(false)
     if (!res.ok) { const d = await res.json().catch(() => ({})); setError(d.error || 'Failed'); return }
-    setSubmittedMsg(LEADER_RANKS.includes(rank)
+    setSubmittedMsg(altMode
+      ? 'Your additional-account request has been sent for approval. Once an R4/R5 approves it, the new profile appears in your profile switcher.'
+      : LEADER_RANKS.includes(rank)
       ? "R4/R5 rank requests are reviewed by your alliance's R5 — or by System Admin if your alliance doesn't have an R5 yet. You will be notified once approved."
       : 'Your profile request has been sent for approval. You will have access once an R4 or R5 approves your request.')
     setStep('submitted')
@@ -155,6 +164,28 @@ export function OnboardingFlow({ rejoin = null }: OnboardingFlowProps) {
 
   return (
     <div className="space-y-4">
+      {/* STEP 0 — ALT CONFIRM (additional account) */}
+      {step === 'alt_confirm' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><Users size={18} className="text-amber-500" />Additional account</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-300">
+              You already have a profile as <span className="font-semibold text-amber-400">{existingName}</span>. Are you setting up an additional account?
+            </p>
+            <p className="text-xs text-slate-500">
+              Your new profile will go through the normal alliance join request flow (an R4/R5 approves it) and will then appear in your profile switcher. Your current profile is unaffected.
+            </p>
+            {error && <p className="text-red-400 text-sm">{error}</p>}
+            <div className="flex gap-2">
+              <Button onClick={() => setStep('search')}>Yes, set up another account</Button>
+              <Button variant="ghost" onClick={() => router.push('/dashboard')}>Cancel</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* STEP 1 — SEARCH */}
       {step === 'search' && (
         <Card>
@@ -189,7 +220,10 @@ export function OnboardingFlow({ rejoin = null }: OnboardingFlowProps) {
                   disabled={loading}
                   onClick={() => {
                     if (rejoin) { rejoinAlliance(a); return }
-                    setSelectedAlliance(a); setRank('r3'); setStep('claim_or_create')
+                    // Alt mode is explicitly CREATING a new profile (claiming an
+                    // existing one is done via "Link Another Profile"), so skip
+                    // the claim step and go straight to profile creation.
+                    setSelectedAlliance(a); setRank('r3'); setStep(altMode ? 'create_profile' : 'claim_or_create')
                   }}
                   className="text-left bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-amber-500/50 rounded-lg p-3 transition-colors disabled:opacity-50">
                   <p className="font-semibold text-amber-400">[{a.tag}]</p>

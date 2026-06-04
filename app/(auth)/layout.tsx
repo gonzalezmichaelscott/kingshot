@@ -1,12 +1,14 @@
 // @ts-nocheck
 import { redirect } from 'next/navigation'
 import { headers } from 'next/headers'
-import { createClient } from '@/lib/supabase/server'
+import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { Sidebar } from '@/components/nav/Sidebar'
 import { UtcClock } from '@/components/ui/UtcClock'
 import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { InstallButton } from '@/components/ui/InstallButton'
+import { ProfileSwitcher } from '@/components/profile/ProfileSwitcher'
 import { isMemberRole } from '@/lib/access'
+import { listUserProfiles } from '@/lib/profiles'
 
 // Backend page prefixes that R3-and-below may NOT access
 const BACKEND_PREFIXES = ['/alliances', '/admin', '/kingdoms']
@@ -52,13 +54,23 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
     }
   }
 
+  // FEATURE 1 — profiles the user can switch between (alts across alliances).
+  const svc = createServiceClient()
+  const switcherProfiles = await listUserProfiles(
+    svc,
+    user.id,
+    profile?.active_member_id || null,
+    profile?.alliance_id || null
+  )
+
   return (
     <div className="flex min-h-screen">
       <Sidebar allianceId={profile?.alliance_id || undefined} role={profile?.role} userId={user.id} allianceName={allianceName} kingdomId={kingdomId} />
       {/* Top bar: UTC clock always visible — z-50 keeps it above the sidebar overlay (z-40).
            On mobile, pl-12 leaves room for the hamburger button that sits at left-4. */}
-      <div className="fixed top-0 right-0 z-50 flex items-center gap-3 pr-4 pl-12 lg:pl-4 h-12 bg-slate-950/90 backdrop-blur-sm border-b border-slate-800/60 lg:left-64 left-0">
+      <div className="fixed top-0 right-0 z-50 flex items-center gap-2 sm:gap-3 pr-4 pl-12 lg:pl-4 h-12 bg-slate-950/90 backdrop-blur-sm border-b border-slate-800/60 lg:left-64 left-0">
         <div className="flex-1" />
+        <ProfileSwitcher profiles={switcherProfiles} />
         <InstallButton />
         <NotificationBell userId={user.id} role={profile?.role} />
         <UtcClock />

@@ -58,6 +58,9 @@ export async function middleware(request: NextRequest) {
     '/api/member/language',       // preferred language
     '/api/member/cache-avatar',   // persist fetched avatar url
     '/api/ocr',                   // battle-report screenshot OCR (no DB write)
+    // Public impersonation reporting (FEATURE 2) — anyone can report, no login.
+    '/report-impersonation',
+    '/api/impersonation/report',
   ]
   const isPublic =
     publicPaths.some(p => pathname === p || pathname.startsWith(p + '/')) ||

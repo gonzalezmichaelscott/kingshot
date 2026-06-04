@@ -361,6 +361,12 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
           <p className="text-xs text-slate-500 leading-relaxed">
             To delete your profile, log in and claim your profile first. Contact your R4 or R5 if you need help.
           </p>
+          <p className="text-xs text-slate-500 leading-relaxed">
+            Is this profile not yours?{' '}
+            <Link href="/report-impersonation" className="text-amber-500/80 hover:text-amber-400 underline underline-offset-2">
+              Report account impersonation
+            </Link>
+          </p>
         </div>
       </div>
     </div>

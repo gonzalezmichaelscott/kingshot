@@ -9,6 +9,9 @@ const schema = z.object({
   governor_name: z.string().min(1),
   player_id: z.string().optional().default(''),
   requested_role: z.enum(['r1', 'r2', 'r3', 'r4', 'r5']),
+  // FEATURE 1 — additional-account request: approval creates a NEW linked member
+  // instead of relinking the user's existing record.
+  is_alt: z.boolean().optional().default(false),
 })
 
 export async function POST(request: NextRequest) {
@@ -35,6 +38,7 @@ export async function POST(request: NextRequest) {
       player_id: body.player_id || null,
       requested_role: body.requested_role,
       status: 'pending',
+      is_alt: body.is_alt || false,
     }).select('id').single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
