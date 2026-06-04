@@ -336,7 +336,7 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
   useNoSleep(running)
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-4">
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 sm:p-4 space-y-4 max-w-full min-w-0 overflow-hidden">
       {/* Session header */}
       <div className="flex items-center gap-2">
         <Timer size={18} className="text-amber-500 flex-shrink-0" />
@@ -403,7 +403,7 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
 
       {/* Timer display */}
       <div className="text-center py-3">
-        <div className={`text-5xl font-mono font-bold tracking-wider ${countdownNum !== null ? 'text-amber-300 animate-pulse' : running ? 'text-amber-400' : 'text-slate-600'}`}>
+        <div className={`text-4xl sm:text-5xl font-mono font-bold tracking-wider ${countdownNum !== null ? 'text-amber-300 animate-pulse' : running ? 'text-amber-400' : 'text-slate-600'}`}>
           {countdownNum !== null ? countdownNum : formatElapsed(elapsed)}
         </div>
         {running && base && (
@@ -414,28 +414,28 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
         )}
       </div>
 
-      {/* Controls */}
+      {/* Controls — min 44px touch targets for easy tapping on mobile */}
       <div className="flex items-center gap-2 flex-wrap">
         {!running ? (
           <button onClick={startRally} disabled={players.length === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold disabled:opacity-40 transition-colors">
+            className="flex items-center justify-center gap-2 px-4 min-h-[44px] bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-semibold disabled:opacity-40 transition-colors">
             <Play size={15} /> Start Rally
           </button>
         ) : (
           <button onClick={resetRally}
-            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition-colors">
+            className="flex items-center justify-center gap-2 px-4 min-h-[44px] bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition-colors">
             <Square size={15} /> Stop
           </button>
         )}
-        <button onClick={resetRally} className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors" title="Reset">
+        <button onClick={resetRally} className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors" title="Reset">
           <RotateCcw size={16} />
         </button>
         <button onClick={() => setAudioOn(a => !a)}
-          className={`p-2 rounded-lg transition-colors ${audioOn ? 'text-amber-400 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-800'}`}
+          className={`flex items-center justify-center w-11 h-11 rounded-lg transition-colors ${audioOn ? 'text-amber-400 hover:bg-slate-800' : 'text-slate-600 hover:bg-slate-800'}`}
           title={audioOn ? 'Audio on' : 'Audio off'}>
           {audioOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
         </button>
-        <label className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer">
+        <label className="flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer min-h-[44px]">
           <input type="checkbox" checked={useCountdown} onChange={e => setUseCountdown(e.target.checked)} className="accent-amber-500" />
           3-2-1 countdown
         </label>
@@ -448,14 +448,14 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
             <button
               onClick={() => { setLandingMode('simultaneous'); saveSession({ landing_mode: 'simultaneous' }) }}
               disabled={running}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${landingMode === 'simultaneous' ? 'bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
-              <Target size={13} /> Simultaneous Landing
+              className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 min-h-[44px] rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${landingMode === 'simultaneous' ? 'bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+              <Target size={13} className="flex-shrink-0" /> Simultaneous Landing
             </button>
             <button
               onClick={() => { setLandingMode('staggered'); saveSession({ landing_mode: 'staggered' }) }}
               disabled={running}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${landingMode === 'staggered' ? 'bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
-              <Layers size={13} /> Staggered Landing
+              className={`flex-1 min-w-0 flex items-center justify-center gap-1.5 px-3 min-h-[44px] rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 ${landingMode === 'staggered' ? 'bg-amber-500 text-slate-900' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+              <Layers size={13} className="flex-shrink-0" /> Staggered Landing
             </button>
           </div>
           {landingMode === 'staggered' && (
@@ -477,12 +477,12 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
       {/* Add player form */}
       {canEdit && (
         <div className="border-t border-slate-800 pt-3 space-y-2">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPlayer()}
-              placeholder="Player name *" className="px-3 h-9 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500" />
-            <div className="relative">
+              placeholder="Player name *" className="min-w-0 w-full px-3 h-11 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500" />
+            <div className="relative min-w-0">
               <input value={playerId} onChange={e => setPlayerId(e.target.value)} placeholder="Player ID (optional)"
-                className="w-full px-3 pr-8 h-9 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500" />
+                className="w-full px-3 pr-8 h-11 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500" />
               {fetchingPlayer && (
                 <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
                   <Loader2 size={14} className="animate-spin text-amber-400" />
@@ -495,8 +495,8 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
           </div>
           <div className="flex gap-2">
             <input value={marchInput} onChange={e => setMarchInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPlayer()}
-              placeholder='March time: "1m30s", "90s", "2m"' className="flex-1 px-3 h-9 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500" />
-            <button onClick={addPlayer} className="px-3 h-9 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg font-semibold text-sm transition-colors">
+              placeholder='March time: "1m30s", "90s", "2m"' className="flex-1 min-w-0 px-3 h-11 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500" />
+            <button onClick={addPlayer} className="flex items-center justify-center w-11 h-11 flex-shrink-0 bg-amber-500 hover:bg-amber-600 text-slate-900 rounded-lg font-semibold text-sm transition-colors">
               <Plus size={15} />
             </button>
           </div>

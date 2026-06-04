@@ -22,6 +22,8 @@ export default async function DashboardPage({
   const supabase = createClient()
   // FIX 7 — shown when an R1/R2/R3 was redirected away from the rally timer.
   const showRallyNotice = searchParams?.notice === 'rally-timer-leadership'
+  // FIX 4 — shown when a non-leader was redirected away from Leadership Chat.
+  const showLeadershipChatNotice = searchParams?.notice === 'leadership-chat-restricted'
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/')
 
@@ -89,6 +91,11 @@ export default async function DashboardPage({
         {showRallyNotice && (
           <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-sm text-amber-200">
             The rally timer is managed by alliance leadership. You will receive a shared link when a timer is active.
+          </div>
+        )}
+        {showLeadershipChatNotice && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-sm text-amber-200">
+            Leadership Chat is only accessible to R4 and above.
           </div>
         )}
 
@@ -250,6 +257,11 @@ export default async function DashboardPage({
       {showRallyNotice && (
         <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-sm text-amber-200">
           The rally timer is managed by alliance leadership. You will receive a shared link when a timer is active.
+        </div>
+      )}
+      {showLeadershipChatNotice && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 text-sm text-amber-200">
+          Leadership Chat is only accessible to R4 and above.
         </div>
       )}
       <div className="flex items-start justify-between">

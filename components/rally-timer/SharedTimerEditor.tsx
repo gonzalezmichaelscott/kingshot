@@ -15,12 +15,12 @@ export function SharedTimerEditor({ session, allianceId }: Props) {
   const [current, setCurrent] = useState(session)
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4 flex items-start justify-center">
-      <div className="w-full max-w-md space-y-4 pt-8">
+    <div className="min-h-screen bg-slate-950 p-3 sm:p-4 flex items-start justify-center max-w-full overflow-x-hidden">
+      <div className="w-full max-w-md space-y-4 pt-6 sm:pt-8 min-w-0">
         <div className="flex items-center gap-2">
-          <Timer className="text-amber-500" size={22} />
-          <h1 className="text-xl font-bold">Rally Timer</h1>
-          <span className="ml-auto text-[11px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-semibold">
+          <Timer className="text-amber-500 flex-shrink-0" size={22} />
+          <h1 className="text-lg sm:text-xl font-bold">Rally Timer</h1>
+          <span className="ml-auto text-[11px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap flex-shrink-0">
             Editor
           </span>
         </div>

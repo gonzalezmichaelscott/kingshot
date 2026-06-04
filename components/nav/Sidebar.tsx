@@ -85,6 +85,8 @@ export function Sidebar({ allianceId, role, userId, allianceName, kingdomId }: S
     ] : []),
     ...(backend && kingdomId ? [
       { href: `/kingdoms/${kingdomId}/kvk`, label: 'KVK Command', icon: Sword },
+      // Leadership Chat — kingdom-level room, R4/R5/system_admin only (FIX 4)
+      { href: `/kingdoms/${kingdomId}/leadership-chat`, label: 'Leadership Chat', icon: ShieldCheck },
     ] : []),
     ...(backend ? [
       { href: '/guide', label: 'Leader Guide', icon: BookOpen },

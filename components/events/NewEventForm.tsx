@@ -155,24 +155,24 @@ export function NewEventForm({ allianceId, eventTypes }: Props) {
               <div className="bg-amber-950/30 border border-amber-800/40 rounded-xl p-3 text-xs text-amber-300">
                 Swordland Showdown runs two Legions at different times (set by in-game vote). Enter both battle times — members will choose which Legion to join.
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-visible">
+                <div className="min-w-0">
                   <label className="text-sm text-slate-400 block mb-1">Legion 1 Battle Time (UTC) <span className="text-red-400">*</span></label>
                   <UtcDateTimePicker value={form.legion1_start_utc} onChange={v => setForm(f => ({ ...f, legion1_start_utc: v }))} />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label className="text-sm text-slate-400 block mb-1">Legion 2 Battle Time (UTC) <span className="text-red-400">*</span></label>
                   <UtcDateTimePicker value={form.legion2_start_utc} onChange={v => setForm(f => ({ ...f, legion2_start_utc: v }))} />
                 </div>
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-visible">
+              <div className="min-w-0">
                 <label className="text-sm text-slate-400 block mb-1">Battle Start (UTC)</label>
                 <UtcDateTimePicker value={form.battle_start_utc} onChange={v => setForm(f => ({ ...f, battle_start_utc: v }))} />
               </div>
-              <div>
+              <div className="min-w-0">
                 <label className="text-sm text-slate-400 block mb-1">Battle End (UTC)</label>
                 <UtcDateTimePicker value={form.battle_end_utc} onChange={v => setForm(f => ({ ...f, battle_end_utc: v }))} />
               </div>
@@ -210,15 +210,15 @@ export function NewEventForm({ allianceId, eventTypes }: Props) {
               onChange={e => setCustomForm(f => ({ ...f, name: e.target.value }))}
             />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-visible">
+            <div className="min-w-0">
               <label className="text-sm text-slate-400 block mb-1">Start Date & Time (UTC) <span className="text-red-400">*</span></label>
               <UtcDateTimePicker
                 value={customForm.battle_start_utc}
                 onChange={v => setCustomForm(f => ({ ...f, battle_start_utc: v }))}
               />
             </div>
-            <div>
+            <div className="min-w-0">
               <label className="text-sm text-slate-400 block mb-1">End Date & Time (UTC) <span className="text-slate-500">(optional)</span></label>
               <UtcDateTimePicker
                 value={customForm.battle_end_utc}

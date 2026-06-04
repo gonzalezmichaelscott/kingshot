@@ -63,22 +63,25 @@ export function UtcDateTimePicker({ value, onChange, className, disabled }: Prop
   }
 
   const fieldCls =
-    'h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent disabled:opacity-50'
+    'h-11 px-3 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent disabled:opacity-50'
 
   return (
-    <div className={cn('flex gap-2', className)}>
+    // flex-wrap lets the time dropdown drop below the date input in narrow
+    // columns instead of overlapping it; min widths keep each field from
+    // collapsing. w-full + min-w-0 prevent the picker from overflowing its cell.
+    <div className={cn('flex flex-wrap gap-2 w-full min-w-0', className)}>
       <input
         type="date"
         value={datePart}
         disabled={disabled}
         onChange={e => emit(e.target.value, timePart)}
-        className={cn(fieldCls, 'flex-1 min-w-0')}
+        className={cn(fieldCls, 'flex-1 min-w-[8.5rem]')}
       />
       <select
         value={timePart}
         disabled={disabled}
         onChange={e => emit(datePart, e.target.value)}
-        className={cn(fieldCls, 'shrink-0')}
+        className={cn(fieldCls, 'flex-1 min-w-[7rem]')}
         aria-label="Time (UTC, 24-hour)"
       >
         <option value="">--:-- UTC</option>

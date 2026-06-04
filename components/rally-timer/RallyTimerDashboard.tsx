@@ -62,14 +62,14 @@ export function RallyTimerDashboard({ allianceId, userId, canEdit, initialSessio
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 p-4">
+    <div className="min-h-screen bg-slate-950 p-3 sm:p-4 max-w-full overflow-x-hidden">
       <div className="max-w-7xl mx-auto space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-2">
-            <Timer className="text-amber-500" size={26} />
-            <h1 className="text-2xl font-bold">Rally Timer</h1>
-            <span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded-full ml-1">
+          <div className="flex items-center gap-2 min-w-0">
+            <Timer className="text-amber-500 flex-shrink-0" size={26} />
+            <h1 className="text-xl sm:text-2xl font-bold">Rally Timer</h1>
+            <span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded-full ml-1 whitespace-nowrap">
               {sessions.length}/5 targets
             </span>
           </div>
@@ -77,7 +77,7 @@ export function RallyTimerDashboard({ allianceId, userId, canEdit, initialSessio
             <button
               onClick={addSession}
               disabled={creating}
-              className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm transition-colors disabled:opacity-50"
+              className="flex items-center justify-center gap-2 px-4 min-h-[44px] bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm transition-colors disabled:opacity-50"
             >
               <Plus size={16} />
               Add Target
@@ -98,7 +98,7 @@ export function RallyTimerDashboard({ allianceId, userId, canEdit, initialSessio
             <button
               onClick={addSession}
               disabled={creating}
-              className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm transition-colors disabled:opacity-50"
+              className="inline-flex items-center justify-center gap-2 px-4 min-h-[44px] bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold rounded-lg text-sm transition-colors disabled:opacity-50"
             >
               <Plus size={16} />
               Create Rally Timer
@@ -106,10 +106,10 @@ export function RallyTimerDashboard({ allianceId, userId, canEdit, initialSessio
           </div>
         )}
 
-        {/* Sessions grid */}
-        <div className={`grid gap-4 ${sessions.length > 1 ? 'lg:grid-cols-2 xl:grid-cols-3' : ''}`}>
+        {/* Sessions grid — single column on mobile, side by side on larger screens */}
+        <div className={`grid grid-cols-1 gap-4 ${sessions.length > 1 ? 'lg:grid-cols-2 xl:grid-cols-3' : ''}`}>
           {sessions.map((session, idx) => (
-            <div key={session.id || idx} className="relative">
+            <div key={session.id || idx} className="relative min-w-0">
               {sessions.length > 1 && (
                 <button
                   onClick={() => removeSession(idx)}

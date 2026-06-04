@@ -1,7 +1,7 @@
 // @ts-nocheck
 import { createClient } from '@/lib/supabase/server'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Crown, Shield, Sword } from 'lucide-react'
+import { Crown, Shield, Sword, ShieldCheck } from 'lucide-react'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { AddAllianceForm } from '@/components/alliance/AddAllianceForm'
@@ -28,6 +28,8 @@ export default async function KingdomPage({ params }: { params: { id: string } }
   // Alliance creation now flows through onboarding + System Admin approval.
   // Direct creation here is System Admin only (matches the alliances RLS write policy).
   const canAddAlliance = profile?.role === 'system_admin'
+  // Leadership Chat link — R4/R5/system_admin only (FIX 4)
+  const canLeadershipChat = ['r4', 'r5', 'system_admin'].includes(profile?.role || '')
 
   const alliances = kingdom.alliances as any[]
 
@@ -56,6 +58,13 @@ export default async function KingdomPage({ params }: { params: { id: string } }
           <Sword size={16} />
           KVK Coordination
         </Link>
+        {canLeadershipChat && (
+          <Link href={`/kingdoms/${kingdom.id}/leadership-chat`}
+            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-medium px-4 py-2 rounded-lg text-sm">
+            <ShieldCheck size={16} className="text-amber-500" />
+            Leadership Chat
+          </Link>
+        )}
       </div>
 
       {canAddAlliance && (

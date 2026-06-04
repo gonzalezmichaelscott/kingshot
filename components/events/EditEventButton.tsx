@@ -134,12 +134,12 @@ export function EditEventButton({ event, compact }: Props) {
               </div>
 
               {isSwordland ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-visible">
+                  <div className="min-w-0">
                     <label className="text-xs text-slate-400 block mb-1">Legion 1 Battle Time (UTC) <span className="text-red-400">*</span></label>
                     <UtcDateTimePicker value={form.legion1_start_utc} onChange={v => setForm(f => ({ ...f, legion1_start_utc: v }))} />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <label className="text-xs text-slate-400 block mb-1">Legion 2 Battle Time (UTC) <span className="text-red-400">*</span></label>
                     <UtcDateTimePicker value={form.legion2_start_utc} onChange={v => setForm(f => ({ ...f, legion2_start_utc: v }))} />
                   </div>

@@ -111,7 +111,7 @@ export default async function MembersPage({ params }: { params: { id: string } }
         {canManage && (
           <div className="flex items-center gap-2">
             <ImportMembersButton allianceId={params.id} />
-            <AddMemberButton allianceId={params.id} />
+            <AddMemberButton allianceId={params.id} actorRole={profile?.role} />
           </div>
         )}
       </div>

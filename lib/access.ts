@@ -46,6 +46,29 @@ export function canAssignRole(actorRole: UserRole, targetRole: string) {
   return assignableRoles(actorRole).includes(targetRole)
 }
 
+/**
+ * Ranks an actor may pick in the manual "Add Member" form (FIX 3). This is a
+ * STRICTER ceiling than `assignableRoles` because handing out leadership ranks
+ * to a brand-new roster entry needs an extra approval step:
+ *  - system_admin: any rank (r1–r5)
+ *  - r5: up to r4 (cannot grant r5 without admin approval)
+ *  - r4: up to r3 only
+ *  - r3 and below: cannot add members
+ * Selecting an elevated rank (r4/r5) routes through the normal approval flow
+ * (a pending profile_request) rather than being granted instantly.
+ */
+export function addableMemberRanks(actorRole: UserRole): string[] {
+  if (actorRole === 'system_admin') return ['r1', 'r2', 'r3', 'r4', 'r5']
+  if (actorRole === 'r5') return ['r1', 'r2', 'r3', 'r4']
+  if (actorRole === 'r4') return ['r1', 'r2', 'r3']
+  return []
+}
+
+/** An "elevated" rank requires approval rather than instant assignment. */
+export function isElevatedRank(role: string): boolean {
+  return role === 'r4' || role === 'r5'
+}
+
 /** Numeric rank for ordering. Higher = more powerful. */
 const ROLE_RANK: Record<string, number> = {
   r1: 1, r2: 2, r3: 3, r4: 4, r5: 5, system_admin: 6,

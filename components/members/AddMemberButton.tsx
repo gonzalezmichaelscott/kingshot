@@ -4,22 +4,22 @@ import { useState, useEffect, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Plus, X, Loader2, Check, AlertTriangle } from 'lucide-react'
-import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
+import { addableMemberRanks, isElevatedRank, roleLabel } from '@/lib/access'
 
 type FetchStatus = 'idle' | 'fetching' | 'found' | 'failed'
 
-export function AddMemberButton({ allianceId }: { allianceId: string }) {
+export function AddMemberButton({ allianceId, actorRole }: { allianceId: string; actorRole?: string | null }) {
   const [open, setOpen] = useState(false)
   const [gameId, setGameId] = useState('')
   const [fetchedName, setFetchedName] = useState('')
   const [fetchStatus, setFetchStatus] = useState<FetchStatus>('idle')
+  // FIX 3 — starting rank for the new member, gated by the actor's role.
+  const rankOptions = addableMemberRanks(actorRole)
+  const [role, setRole] = useState('r3')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
-  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null)
-  if (!supabaseRef.current) supabaseRef.current = createClient()
-  const supabase = supabaseRef.current
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // FIX 2 — auto-fetch the player name from the game whenever the Player ID
@@ -53,14 +53,25 @@ export function AddMemberButton({ allianceId }: { allianceId: string }) {
     if (!gameId.trim()) return
     setLoading(true)
     setError('')
-    const { error: err } = await supabase.from('members').insert({
-      alliance_id: allianceId,
-      // Use the fetched name, or blank if the lookup failed (fillable later).
-      player_name: fetchedName.trim(),
-      game_id: gameId.trim(),
+    // Route through the API so the role hierarchy is enforced server-side and
+    // elevated ranks (r4/r5) go through the pending-approval flow.
+    const res = await fetch('/api/members/add', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        allianceId,
+        gameId: gameId.trim(),
+        // Use the fetched name, or blank if the lookup failed (fillable later).
+        playerName: fetchedName.trim(),
+        role,
+      }),
     })
     setLoading(false)
-    if (err) { setError(err.message); return }
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      setError(d.error || 'Failed to add member.')
+      return
+    }
     handleClose()
     router.refresh()
   }
@@ -70,6 +81,7 @@ export function AddMemberButton({ allianceId }: { allianceId: string }) {
     setGameId('')
     setFetchedName('')
     setFetchStatus('idle')
+    setRole('r3')
     setError('')
   }
 
@@ -122,6 +134,28 @@ export function AddMemberButton({ allianceId }: { allianceId: string }) {
               </p>
             )}
           </div>
+
+          {/* Member Rank — options depend on the actor's role (FIX 3) */}
+          {rankOptions.length > 0 && (
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Member Rank</label>
+              <select
+                value={role}
+                onChange={e => setRole(e.target.value)}
+                className="w-full h-11 px-3 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+              >
+                {rankOptions.map(r => (
+                  <option key={r} value={r}>{roleLabel(r)}</option>
+                ))}
+              </select>
+              {isElevatedRank(role) && (
+                <p className="text-xs text-amber-400 mt-1.5 flex items-center gap-1.5">
+                  <AlertTriangle size={12} />
+                  Leadership ranks require approval — this member is added at R3 and the {roleLabel(role)} rank is sent for approval.
+                </p>
+              )}
+            </div>
+          )}
 
           {error && <p className="text-red-400 text-xs">{error}</p>}
 

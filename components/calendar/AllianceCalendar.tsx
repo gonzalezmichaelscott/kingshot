@@ -272,12 +272,12 @@ export function AllianceCalendar({ allianceId, events, canManage }: Props) {
                 <textarea rows={2} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                   className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none" />
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-visible">
+                <div className="min-w-0">
                   <label className="text-xs text-slate-400 block mb-1">Date & Time (UTC) <span className="text-red-400">*</span></label>
                   <UtcDateTimePicker value={form.event_date} onChange={v => setForm(f => ({ ...f, event_date: v }))} />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <label className="text-xs text-slate-400 block mb-1">End (UTC) <span className="text-slate-500">(optional)</span></label>
                   <UtcDateTimePicker value={form.end_date} onChange={v => setForm(f => ({ ...f, end_date: v }))} />
                 </div>
