@@ -1,6 +1,7 @@
 // @ts-nocheck
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Search, X, UserPlus, AlertTriangle, ShieldAlert, CheckCircle2 } from 'lucide-react'
@@ -27,6 +28,15 @@ export function LinkProfileFlow({ onClose, onLinked }: Props) {
   const [claiming, setClaiming] = useState(false)
   const [claimed, setClaimed] = useState(false)
   const [claimMessage, setClaimMessage] = useState('')
+  // Portal target — only mount on the client so SSR doesn't touch document.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    setMounted(true)
+    // Close on Escape for accessibility.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   async function search() {
     if (!/^\d+$/.test(playerId.trim())) { setError('Enter a valid numeric Player ID'); return }
@@ -67,9 +77,15 @@ export function LinkProfileFlow({ onClose, onLinked }: Props) {
     }
   }
 
-  return (
-    <div className="fixed inset-0 z-[150] bg-black/60 flex items-start sm:items-center justify-center p-4 overflow-y-auto" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl my-8">
+  if (!mounted) return null
+
+  // Rendered through a portal to document.body so the modal escapes any ancestor
+  // that establishes a containing block / stacking context (e.g. the top bar's
+  // backdrop-blur), which otherwise breaks `position: fixed` and traps the z-index.
+  return createPortal(
+    // Full-screen backdrop overlay above everything (sidebar, top bar, page).
+    <div className="fixed inset-0 z-[290] bg-black/70 flex items-start sm:items-center justify-center p-4 overflow-y-auto" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="relative z-[300] w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl my-8" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-5 h-12 border-b border-slate-800">
           <h2 className="font-semibold flex items-center gap-2"><UserPlus size={18} className="text-amber-500" />Link Another Profile</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-100 p-1"><X size={18} /></button>
@@ -158,7 +174,8 @@ export function LinkProfileFlow({ onClose, onLinked }: Props) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
