@@ -34,15 +34,30 @@ export async function middleware(request: NextRequest) {
 
   // Public routes — always allow (no authentication required). Members use the
   // /member/[token] self-service links and shared /rally-timer/[sessionId] links
-  // without ever logging in, and the two public APIs back those pages.
+  // without ever logging in, and the public APIs below back those pages.
+  //
+  // The /api/member/* save endpoints listed here authorize the caller via the
+  // secret access_token in the request body (resolved against the service client,
+  // returning 404 for an unknown token) — the SAME security model as the public
+  // /member/[token] page. They must be public, otherwise an anonymous member's
+  // save is redirected to "/" by the guard below, the browser follows it to a
+  // 200, and the UI shows a false "Saved!" while NO database write ever happens.
   const publicPaths = [
-    '/',                    // root / landing
-    '/welcome',             // public marketing page
-    '/login',               // login page
-    '/auth',                // auth callback
-    '/member',              // /member/[token] self-service profile links
-    '/api/player-lookup',   // public player lookup API
-    '/api/gift-codes',      // public gift-codes API
+    '/',                          // root / landing
+    '/welcome',                   // public marketing page
+    '/login',                     // login page
+    '/auth',                      // auth callback
+    '/member',                    // /member/[token] self-service profile links
+    '/api/player-lookup',         // public player lookup API
+    '/api/gift-codes',            // public gift-codes API
+    // Self-service member endpoints (token-authorized) used by /member/[token]:
+    '/api/member/stats',          // power / march / rally / troop_data / willing-to-move
+    '/api/member/combat-stats',   // battle-report combat stats
+    '/api/member/heroes',         // hero add / edit / delete
+    '/api/member/availability',   // event attendance
+    '/api/member/language',       // preferred language
+    '/api/member/cache-avatar',   // persist fetched avatar url
+    '/api/ocr',                   // battle-report screenshot OCR (no DB write)
   ]
   const isPublic =
     publicPaths.some(p => pathname === p || pathname.startsWith(p + '/')) ||
