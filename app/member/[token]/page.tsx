@@ -5,6 +5,13 @@ import { resolveTransferTarget } from '@/lib/member-transfer'
 import { MemberPortal } from '@/components/members/MemberPortal'
 import { ClaimProfileBanner } from '@/components/members/ClaimProfileBanner'
 
+// This self-service page must always reflect the latest saved data. Without this,
+// Next.js can serve the Supabase reads from its Data Cache, so a `router.refresh()`
+// after a save returns STALE values and the page appears not to have saved.
+// `force-dynamic` renders per-request and sets all fetches to no-store.
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 export default async function MemberTokenPage({
   params,
   searchParams,

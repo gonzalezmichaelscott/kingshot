@@ -1,6 +1,6 @@
 // @ts-nocheck
 'use client'
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -65,6 +65,10 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  // Local copy of the saved stats so the read-only summary reflects what was just
+  // saved immediately, without waiting on a server re-fetch. Synced from props.
+  const [savedExisting, setSavedExisting] = useState<any>(existing || null)
+  useEffect(() => { setSavedExisting(existing || null) }, [existing])
   const [ocrState, setOcrState] = useState<'idle' | 'uploading' | 'review' | 'no_key'>('idle')
   const [ocrMessage, setOcrMessage] = useState('')
   const [ocrConfidence, setOcrConfidence] = useState<Record<string, number>>({})
@@ -144,7 +148,7 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      setError(data.error || 'Save failed')
+      setError(data.error || 'Save failed — your combat stats were not updated. Please try again.')
       setSaving(false)
       return
     }
@@ -153,8 +157,11 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
     setSaved(true)
     setOcrState('idle')
     setOcrConfidence({})
+    // Immediately reflect the saved values so the read-only summary shows them
+    // without waiting on the server re-fetch.
+    setSavedExisting({ ...stats, source: ocrState === 'review' ? 'ocr_verified' : 'manual' })
     setTimeout(() => setSaved(false), 2000)
-    // Re-fetch fresh data from the database rather than trusting local state
+    // Also re-sync server data (page is force-dynamic, so this returns fresh rows).
     router.refresh()
   }
 
@@ -170,13 +177,13 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
             onClick={() => setOpen(o => !o)}
             className="flex items-center gap-1 text-sm text-amber-500 hover:text-amber-400"
           >
-            {open ? <><ChevronUp size={16} />Collapse</> : <><ChevronDown size={16} />{existing ? 'Edit' : 'Add Stats'}</>}
+            {open ? <><ChevronUp size={16} />Collapse</> : <><ChevronDown size={16} />{savedExisting ? 'Edit' : 'Add Stats'}</>}
           </button>
         </div>
       </CardHeader>
 
       {/* Read-only summary when closed */}
-      {!open && existing && (
+      {!open && savedExisting && (
         <CardContent>
           <div className="table-scroll">
             <table className="w-full min-w-[380px] text-sm">
@@ -193,22 +200,22 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
                 {STAT_ROWS.map(({ type, label, color }) => (
                   <tr key={type} className="border-b border-slate-800/40">
                     <td className={`py-1.5 pr-4 font-medium text-xs ${color}`}>{label}</td>
-                    <td className="text-right py-1.5 pr-2 text-slate-300">{existing[`${type}_attack`] || 0}%</td>
-                    <td className="text-right py-1.5 pr-2 text-slate-300">{existing[`${type}_defense`] || 0}%</td>
-                    <td className="text-right py-1.5 pr-2 text-slate-300">{existing[`${type}_health`] || 0}%</td>
-                    <td className="text-right py-1.5 text-amber-400">{existing[`${type}_lethality`] || 0}%</td>
+                    <td className="text-right py-1.5 pr-2 text-slate-300">{savedExisting[`${type}_attack`] || 0}%</td>
+                    <td className="text-right py-1.5 pr-2 text-slate-300">{savedExisting[`${type}_defense`] || 0}%</td>
+                    <td className="text-right py-1.5 pr-2 text-slate-300">{savedExisting[`${type}_health`] || 0}%</td>
+                    <td className="text-right py-1.5 text-amber-400">{savedExisting[`${type}_lethality`] || 0}%</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {existing.source && (
-            <p className="text-xs text-slate-500 mt-2">Source: {existing.source}</p>
+          {savedExisting.source && (
+            <p className="text-xs text-slate-500 mt-2">Source: {savedExisting.source}</p>
           )}
         </CardContent>
       )}
 
-      {!open && !existing && (
+      {!open && !savedExisting && (
         <CardContent>
           <p className="text-slate-400 text-sm">No combat stats yet. Click Edit to add.</p>
         </CardContent>

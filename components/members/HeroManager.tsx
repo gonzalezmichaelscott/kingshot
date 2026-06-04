@@ -1,6 +1,6 @@
 // @ts-nocheck
 'use client'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -51,6 +51,10 @@ export function HeroManager({ accessToken, memberHeroes, heroes }: Props) {
   const [editing, setEditing] = useState<null | 'new' | string>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // Local copy of the member's heroes so saves/deletes show immediately without
+  // waiting on a server re-fetch. Re-synced whenever the server props change.
+  const [heroList, setHeroList] = useState<any[]>(memberHeroes || [])
+  useEffect(() => { setHeroList(memberHeroes || []) }, [memberHeroes])
 
   const heroById = (id: string) => heroes.find(h => h.id === id)
 
@@ -63,8 +67,8 @@ export function HeroManager({ accessToken, memberHeroes, heroes }: Props) {
     .sort((a, b) => a.name.localeCompare(b.name))
 
   // Warn when the member has heroes but none of them are combat heroes.
-  const combatHeroCount = memberHeroes.filter((mh: any) => !mh.heroes?.is_economy_hero).length
-  const onlyEconomyHeroes = memberHeroes.length > 0 && combatHeroCount === 0
+  const combatHeroCount = heroList.filter((mh: any) => !mh.heroes?.is_economy_hero).length
+  const onlyEconomyHeroes = heroList.length > 0 && combatHeroCount === 0
 
   const blankForm = {
     member_hero_id: null as string | null,
@@ -148,25 +152,75 @@ export function HeroManager({ accessToken, memberHeroes, heroes }: Props) {
     setSaving(false)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      setError(data.error || 'Save failed')
+      setError(data.error || 'Save failed — your hero was not saved. Please try again.')
       return
     }
+
+    // Optimistically reflect the saved hero in the local list so it appears
+    // immediately. The subsequent router.refresh() reconciles real DB ids.
+    const savedRow = {
+      id: form.member_hero_id || `tmp-${form.hero_id}`,
+      hero_id: form.hero_id,
+      hero_level: form.hero_level === '' ? 1 : form.hero_level,
+      star_level: form.star_level,
+      star_shards: form.star_shards === '' ? 0 : form.star_shards,
+      widget_unlocked: hasWidget ? form.widget_unlocked : false,
+      widget_level: hasWidget && form.widget_unlocked ? (form.widget_level === '' ? 0 : form.widget_level) : 0,
+      expedition_skill_levels: skills,
+      is_primary: form.is_primary,
+      heroes: heroById(form.hero_id),
+    }
+    setHeroList(prev => {
+      // If a "primary" was chosen, clear the flag on the others.
+      const cleared = savedRow.is_primary ? prev.map(h => ({ ...h, is_primary: false })) : prev
+      const idx = cleared.findIndex(h =>
+        form.member_hero_id ? h.id === form.member_hero_id : h.hero_id === form.hero_id
+      )
+      if (idx >= 0) {
+        const next = [...cleared]
+        next[idx] = { ...next[idx], ...savedRow }
+        return next
+      }
+      return [...cleared, savedRow]
+    })
+
     setEditing(null)
     router.refresh()
   }
 
   async function remove(mh: any) {
     if (!confirm(`Remove ${mh.heroes?.name || 'this hero'}?`)) return
-    const res = await fetch('/api/member/heroes', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ access_token: accessToken, member_hero_id: mh.id }),
-    })
-    if (res.ok) router.refresh()
+    setError('')
+    let res: Response
+    try {
+      res = await fetch('/api/member/heroes', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: accessToken, member_hero_id: mh.id }),
+      })
+    } catch {
+      setError('Network error — the hero was not removed. Please try again.')
+      return
+    }
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      setError(data.error || 'Failed to remove hero. Please try again.')
+      return
+    }
+    // Remove from the local list immediately, then re-sync from the server.
+    setHeroList(prev => prev.filter(h => h.id !== mh.id))
+    router.refresh()
   }
 
   return (
     <div className="space-y-3">
+      {/* Save/delete errors that occur outside the edit form (e.g. removing a hero) */}
+      {error && !editing && (
+        <div className="bg-red-950/40 border border-red-800/60 rounded-lg px-3 py-2">
+          <p className="text-red-400 text-sm">{error}</p>
+        </div>
+      )}
+
       {/* Warning when the member has only economy heroes */}
       {onlyEconomyHeroes && (
         <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
@@ -178,7 +232,7 @@ export function HeroManager({ accessToken, memberHeroes, heroes }: Props) {
       )}
 
       {/* Existing hero cards */}
-      {memberHeroes.map((mh: any) => {
+      {heroList.map((mh: any) => {
         const h = mh.heroes
         const levels = mh.expedition_skill_levels || {}
         const isEco = !!h?.is_economy_hero

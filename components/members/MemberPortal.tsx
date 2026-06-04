@@ -61,6 +61,7 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
   const [tab, setTab] = useState<'stats' | 'combat' | 'troops' | 'availability' | 'heroes' | 'gifts'>('stats')
 
   const existingCombatStats = (member.member_combat_stats as any[])?.[0]
@@ -70,21 +71,40 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
 
   async function saveStats() {
     setSaving(true)
-    const payload = {
-      access_token: member.access_token,
-      power: parseInt(String(stats.power)) || 0,
-      march_size: parseInt(String(stats.march_size)) || 0,
-      rally_capacity: parseInt(String(stats.rally_capacity)) || 0,
+    setError('')
+    const power = parseInt(String(stats.power)) || 0
+    const march_size = parseInt(String(stats.march_size)) || 0
+    const rally_capacity = parseInt(String(stats.rally_capacity)) || 0
+    const payload = { access_token: member.access_token, power, march_size, rally_capacity }
+
+    let res: Response
+    try {
+      res = await fetch('/api/member/stats', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+    } catch {
+      setSaving(false)
+      setError('Network error — please check your connection and try again.')
+      return
     }
-    await fetch('/api/member/stats', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
     setSaving(false)
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      setError(d.error || 'Save failed — your stats were not updated. Please try again.')
+      return
+    }
+    // Immediately reflect the saved values locally so the page shows what was
+    // saved without waiting on a server re-fetch. Mutating `member` keeps these
+    // values consistent if the component re-renders before the refresh lands.
+    setStats({ power, march_size, rally_capacity })
+    member.power = power
+    member.march_size = march_size
+    member.rally_capacity = rally_capacity
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
-    // Re-fetch fresh data from the server rather than trusting local state
+    // Also re-sync server data (the page is force-dynamic, so this returns fresh rows).
     router.refresh()
   }
 
@@ -197,6 +217,11 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
               <p className="text-xs text-slate-500">
                 Troop count is calculated automatically from your Troops tab.
               </p>
+              {error && (
+                <div className="bg-red-950/40 border border-red-800/60 rounded-lg px-3 py-2">
+                  <p className="text-red-400 text-sm">{error}</p>
+                </div>
+              )}
               <Button className="w-full" onClick={saveStats} disabled={saving}>
                 {saving ? 'Saving…' : saved ? 'Saved! ✓' : 'Update Stats'}
               </Button>
@@ -717,6 +742,7 @@ function SwordlandLegionCard({ event, accessToken, existing, memberTimezone }: {
   const [choice, setChoice] = useState<'legion1' | 'legion2' | 'none'>(initial)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
 
   function fmt(iso: string | null) {
     if (!iso) return 'Time TBD'
@@ -728,23 +754,39 @@ function SwordlandLegionCard({ event, accessToken, existing, memberTimezone }: {
   }
 
   async function save(next: 'legion1' | 'legion2' | 'none') {
+    const prev = choice
     setChoice(next)
     setSaving(true)
+    setError('')
     const attend = next === 'legion1' || next === 'legion2'
     const startIso = next === 'legion1' ? legion1 : next === 'legion2' ? legion2 : null
-    await fetch('/api/member/availability', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        access_token: accessToken,
-        event_id: event.id,
-        will_attend: attend,
-        available_from_utc: startIso || null,
-        available_to_utc: startIso ? new Date(new Date(startIso).getTime() + 3600000).toISOString() : null,
-        squad_preference: attend ? next : '',
-      }),
-    })
+    let res: Response
+    try {
+      res = await fetch('/api/member/availability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_token: accessToken,
+          event_id: event.id,
+          will_attend: attend,
+          available_from_utc: startIso || null,
+          available_to_utc: startIso ? new Date(new Date(startIso).getTime() + 3600000).toISOString() : null,
+          squad_preference: attend ? next : '',
+        }),
+      })
+    } catch {
+      setSaving(false)
+      setChoice(prev) // revert optimistic selection on network failure
+      setError('Network error — your choice was not saved. Please try again.')
+      return
+    }
     setSaving(false)
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      setChoice(prev) // revert optimistic selection so the UI matches the DB
+      setError(d.error || 'Save failed — your choice was not saved. Please try again.')
+      return
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
     router.refresh()
@@ -782,6 +824,7 @@ function SwordlandLegionCard({ event, accessToken, existing, memberTimezone }: {
         <Option value="legion1" label="Legion 1" time={fmt(legion1)} />
         <Option value="legion2" label="Legion 2" time={fmt(legion2)} />
         <Option value="none" label="I cannot attend either" time={null} />
+        {error && <p className="text-red-400 text-sm">{error}</p>}
         {saved && <p className="text-green-400 text-sm">Saved! ✓</p>}
       </CardContent>
     </Card>
@@ -793,6 +836,7 @@ function CustomEventCard({ event, accessToken, existing }: { event: any; accessT
   const [willAttend, setWillAttend] = useState(existing?.will_attend ?? false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
   const [showFull, setShowFull] = useState(false)
 
   const html = sanitizeHtml(event.custom_instructions_html || '')
@@ -800,19 +844,33 @@ function CustomEventCard({ event, accessToken, existing }: { event: any; accessT
 
   async function toggleAttend(attend: boolean) {
     setSaving(true)
-    await fetch('/api/member/availability', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        access_token: accessToken,
-        event_id: event.id,
-        will_attend: attend,
-        available_from_utc: null,
-        available_to_utc: null,
-      }),
-    })
-    setWillAttend(attend)
+    setError('')
+    let res: Response
+    try {
+      res = await fetch('/api/member/availability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          access_token: accessToken,
+          event_id: event.id,
+          will_attend: attend,
+          available_from_utc: null,
+          available_to_utc: null,
+        }),
+      })
+    } catch {
+      setSaving(false)
+      setError('Network error — your response was not saved. Please try again.')
+      return
+    }
     setSaving(false)
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      setError(d.error || 'Save failed — your response was not saved. Please try again.')
+      return
+    }
+    // Reflect the saved value locally so the checkbox matches the database.
+    setWillAttend(attend)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
     router.refresh()
@@ -888,6 +946,7 @@ function CustomEventCard({ event, accessToken, existing }: { event: any; accessT
             {saved ? 'Saved!' : willAttend ? "I'll attend" : 'Mark as attending'}
           </span>
         </label>
+        {error && <p className="text-red-400 text-sm">{error}</p>}
       </CardContent>
     </Card>
   )
