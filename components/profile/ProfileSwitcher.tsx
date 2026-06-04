@@ -66,16 +66,21 @@ export function ProfileSwitcher({ profiles }: { profiles: ProfileEntry[] }) {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1.5 px-2 h-8 rounded-lg hover:bg-slate-800 transition-colors max-w-[160px]"
+        className="flex items-center gap-2 px-2 h-9 rounded-lg border border-amber-500/40 bg-slate-900/70 hover:bg-slate-800 transition-colors max-w-[200px]"
         title="Switch profile"
       >
         <PlayerAvatar gameId={active.game_id} avatarUrl={active.avatar_url} playerName={active.player_name} sizeClass="w-6 h-6" />
-        <span className="text-xs font-medium text-slate-200 truncate hidden sm:block">{active.player_name}</span>
-        <ChevronDown size={14} className="text-slate-400 flex-shrink-0" />
+        <div className="hidden sm:flex flex-col leading-tight min-w-0 text-left">
+          <span className="text-xs font-semibold text-amber-300 truncate">{active.player_name}</span>
+          {active.game_id && <span className="text-[10px] text-slate-400 truncate">ID: {active.game_id}</span>}
+        </div>
+        <ChevronDown size={14} className="text-amber-400/80 flex-shrink-0" />
       </button>
 
       {open && (
-        <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-[60] overflow-hidden">
+        // z-[200] keeps the panel above the sidebar (z-40), top/clock bar (z-50),
+        // and any page content. Solid bg so it's readable over anything behind it.
+        <div className="absolute right-0 mt-2 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-[200] overflow-hidden">
           <div className="px-3 py-2 border-b border-slate-800">
             <p className="text-[11px] uppercase tracking-wide text-slate-500 font-semibold">Your profiles</p>
           </div>

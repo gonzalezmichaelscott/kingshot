@@ -43,6 +43,8 @@ export default async function DashboardPage({
   // FEATURE 1 — the user's linked profiles (alts) for the "My Profiles" card.
   const profileSvc = createServiceClient()
   const myProfiles = await listUserProfiles(profileSvc, user.id, profile?.active_member_id || null, allianceId || null)
+  // Prefer the ACTIVE profile's in-game name for greetings (not the auth account name).
+  const activeProfileName = myProfiles.find((p: any) => p.is_active_profile)?.player_name || profile.display_name || user.email
 
   // ---------- MEMBER DASHBOARD (R3 and below) ----------
   if (isMemberRole(profile.role)) {
@@ -146,7 +148,7 @@ export default async function DashboardPage({
         </Card>
 
         {/* My Profiles — multi-account switcher (FEATURE 1) */}
-        {myProfiles.length > 0 && <MyProfilesCard profiles={myProfiles} />}
+        <MyProfilesCard profiles={myProfiles} />
 
         {/* My Assignments */}
         <Card>
@@ -276,13 +278,13 @@ export default async function DashboardPage({
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-slate-400 mt-1">Welcome back, {profile.display_name || user.email}</p>
+          <p className="text-slate-400 mt-1">Welcome back, {activeProfileName}</p>
         </div>
         <Badge variant={profile.role === 'r5' ? 'amber' : profile.role === 'r4' ? 'blue' : 'default'}>{roleLabel(profile.role)}</Badge>
       </div>
 
       {/* My Profiles — multi-account switcher (FEATURE 1) */}
-      {myProfiles.length > 1 && <MyProfilesCard profiles={myProfiles} />}
+      <MyProfilesCard profiles={myProfiles} />
 
       {alliance && (
         <Card>
