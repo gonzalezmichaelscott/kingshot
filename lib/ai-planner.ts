@@ -439,7 +439,7 @@ async function runPlannerModel(prompt: string): Promise<BattlePlan> {
   try {
     response = await anthropic.messages.create({
       model: 'claude-sonnet-4-5',
-      max_tokens: 4000,
+      max_tokens: 8000,
       system: BATTLE_PLANNER_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
     })
