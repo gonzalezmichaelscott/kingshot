@@ -136,7 +136,9 @@ export function ScanScreenshotButton({ allowedKeys, onApply, helpText }: Props) 
 
       if (!res.ok || data.manual_entry_required) {
         setState('error')
-        setErrorMsg('Could not read screenshot. Please enter stats manually.')
+        // Prefer the server's real error (e.g. a Vision API message) so failures
+        // are diagnosable; fall back to the generic manual-entry prompt.
+        setErrorMsg(data.error || data.message || 'Could not read screenshot. Please enter stats manually.')
         return
       }
 

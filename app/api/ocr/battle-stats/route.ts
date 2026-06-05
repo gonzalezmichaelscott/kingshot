@@ -40,28 +40,57 @@ function manualFallback(message: string) {
 
 async function callGoogleVision(base64: string): Promise<string> {
   const apiKey = process.env.GOOGLE_VISION_API_KEY
+  // Log whether the key was loaded from the environment — NEVER the key itself.
+  console.log(
+    '[OCR] GOOGLE_VISION_API_KEY present:',
+    !!apiKey,
+    apiKey ? `(length ${apiKey.length})` : '(missing)'
+  )
   if (!apiKey) throw new Error('Google Vision API key not configured')
 
-  const res = await fetch(
-    `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        requests: [
-          {
-            image: { content: base64 },
-            features: [{ type: 'TEXT_DETECTION', maxResults: 1 }],
-          },
-        ],
-      }),
-    }
-  )
+  // Defensive: Vision requires RAW base64 — strip any lingering data-URL prefix
+  // (e.g. "data:image/jpeg;base64,") that may have slipped through.
+  const content = base64.includes(',') ? base64.split(',').pop()! : base64
 
-  const data = await res.json()
-  if (data.responses?.[0]?.error) {
-    throw new Error(data.responses[0].error.message || 'Vision API error')
+  const endpoint = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`
+  const requestBody = {
+    requests: [
+      {
+        image: { content },
+        features: [{ type: 'TEXT_DETECTION' }],
+      },
+    ],
   }
+  console.log('[OCR] Vision request: base64 length', content.length, '| feature TEXT_DETECTION')
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(requestBody),
+  })
+
+  const data = await res.json().catch(() => null)
+  // Log the HTTP status and the FULL response body so any error surfaces in logs.
+  console.log('[OCR] Vision HTTP status:', res.status, res.statusText)
+  console.log('[OCR] Vision full response:', JSON.stringify(data))
+
+  if (!data) {
+    throw new Error(`Vision API returned a non-JSON response (HTTP ${res.status})`)
+  }
+  // Top-level error — invalid/again restricted API key, billing disabled, or the
+  // Vision API not enabled for the project. This was previously unchecked.
+  if (data.error) {
+    throw new Error(data.error.message || `Vision API error (HTTP ${res.status})`)
+  }
+  // Per-image error (e.g. unsupported image, bad content).
+  if (data.responses?.[0]?.error) {
+    throw new Error(data.responses[0].error.message || 'Vision API per-image error')
+  }
+  // Non-2xx without a structured error object.
+  if (!res.ok) {
+    throw new Error(`Vision API request failed (HTTP ${res.status})`)
+  }
+
   return data.responses?.[0]?.fullTextAnnotation?.text || ''
 }
 
@@ -116,10 +145,14 @@ async function readImage(
 
 export async function POST(request: NextRequest) {
   try {
+    // Log key presence up front (value is never logged) so the no-key path is
+    // also diagnosable from the server logs.
+    console.log('[OCR] request received | API key present:', !!process.env.GOOGLE_VISION_API_KEY)
+
     // Fail fast (and clearly) when OCR isn't configured, so the UI can route the
     // member straight to manual entry instead of showing a generic error.
     if (!process.env.GOOGLE_VISION_API_KEY) {
-      return manualFallback('OCR unavailable — please enter stats manually.')
+      return manualFallback('OCR unavailable — GOOGLE_VISION_API_KEY is not set on the server.')
     }
 
     const read = await readImage(request)
@@ -128,7 +161,30 @@ export async function POST(request: NextRequest) {
     }
 
     const resized = await maybeResize(read.buffer)
-    const rawText = await callGoogleVision(resized.toString('base64'))
+
+    // Isolate the Vision call so its real error message can be returned to the
+    // client (and logged), rather than being swallowed by the generic fallback.
+    let rawText: string
+    try {
+      rawText = await callGoogleVision(resized.toString('base64'))
+    } catch (visionError: any) {
+      const detail = visionError?.message || 'Unknown Vision API error'
+      console.error('[OCR] Vision API call failed:', detail)
+      return NextResponse.json(
+        {
+          resource: {},
+          left: {},
+          right: {},
+          dualColumn: false,
+          confidence: {},
+          raw: '',
+          error: detail,
+          message: `Vision API error: ${detail}`,
+          manual_entry_required: true,
+        },
+        { status: 502 }
+      )
+    }
 
     const { resource, left, right, dualColumn, confidence, raw } = parseKingshotStats(rawText)
     const foundCount =
