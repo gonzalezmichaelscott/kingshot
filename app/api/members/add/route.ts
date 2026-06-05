@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
   const name = body.playerName.trim()
 
   // Insert the roster member. Elevated requests start at r3 until approved.
-  const { error: insertErr } = await svc
+  const { data: insertedMember, error: insertErr } = await svc
     .from('members')
     .insert({
       alliance_id: body.allianceId,
@@ -62,6 +62,8 @@ export async function POST(request: NextRequest) {
       game_id: body.gameId,
       role: elevated ? 'r3' : body.role,
     })
+    .select('id')
+    .single()
   if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 })
 
   if (!elevated) {
@@ -69,6 +71,8 @@ export async function POST(request: NextRequest) {
   }
 
   // Elevated rank → create a pending approval request (does not bypass approval).
+  // Bind it to the member record we just created via source_member_id so the
+  // approval route UPDATES that exact record instead of inserting a duplicate.
   const { error: reqErr } = await svc.from('profile_requests').insert({
     user_id: null,
     alliance_id: body.allianceId,
@@ -76,6 +80,7 @@ export async function POST(request: NextRequest) {
     player_id: body.gameId,
     requested_role: body.role,
     status: 'pending',
+    source_member_id: insertedMember?.id || null,
   })
   if (reqErr) {
     // The member still exists at r3; surface the approval-record failure.

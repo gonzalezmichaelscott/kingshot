@@ -83,6 +83,71 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, alt: true })
     }
 
+    // MANUAL "ADD MEMBER" FLOW — the request was created server-side by
+    // /api/members/add with no linked account (user_id is null), and a member
+    // record ALREADY exists (inserted at r3). On approval we must UPDATE that
+    // existing record's role, never INSERT a new one — inserting produced two
+    // profiles for the same player. There is no user account here, so we also
+    // skip every user_profiles / profile-link step.
+    if (!req.user_id) {
+      let targetId: string | null = null
+
+      // 1) The exact record this request was bound to (source_member_id).
+      if (req.source_member_id) {
+        const { data: bound } = await svc.from('members')
+          .select('id')
+          .eq('id', req.source_member_id)
+          .eq('alliance_id', req.alliance_id)
+          .maybeSingle()
+        targetId = bound?.id || null
+      }
+
+      // 2) Fall back to matching by game_id within this alliance. If several
+      //    rows exist (from the earlier duplicate bug), keep the richest one
+      //    (highest power, then most recently updated) and soft-delete the rest.
+      if (!targetId && req.player_id) {
+        const { data: matches } = await svc.from('members')
+          .select('id')
+          .eq('alliance_id', req.alliance_id)
+          .eq('game_id', req.player_id)
+          .order('power', { ascending: false, nullsFirst: false })
+          .order('updated_at', { ascending: false })
+        if (matches && matches.length) {
+          targetId = matches[0].id
+          const dupes = matches.slice(1).map((m: any) => m.id)
+          if (dupes.length) {
+            await svc.from('members')
+              .update({ is_active: false, updated_at: new Date().toISOString() })
+              .in('id', dupes)
+          }
+        }
+      }
+
+      if (targetId) {
+        await svc.from('members').update({
+          role: finalRole,
+          is_active: true,
+          updated_at: new Date().toISOString(),
+        }).eq('id', targetId)
+      } else {
+        // Defensive: the original record is gone (e.g. deleted before approval).
+        // Insert one so the approved member still exists.
+        await svc.from('members').insert({
+          alliance_id: req.alliance_id,
+          player_name: req.governor_name,
+          game_id: req.player_id || null,
+          role: finalRole,
+        })
+      }
+
+      await svc.from('profile_requests').update({
+        status: 'approved', reviewed_by: user.id, updated_at: new Date().toISOString(),
+      }).eq('id', req.id)
+      await svc.from('notifications').update({ is_read: true }).eq('related_id', req.id)
+
+      return NextResponse.json({ ok: true, manualAdd: true })
+    }
+
     await svc.from('user_profiles').upsert({
       id: req.user_id,
       alliance_id: req.alliance_id,
