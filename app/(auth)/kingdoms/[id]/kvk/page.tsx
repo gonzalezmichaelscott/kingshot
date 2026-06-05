@@ -202,6 +202,7 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
     .map((a: any) => ({
       ...toAssignee(a),
       is_backup: a.is_backup,
+      rally_number: a.rally_number ?? null,
       march_size: statById[a.member_id]?.march_size || 0,
       rally_capacity: statById[a.member_id]?.rally_capacity || 0,
     }))

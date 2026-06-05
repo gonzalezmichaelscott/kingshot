@@ -76,7 +76,7 @@ Do NOT use a fixed joiner count like "3-5 joiners". Compute the joiners per rall
 2. Sort available joiners by march_size DESCENDING (largest march fills the most space).
 3. Add joiners one at a time, subtracting each joiner's march_size from available_joiner_space, until the next joiner would exceed the remaining space or no joiners remain.
 INCOMPLETE DATA DEFAULTS:
-- If the rally leader's rally_capacity = 0 OR march_size = 0: default to a MAXIMUM of 15 joiners per rally (the game's hard cap) and add a warning: "Rally capacity data incomplete — defaulting to max 15 joiners".
+- When rally_capacity = 0 or march_size = 0 for any player, treat their rally as capable of holding 15 joiners maximum. Never leave a rally partially filled when more joiners are available — always fill to capacity or 15 max. Add a warning: "Rally capacity data incomplete — defaulting to max 15 joiners".
 - If a joiner's march_size = 0: estimate their march contribution as 50,000 and add a warning: "March size unknown for [player] — using estimate".
 
 RALLY JOINER RULE:

@@ -5,6 +5,7 @@ import { KvkAttendanceManager } from './KvkAttendanceManager'
 import { AssignmentsTable } from './AssignmentsTable'
 import { BattlePlanButton } from './BattlePlanButton'
 import { CastleRallies } from '@/components/kvk/CastleRallies'
+import { StructureAssignControl } from '@/components/kvk/StructureAssignControl'
 import { buildCastleRallies, splitCastleRoles } from '@/lib/rally-fill'
 import { isManualAssignment } from '@/lib/kvk'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -83,12 +84,28 @@ export function CastleBattleEvent({ event, availability, assignments, members, a
       role: a.role,
       is_backup: a.is_backup,
       isManual: isManualAssignment(a.reasoning),
+      rally_number: a.rally_number ?? null,
       march_size: m.march_size || 0,
       rally_capacity: m.rally_capacity || 0,
     }
   })
   const { leaders: castleLeaders, joiners: castleJoiners } = splitCastleRoles(castleAssignees)
   const castleRallies = buildCastleRallies(castleLeaders, castleJoiners)
+
+  // Attending players for the manual-assignment dropdowns.
+  const attendingIds = new Set(availability.filter((a: any) => a.will_attend).map((a: any) => a.member_id))
+  const assignPool = members
+    .filter((m: any) => attendingIds.has(m.id))
+    .map((m: any) => ({ id: m.id, player_name: m.player_name, game_id: m.game_id || null, tag: null }))
+
+  const STRUCTURE_CONTROLS: { key: string; label: string }[] = [
+    { key: 'castle', label: 'King Castle' },
+    { key: 'north_turret', label: 'North Turret' },
+    { key: 'east_turret', label: 'East Turret' },
+    { key: 'south_turret', label: 'South Turret' },
+    { key: 'west_turret', label: 'West Turret' },
+    { key: 'support', label: 'Support' },
+  ]
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -165,6 +182,30 @@ export function CastleBattleEvent({ event, availability, assignments, members, a
             <p className="text-xs text-slate-500 mt-2">
               The AI planner fills the castle with 2 full teams first, then turrets (North → East → South → West) with remaining capacity.
             </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Manual structure assignment — pick a player AND their exact position */}
+      {canManage && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield size={18} className="text-amber-500" />
+              Manual Assignment / Override
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1">
+            {STRUCTURE_CONTROLS.map(sc => (
+              <StructureAssignControl
+                key={sc.key}
+                structureKey={sc.key}
+                structureLabel={sc.label}
+                pool={assignPool}
+                endpoint="/api/events/assign-structure"
+                extraBody={{ eventId: event.id }}
+              />
+            ))}
           </CardContent>
         </Card>
       )}

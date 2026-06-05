@@ -1,13 +1,12 @@
 // @ts-nocheck
 'use client'
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 import { CastleRallies } from '@/components/kvk/CastleRallies'
+import { StructureAssignControl } from '@/components/kvk/StructureAssignControl'
 import type { CastleRally } from '@/lib/rally-fill'
-import { Castle, Shield, ChevronDown, ChevronUp, Crown, Users, Clock, Star, ExternalLink, Loader2, UserPlus, Sparkles } from 'lucide-react'
+import { Castle, Shield, ChevronDown, ChevronUp, Crown, Users, Clock, Star, ExternalLink, Sparkles } from 'lucide-react'
 
 interface Assignee { id: string; player_name: string; game_id?: string | null; tag?: string | null; role?: string | null; isManual?: boolean; kvk_transfer?: boolean }
 interface Recommended { id: string; player_name: string; tag?: string | null; score: number }
@@ -121,33 +120,6 @@ function StructureDetail({ kingdomId, structure, castleRallies, hourLabels, pool
   canManage: boolean
 }) {
   const showRallies = structure.key === 'castle' && castleRallies && castleRallies.length > 0
-  const router = useRouter()
-  const [selected, setSelected] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState('')
-
-  async function assign() {
-    if (!selected || saving) return
-    setSaving(true)
-    setError('')
-    try {
-      const res = await fetch('/api/kvk/assign', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kingdomId, memberId: selected, squad: structure.key }),
-      })
-      if (!res.ok) {
-        const data = await res.json()
-        throw new Error(data.error || 'Failed to assign')
-      }
-      setSelected('')
-      router.refresh()
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setSaving(false)
-    }
-  }
 
   return (
     <div className="mt-4 rounded-xl border border-amber-500/30 bg-slate-900/60 p-4 space-y-4">
@@ -258,31 +230,15 @@ function StructureDetail({ kingdomId, structure, castleRallies, hourLabels, pool
         )}
       </div>
 
-      {/* Manual assign / override */}
+      {/* Manual assign / override — pick player AND position */}
       {canManage && (
-        <div className="border-t border-slate-800 pt-3">
-          <p className="text-xs uppercase tracking-wide text-slate-500 mb-1 flex items-center gap-1">
-            <UserPlus size={12} /> Assign / override a player for {structure.label}
-          </p>
-          <div className="flex gap-2 flex-wrap">
-            <select
-              value={selected}
-              onChange={e => setSelected(e.target.value)}
-              className="flex-1 min-w-[180px] h-10 px-3 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-            >
-              <option value="">Select an attending player…</option>
-              {pool.map(p => (
-                <option key={p.id} value={p.id}>{p.tag ? `[${p.tag}] ` : ''}{p.player_name}</option>
-              ))}
-            </select>
-            <Button onClick={assign} disabled={!selected || saving} size="md">
-              {saving ? <Loader2 size={16} className="mr-1 animate-spin" /> : null}
-              Assign
-            </Button>
-          </div>
-          <p className="text-[11px] text-slate-500 mt-1">Overrides the AI recommendation for this player and is saved immediately.</p>
-          {error && <p className="text-red-400 text-sm mt-2">{error}</p>}
-        </div>
+        <StructureAssignControl
+          structureKey={structure.key}
+          structureLabel={structure.label}
+          pool={pool}
+          endpoint="/api/kvk/assign"
+          extraBody={{ kingdomId }}
+        />
       )}
     </div>
   )

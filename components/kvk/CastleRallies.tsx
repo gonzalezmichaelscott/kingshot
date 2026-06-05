@@ -31,7 +31,7 @@ export function CastleRallies({ rallies }: { rallies: CastleRally[] }) {
             </p>
             <p className="text-[11px] text-slate-400 font-mono">
               {rally.incomplete
-                ? 'capacity data incomplete — max 15 joiners'
+                ? 'Data incomplete — showing up to 15 joiners'
                 : `${fmt(rally.used)} / ${fmt(rally.capacity)} capacity filled`}
             </p>
           </div>
