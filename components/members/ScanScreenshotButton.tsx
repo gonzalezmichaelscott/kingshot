@@ -1,8 +1,12 @@
 // @ts-nocheck
 'use client'
 // Reusable "📷 Scan Screenshot" control. Uploads a stat screenshot to the OCR
-// endpoint, then shows the extracted values as a checklist so the member chooses
-// exactly which ones to apply — OCR is never trusted to write silently.
+// endpoint, then walks the member through:
+//   1. (battle reports only) a LEFT/RIGHT column selector — Kingshot battle
+//      reports show two players side by side and the member must say which is
+//      theirs; a preview of each side helps them pick.
+//   2. a checkbox review so they choose exactly which values to apply.
+// Single-column screenshots (e.g. a Research stats screen) skip step 1.
 import { useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 
@@ -36,6 +40,32 @@ function formatValue(key: string, value: number): string {
   return Number(value).toLocaleString('en-US')
 }
 
+/** Abbreviated label for the compact column preview, e.g. "Infantry ATK". */
+function shortLabel(key: string): string {
+  return (FIELD_META[key]?.label || key)
+    .replace('Attack', 'ATK')
+    .replace('Defense', 'DEF')
+    .replace('Health', 'HP')
+    .replace('Lethality', 'LETH')
+}
+
+/** One-line "Infantry ATK +624.30% | Cavalry ATK +661.80% | …" preview for a column. */
+function previewLine(col: Record<string, number>): string {
+  const preferred = ['infantry_attack', 'cavalry_attack', 'archer_attack']
+  let keys = preferred.filter(k => k in col)
+  if (keys.length === 0) keys = Object.keys(col).slice(0, 3)
+  return keys.map(k => `${shortLabel(k)} ${formatValue(k, col[k])}`).join('  |  ')
+}
+
+/** Keep only the entries whose key is allowed and whose value is a number. */
+function pick(obj: Record<string, any>, allowed: string[]): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(obj || {})) {
+    if (allowed.includes(k) && typeof v === 'number') out[k] = v
+  }
+  return out
+}
+
 interface Props {
   // Only these keys are surfaced for review (lets the Stats tab show
   // power/march/rally while the Combat section shows troop stats).
@@ -45,15 +75,39 @@ interface Props {
   helpText?: string
 }
 
-type State = 'idle' | 'uploading' | 'review' | 'error'
+type State = 'idle' | 'uploading' | 'selectColumn' | 'review' | 'error'
 
 export function ScanScreenshotButton({ allowedKeys, onApply, helpText }: Props) {
   const fileRef = useRef<HTMLInputElement>(null)
   const [state, setState] = useState<State>('idle')
   const [errorMsg, setErrorMsg] = useState('')
+  // Pending columns held while the member picks their side (dual-column reports).
+  const [resourceFound, setResourceFound] = useState<Record<string, number>>({})
+  const [leftFound, setLeftFound] = useState<Record<string, number>>({})
+  const [rightFound, setRightFound] = useState<Record<string, number>>({})
+  // The final flat set under review.
   const [found, setFound] = useState<Record<string, number>>({})
   const [checked, setChecked] = useState<Record<string, boolean>>({})
   const [applying, setApplying] = useState(false)
+
+  function reset() {
+    setResourceFound({})
+    setLeftFound({})
+    setRightFound({})
+    setFound({})
+    setChecked({})
+  }
+
+  function beginReview(values: Record<string, number>) {
+    if (Object.keys(values).length === 0) {
+      setState('error')
+      setErrorMsg('Could not read screenshot. Please enter stats manually.')
+      return
+    }
+    setFound(values)
+    setChecked(Object.fromEntries(Object.keys(values).map(k => [k, true])))
+    setState('review')
+  }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -73,6 +127,7 @@ export function ScanScreenshotButton({ allowedKeys, onApply, helpText }: Props) 
 
     setState('uploading')
     setErrorMsg('')
+    reset()
     try {
       const form = new FormData()
       form.append('image', file)
@@ -85,25 +140,39 @@ export function ScanScreenshotButton({ allowedKeys, onApply, helpText }: Props) 
         return
       }
 
-      // Keep only the fields this instance cares about.
-      const relevant: Record<string, number> = {}
-      for (const [k, v] of Object.entries(data.fields || {})) {
-        if (allowedKeys.includes(k) && typeof v === 'number') relevant[k] = v
-      }
+      // Filter every part of the response down to the keys this instance wants.
+      const resource = pick(data.resource || {}, allowedKeys)
+      const left = pick(data.left || {}, allowedKeys)
+      const right = pick(data.right || {}, allowedKeys)
+      const dual = !!data.dualColumn && Object.keys(left).length > 0 && Object.keys(right).length > 0
 
-      if (Object.keys(relevant).length === 0) {
+      if (Object.keys(resource).length + Object.keys(left).length + Object.keys(right).length === 0) {
         setState('error')
         setErrorMsg('Could not read screenshot. Please enter stats manually.')
         return
       }
 
-      setFound(relevant)
-      setChecked(Object.fromEntries(Object.keys(relevant).map(k => [k, true])))
-      setState('review')
+      if (dual) {
+        // Side-by-side battle report — ask which column is theirs first.
+        setResourceFound(resource)
+        setLeftFound(left)
+        setRightFound(right)
+        setState('selectColumn')
+      } else {
+        // Single column — go straight to review. Combat values land in `left`
+        // for single-column screens; fall back to `right` just in case.
+        const combat = Object.keys(left).length ? left : right
+        beginReview({ ...resource, ...combat })
+      }
     } catch {
       setState('error')
       setErrorMsg('Could not read screenshot. Please enter stats manually.')
     }
+  }
+
+  function chooseColumn(side: 'left' | 'right') {
+    const combat = side === 'left' ? leftFound : rightFound
+    beginReview({ ...resourceFound, ...combat })
   }
 
   async function apply() {
@@ -115,8 +184,7 @@ export function ScanScreenshotButton({ allowedKeys, onApply, helpText }: Props) 
     try {
       await onApply(selected)
       setState('idle')
-      setFound({})
-      setChecked({})
+      reset()
     } finally {
       setApplying(false)
     }
@@ -124,9 +192,8 @@ export function ScanScreenshotButton({ allowedKeys, onApply, helpText }: Props) 
 
   function cancel() {
     setState('idle')
-    setFound({})
-    setChecked({})
     setErrorMsg('')
+    reset()
   }
 
   return (
@@ -139,7 +206,7 @@ export function ScanScreenshotButton({ allowedKeys, onApply, helpText }: Props) 
         onChange={handleFile}
       />
 
-      {state !== 'review' && (
+      {(state === 'idle' || state === 'uploading' || state === 'error') && (
         <>
           {state === 'uploading' ? (
             <div className="flex items-center gap-2 text-sm text-slate-400 bg-slate-800 rounded-lg px-4 py-3">
@@ -162,6 +229,42 @@ export function ScanScreenshotButton({ allowedKeys, onApply, helpText }: Props) 
         </>
       )}
 
+      {/* Step 1 — column selector (battle reports only) */}
+      {state === 'selectColumn' && (
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-3 space-y-3">
+          <div>
+            <p className="text-sm font-medium text-slate-200">Which column shows YOUR stats?</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Battle reports show both players side by side — pick the side with your numbers.
+            </p>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {(['left', 'right'] as const).map(side => {
+              const col = side === 'left' ? leftFound : rightFound
+              return (
+                <button
+                  key={side}
+                  type="button"
+                  onClick={() => chooseColumn(side)}
+                  className="text-left rounded-lg border border-slate-600 hover:border-amber-500 hover:bg-slate-800 transition-colors p-3"
+                >
+                  <span className="block text-sm font-semibold text-amber-400 mb-1">
+                    {side === 'left' ? 'Left Column' : 'Right Column'}
+                  </span>
+                  <span className="block text-xs text-slate-300 leading-relaxed">
+                    {previewLine(col)}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          <Button type="button" size="sm" variant="ghost" onClick={cancel}>
+            Cancel
+          </Button>
+        </div>
+      )}
+
+      {/* Step 2 — checkbox review */}
       {state === 'review' && (
         <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-3 space-y-3">
           <p className="text-sm text-slate-300">

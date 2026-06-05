@@ -1,12 +1,12 @@
 // @ts-nocheck
 'use client'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
-import { Sword, Upload, AlertTriangle, CheckCircle, ChevronDown, ChevronUp, Info } from 'lucide-react'
+import { Sword, ChevronDown, ChevronUp, Info } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { ScanScreenshotButton } from '@/components/members/ScanScreenshotButton'
 
 interface StatFields {
   infantry_attack: number
@@ -39,6 +39,17 @@ const STAT_ROWS = [
   { type: 'archer', label: 'Archer', color: 'text-green-400' },
 ] as const
 
+// The 12 combat keys, used as the allow-list for OCR scanning.
+const COMBAT_KEYS = STAT_ROWS.flatMap(({ type }) =>
+  ['attack', 'defense', 'health', 'lethality'].map(stat => `${type}_${stat}`)
+)
+
+const SCAN_HELP =
+  'For best results:\n' +
+  '• Combat stats: screenshot your battle report or Troop stats screen\n' +
+  '• Battle reports show two players — you’ll pick which column is yours\n' +
+  '• Make sure text is clear and not blurry'
+
 interface Props {
   memberId: string
   accessToken: string
@@ -69,10 +80,9 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
   // saved immediately, without waiting on a server re-fetch. Synced from props.
   const [savedExisting, setSavedExisting] = useState<any>(existing || null)
   useEffect(() => { setSavedExisting(existing || null) }, [existing])
-  const [ocrState, setOcrState] = useState<'idle' | 'uploading' | 'review' | 'no_key'>('idle')
-  const [ocrMessage, setOcrMessage] = useState('')
-  const [ocrConfidence, setOcrConfidence] = useState<Record<string, number>>({})
-  const fileRef = useRef<HTMLInputElement>(null)
+  // Whether the current form values were populated from an OCR scan (drives the
+  // "review the extracted values" prompt and the saved `source` marker).
+  const [fromOcr, setFromOcr] = useState(false)
   const router = useRouter()
 
   function setStat(key: keyof StatFields, value: number | string) {
@@ -80,49 +90,18 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
     setSaved(false)
   }
 
-  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    setOcrState('uploading')
-    setOcrMessage('')
-    // Reset the input so the same file can be re-uploaded
-    e.target.value = ''
-
-    try {
-      // Single consolidated OCR endpoint: multipart upload with full server-side
-      // validation (magic bytes, size) and oversized-image resize.
-      const form = new FormData()
-      form.append('image', file)
-      const res = await fetch('/api/ocr/battle-stats', { method: 'POST', body: form })
-      const data = await res.json()
-
-      setOcrMessage(data.message || '')
-
-      if (data.manual_entry_required) {
-        setOcrState('no_key')
-        return
+  // Merge the stats the member selected from an OCR scan into the form. Values
+  // are not saved here — the member reviews them in the table and clicks Save.
+  function applyScan(selected: Record<string, number>) {
+    setStats(s => {
+      const next = { ...s }
+      for (const [k, v] of Object.entries(selected)) {
+        if (k in next) (next as any)[k] = v
       }
-
-      // Merge OCR fields into form for review — never auto-save
-      if (data.fields && Object.keys(data.fields).length > 0) {
-        setStats(s => {
-          const next = { ...s }
-          for (const [k, v] of Object.entries(data.fields)) {
-            if (k in next) (next as any)[k] = v
-          }
-          return next
-        })
-        setOcrConfidence(data.confidence || {})
-        setOcrState('review')
-      } else {
-        setOcrMessage('No stats found in image. Please enter manually.')
-        setOcrState('review')
-      }
-    } catch {
-      setOcrMessage('OCR failed — please enter stats manually.')
-      setOcrState('no_key')
-    }
+      return next
+    })
+    setFromOcr(true)
+    setSaved(false)
   }
 
   async function save() {
@@ -146,7 +125,7 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
       body: JSON.stringify({
         access_token: accessToken,
         ...numericStats,
-        source: ocrState === 'review' ? 'ocr_verified' : 'manual',
+        source: fromOcr ? 'ocr_verified' : 'manual',
       }),
     })
 
@@ -159,11 +138,10 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
 
     setSaving(false)
     setSaved(true)
-    setOcrState('idle')
-    setOcrConfidence({})
     // Immediately reflect the saved values so the read-only summary shows them
     // without waiting on the server re-fetch.
-    setSavedExisting({ ...stats, source: ocrState === 'review' ? 'ocr_verified' : 'manual' })
+    setSavedExisting({ ...stats, source: fromOcr ? 'ocr_verified' : 'manual' })
+    setFromOcr(false)
     setTimeout(() => setSaved(false), 2000)
     // Also re-sync server data (page is force-dynamic, so this returns fresh rows).
     router.refresh()
@@ -231,49 +209,18 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
           <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 flex gap-2">
             <Info size={16} className="text-blue-400 flex-shrink-0 mt-0.5" />
             <p className="text-xs text-blue-200">
-              <strong>How to get battle report stats:</strong> Temporarily leave your alliance, garrison a resource mine, then have alliance members attack you. After the battle, check your battle report for these stats. Enter them here or upload a screenshot to auto-extract.
+              <strong>How to get battle report stats:</strong> Temporarily leave your alliance, garrison a resource mine, then have alliance members attack you. After the battle, check your battle report for these stats. Enter them here or scan a screenshot to auto-extract.
             </p>
           </div>
 
-          {/* OCR Upload */}
+          {/* OCR Upload — dual-column aware (battle reports show two players) */}
           <div>
-            <p className="text-sm font-medium text-slate-300 mb-2">Upload Battle Report Screenshot</p>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleFileUpload}
+            <p className="text-sm font-medium text-slate-300 mb-2">Scan Battle Report Screenshot</p>
+            <ScanScreenshotButton
+              allowedKeys={COMBAT_KEYS}
+              onApply={applyScan}
+              helpText={SCAN_HELP}
             />
-            {ocrState === 'uploading' && (
-              <div className="flex items-center gap-2 text-sm text-slate-400 bg-slate-800 rounded-lg px-4 py-3">
-                <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
-                Extracting stats from image…
-              </div>
-            )}
-            {ocrState !== 'uploading' && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => fileRef.current?.click()}
-              >
-                <Upload size={14} className="mr-1.5" />
-                📷 Scan Screenshot
-              </Button>
-            )}
-            {(ocrState === 'no_key' || ocrState === 'review') && ocrMessage && (
-              <div className={`mt-2 flex items-start gap-2 text-xs rounded-lg p-2 ${
-                ocrState === 'review'
-                  ? 'bg-green-500/10 border border-green-500/30 text-green-300'
-                  : 'bg-amber-500/10 border border-amber-500/30 text-amber-300'
-              }`}>
-                {ocrState === 'review'
-                  ? <CheckCircle size={14} className="flex-shrink-0 mt-0.5" />
-                  : <AlertTriangle size={14} className="flex-shrink-0 mt-0.5" />
-                }
-                {ocrMessage}
-              </div>
-            )}
           </div>
 
           {/* Primary troop type */}
@@ -323,31 +270,23 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
                     <td className={`py-2 pr-3 font-medium text-xs ${color}`}>{label}</td>
                     {(['attack', 'defense', 'health', 'lethality'] as const).map(stat => {
                       const key = `${type}_${stat}` as keyof StatFields
-                      const conf = ocrConfidence[key]
                       return (
                         <td key={stat} className="py-1.5 pr-2">
-                          <div className="relative">
-                            <Input
-                              type="text"
-                              inputMode="decimal"
-                              value={stats[key]}
-                              onChange={e => {
-                                // Keep the raw string while typing so a trailing
-                                // "." or partial decimal (e.g. "306." → "306.6")
-                                // isn't stripped by premature number parsing.
-                                // Allow digits and up to 2 decimal places; coerced
-                                // to a number on save.
-                                const v = e.target.value.replace(/[^0-9.]/g, '')
-                                if (v === '' || /^\d*\.?\d{0,2}$/.test(v)) setStat(key, v)
-                              }}
-                              className={`h-8 text-xs pr-6 ${conf !== undefined && conf < 0.7 ? 'border-amber-500/50' : ''}`}
-                            />
-                            {conf !== undefined && (
-                              <span className={`absolute right-1.5 top-1/2 -translate-y-1/2 text-[9px] font-bold ${conf >= 0.8 ? 'text-green-400' : 'text-amber-400'}`}>
-                                {Math.round(conf * 100)}%
-                              </span>
-                            )}
-                          </div>
+                          <Input
+                            type="text"
+                            inputMode="decimal"
+                            value={stats[key]}
+                            onChange={e => {
+                              // Keep the raw string while typing so a trailing
+                              // "." or partial decimal (e.g. "306." → "306.6")
+                              // isn't stripped by premature number parsing.
+                              // Allow digits and up to 2 decimal places; coerced
+                              // to a number on save.
+                              const v = e.target.value.replace(/[^0-9.]/g, '')
+                              if (v === '' || /^\d*\.?\d{0,2}$/.test(v)) setStat(key, v)
+                            }}
+                            className="h-8 text-xs"
+                          />
                         </td>
                       )
                     })}
@@ -357,9 +296,9 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
             </table>
           </div>
 
-          {ocrState === 'review' && (
+          {fromOcr && (
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200">
-              <strong>⚠ Review required:</strong> OCR extracted the values above. Confidence shown as % next to each field. Please verify all values are correct before saving — never rely solely on OCR.
+              <strong>⚠ Review required:</strong> These values were extracted from a screenshot. Please verify each one is correct before saving — never rely solely on OCR.
             </div>
           )}
 

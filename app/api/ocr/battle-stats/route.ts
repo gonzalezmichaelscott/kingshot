@@ -27,7 +27,10 @@ const jsonSchema = z.object({
 /** Standard "give up gracefully, let the member type it in" response. */
 function manualFallback(message: string) {
   return NextResponse.json({
-    fields: {},
+    resource: {},
+    left: {},
+    right: {},
+    dualColumn: false,
     confidence: {},
     raw: '',
     message,
@@ -127,11 +130,16 @@ export async function POST(request: NextRequest) {
     const resized = await maybeResize(read.buffer)
     const rawText = await callGoogleVision(resized.toString('base64'))
 
-    const { fields, confidence, raw } = parseKingshotStats(rawText)
+    const { resource, left, right, dualColumn, confidence, raw } = parseKingshotStats(rawText)
+    const foundCount =
+      Object.keys(resource).length + Object.keys(left).length + Object.keys(right).length
 
-    if (Object.keys(fields).length === 0) {
+    if (foundCount === 0) {
       return NextResponse.json({
-        fields,
+        resource,
+        left,
+        right,
+        dualColumn,
         confidence,
         raw,
         message: 'No stats found in the screenshot. Please enter them manually.',
@@ -140,10 +148,15 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({
-      fields,
+      resource,
+      left,
+      right,
+      dualColumn,
       confidence,
       raw,
-      message: 'Review the extracted values, then choose which to apply.',
+      message: dualColumn
+        ? 'Battle report detected — pick your column, then choose which stats to apply.'
+        : 'Review the extracted values, then choose which to apply.',
     })
   } catch (error: any) {
     console.error('OCR battle-stats error:', error)

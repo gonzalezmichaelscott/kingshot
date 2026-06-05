@@ -6,30 +6,28 @@
 // FORGIVING on input but STRICT on output — only return a field when we can
 // extract it with reasonable confidence, and always hand back a clean numeric
 // value (commas/`+`/`%` stripped) so callers never re-parse strings.
+//
+// BATTLE REPORTS ARE DUAL-COLUMN. A Kingshot battle report shows two players'
+// combat stats side by side, laid out per row as:
+//
+//     +624.3%   Infantry Attack   +673.6%
+//     └ left ┘   └─ label ──┘     └ right ┘
+//
+// The uploading member may be on either side, so we parse BOTH columns and let
+// the UI ask which one is theirs. Single-column screens (e.g. a Research stats
+// screen) only have a value after the label — those collapse to one column.
 
-export interface ParsedStats {
-  // Profile / governor screen
-  power?: number
-  troop_count?: number
-  march_size?: number
-  rally_capacity?: number
-  // Battle-report combat stats (percentages, stored as plain numbers e.g. 245.5)
-  infantry_attack?: number
-  infantry_defense?: number
-  infantry_health?: number
-  infantry_lethality?: number
-  cavalry_attack?: number
-  cavalry_defense?: number
-  cavalry_health?: number
-  cavalry_lethality?: number
-  archer_attack?: number
-  archer_defense?: number
-  archer_health?: number
-  archer_lethality?: number
-}
+export type ColumnStats = Record<string, number>
 
 export interface ParseResult {
-  fields: ParsedStats
+  // Single-value profile fields (never dual-column).
+  resource: Record<string, number>
+  // Combat percentages by column. For a single-column screenshot, `left` holds
+  // the found values and `right` is empty (dualColumn === false).
+  left: ColumnStats
+  right: ColumnStats
+  // True when a side-by-side battle report was detected (both columns present).
+  dualColumn: boolean
   // Per-field confidence in [0,1]; lets the UI flag values worth double-checking.
   confidence: Record<string, number>
   raw: string
@@ -43,7 +41,7 @@ function cleanInteger(s: string): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-/** "+245.50%" / "245,50 %" → 245.5. Returns null if nothing usable. */
+/** "+245.50%" / "245,50 %" / "624.3" → 245.5 / 624.3. Returns null if nothing usable. */
 function cleanPercent(s: string): number | null {
   // Strip the + and % decorations, normalise a comma decimal separator to a dot.
   const cleaned = s.replace(/[+%\s]/g, '').replace(',', '.')
@@ -55,12 +53,13 @@ function cleanPercent(s: string): number | null {
 // for power/troop/march/rally. Requires at least 3 digits so we don't latch onto
 // stray UI numbers like a level badge.
 const BIG_NUMBER = '(\\d{1,3}(?:[,.\\s]\\d{3})+|\\d{3,})'
-// A percentage value with optional leading + and decimals: "+245.50%", "98%".
-const PERCENT = '\\+?\\s*(\\d{1,4}(?:[.,]\\d{1,2})?)\\s*%'
+// A bare percentage number with optional decimals (the surrounding +/% are
+// matched separately so spacing variants are tolerated): "624.3", "245,50".
+const PCT = '(\\d{1,4}(?:[.,]\\d{1,2})?)'
 
 // Integer (resource) stats. Each entry lists the canonical key, the confidence
 // we assign on a hit, and the label aliases that may precede the number.
-const INTEGER_PATTERNS: Array<{ key: keyof ParsedStats; conf: number; labels: string[] }> = [
+const INTEGER_PATTERNS: Array<{ key: string; conf: number; labels: string[] }> = [
   { key: 'power', conf: 0.9, labels: ['power', 'pwr'] },
   { key: 'troop_count', conf: 0.85, labels: ['total troops', 'troop count', 'troops'] },
   { key: 'march_size', conf: 0.85, labels: ['march size', 'march capacity', 'march'] },
@@ -89,13 +88,41 @@ function findInteger(text: string, labels: string[]): number | null {
   return null
 }
 
-function findPercent(text: string, troop: string, aliases: string): number | null {
-  // Label order in-game is "<Troop> <Stat>", but OCR can flip or pad it. Try the
-  // natural order first, then a looser fallback that allows the stat label alone
-  // to appear near the troop label.
-  const ordered = new RegExp(`${troop}[^0-9%]{0,25}(?:${aliases})[^0-9%]{0,10}${PERCENT}`, 'i')
-  const m = text.match(ordered)
-  if (m) return cleanPercent(m[1])
+/**
+ * Look for a combat stat both as a dual-column row ("<left>% Label <right>%")
+ * and as a single trailing value ("Label <value>%"). The dual pattern is kept
+ * deliberately tight — the leading value must sit on the SAME line right before
+ * the troop label — so a previous row's value on the line above doesn't get
+ * mistaken for a left-column reading on single-column screens.
+ */
+function findCombat(
+  text: string,
+  troop: string,
+  aliases: string
+): { left?: number; right?: number } | null {
+  // Dual: "+624.3% Infantry Attack +673.6%" (same line, value-label-value).
+  const dual = new RegExp(
+    `\\+?\\s*${PCT}\\s*%[ \\t]{1,5}${troop}[^0-9%\\n]{0,25}(?:${aliases})[ \\t]{0,8}\\+?\\s*${PCT}\\s*%`,
+    'i'
+  )
+  const d = text.match(dual)
+  if (d) {
+    const left = cleanPercent(d[1])
+    const right = cleanPercent(d[2])
+    if (left !== null && right !== null) return { left, right }
+  }
+
+  // Single: "Infantry Attack 245.50%" (value after the label; newlines allowed).
+  const single = new RegExp(
+    `${troop}[^0-9%]{0,25}(?:${aliases})[^0-9%]{0,10}\\+?\\s*${PCT}\\s*%`,
+    'i'
+  )
+  const s = text.match(single)
+  if (s) {
+    const v = cleanPercent(s[1])
+    if (v !== null) return { right: v } // "single" value lives on the right of the label
+  }
+
   return null
 }
 
@@ -105,30 +132,53 @@ function findPercent(text: string, troop: string, aliases: string): number | nul
  * caller can distinguish "found and zero" from "not found".
  */
 export function parseKingshotStats(text: string): ParseResult {
-  const fields: ParsedStats = {}
+  const resource: Record<string, number> = {}
+  const left: ColumnStats = {}
+  const right: ColumnStats = {}
+  const singles: ColumnStats = {}
   const confidence: Record<string, number> = {}
-  if (!text || !text.trim()) return { fields, confidence, raw: text || '' }
 
-  // Resource / profile integers.
+  const empty: ParseResult = { resource, left, right, dualColumn: false, confidence, raw: text || '' }
+  if (!text || !text.trim()) return empty
+
+  // Resource / profile integers (single-value).
   for (const { key, conf, labels } of INTEGER_PATTERNS) {
     const v = findInteger(text, labels)
     if (v !== null) {
-      ;(fields as any)[key] = v
+      resource[key] = v
       confidence[key] = conf
     }
   }
 
-  // Troop-type combat percentages (12 fields).
+  // Troop-type combat percentages (12 fields), tracking both columns.
+  let sawDual = false
   for (const troop of TROOP_TYPES) {
     for (const { stat, aliases } of COMBAT_STATS) {
-      const v = findPercent(text, troop, aliases)
-      if (v !== null) {
-        const key = `${troop}_${stat}`
-        ;(fields as any)[key] = v
-        confidence[key] = 0.8
+      const hit = findCombat(text, troop, aliases)
+      if (!hit) continue
+      const key = `${troop}_${stat}`
+      confidence[key] = 0.8
+      if (hit.left !== undefined && hit.right !== undefined) {
+        // Dual-column row.
+        sawDual = true
+        left[key] = hit.left
+        right[key] = hit.right
+      } else if (hit.right !== undefined) {
+        // Single trailing value — keep aside until we know the layout.
+        singles[key] = hit.right
       }
     }
   }
 
-  return { fields, confidence, raw: text }
+  if (sawDual) {
+    // Battle report: fold any single-only stats into the right column as a
+    // best-effort fallback (explicit right-column readings still win).
+    for (const [k, v] of Object.entries(singles)) {
+      if (!(k in right)) right[k] = v
+    }
+    return { resource, left, right, dualColumn: true, confidence, raw: text }
+  }
+
+  // Single-column screenshot: surface the found values as the `left` column.
+  return { resource, left: singles, right: {}, dualColumn: false, confidence, raw: text }
 }
