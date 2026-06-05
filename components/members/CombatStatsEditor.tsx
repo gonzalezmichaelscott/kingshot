@@ -86,50 +86,43 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
 
     setOcrState('uploading')
     setOcrMessage('')
-
-    const reader = new FileReader()
-    reader.onload = async (ev) => {
-      const base64 = (ev.target?.result as string)?.split(',')[1]
-      if (!base64) { setOcrState('idle'); return }
-
-      try {
-        const res = await fetch('/api/ocr', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ imageBase64: base64, type: 'battle_report' }),
-        })
-        const data = await res.json()
-
-        setOcrMessage(data.message || '')
-
-        if (data.manual_entry_required) {
-          setOcrState('no_key')
-          return
-        }
-
-        // Merge OCR fields into form for review — never auto-save
-        if (data.fields && Object.keys(data.fields).length > 0) {
-          setStats(s => {
-            const next = { ...s }
-            for (const [k, v] of Object.entries(data.fields)) {
-              if (k in next) (next as any)[k] = v
-            }
-            return next
-          })
-          setOcrConfidence(data.confidence || {})
-          setOcrState('review')
-        } else {
-          setOcrMessage('No stats found in image. Please enter manually.')
-          setOcrState('review')
-        }
-      } catch {
-        setOcrMessage('OCR failed — please enter stats manually.')
-        setOcrState('no_key')
-      }
-    }
-    reader.readAsDataURL(file)
     // Reset the input so the same file can be re-uploaded
     e.target.value = ''
+
+    try {
+      // Single consolidated OCR endpoint: multipart upload with full server-side
+      // validation (magic bytes, size) and oversized-image resize.
+      const form = new FormData()
+      form.append('image', file)
+      const res = await fetch('/api/ocr/battle-stats', { method: 'POST', body: form })
+      const data = await res.json()
+
+      setOcrMessage(data.message || '')
+
+      if (data.manual_entry_required) {
+        setOcrState('no_key')
+        return
+      }
+
+      // Merge OCR fields into form for review — never auto-save
+      if (data.fields && Object.keys(data.fields).length > 0) {
+        setStats(s => {
+          const next = { ...s }
+          for (const [k, v] of Object.entries(data.fields)) {
+            if (k in next) (next as any)[k] = v
+          }
+          return next
+        })
+        setOcrConfidence(data.confidence || {})
+        setOcrState('review')
+      } else {
+        setOcrMessage('No stats found in image. Please enter manually.')
+        setOcrState('review')
+      }
+    } catch {
+      setOcrMessage('OCR failed — please enter stats manually.')
+      setOcrState('no_key')
+    }
   }
 
   async function save() {
