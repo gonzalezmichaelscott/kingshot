@@ -2,20 +2,15 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { annotateExistingProfiles } from '@/lib/approvals'
 import { notFound } from 'next/navigation'
-import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Users } from 'lucide-react'
-import Link from 'next/link'
-import { formatPower } from '@/lib/utils'
 import { AddMemberButton } from '@/components/members/AddMemberButton'
-import { CopyTokenButton } from '@/components/members/CopyTokenButton'
 import { PendingProfileRequests } from '@/components/members/PendingProfileRequests'
 import { PendingClaimRequests } from '@/components/members/PendingClaimRequests'
-import { RemoveMemberButton } from '@/components/members/RemoveMemberButton'
 import { ImportMembersButton } from '@/components/members/ImportMembersButton'
 import { requireAllianceAccess, canManageAlliance, visibleRequestRolesFor } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
-import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
+import { MembersTable } from '@/components/members/MembersTable'
 
 export default async function MembersPage({ params }: { params: { id: string } }) {
   const supabase = createClient()
@@ -90,6 +85,15 @@ export default async function MembersPage({ params }: { params: { id: string } }
     .eq('is_active', true)
     .order('power', { ascending: false })
 
+  // Shape rows for the client table: resolve the cached avatar + flatten the
+  // joined score / primary troop type so the client component stays simple.
+  const membersForList = (members || []).map((m: any) => ({
+    ...m,
+    avatarUrl: freshAvatar(m),
+    score: (m.member_scores as any)?.[0]?.overall_score ?? 0,
+    troopType: (m.member_combat_stats as any)?.[0]?.troop_type_primary ?? null,
+  }))
+
   const breadcrumbs = [
     { label: 'Kingdoms', href: '/kingdoms' },
     ...(kingdom ? [{ label: `${kingdom.name}${kingdom.server_number ? ` #${kingdom.server_number}` : ''}`, href: `/kingdoms/${kingdom.id}` }] : []),
@@ -122,93 +126,13 @@ export default async function MembersPage({ params }: { params: { id: string } }
       {canManage && <PendingProfileRequests requests={annotatedPendingRequests} allianceId={params.id} currentUserId={profile?.id} />}
       {canManage && <PendingClaimRequests requests={claimRequests || []} />}
 
-      <Card>
-        <CardContent className="pt-4">
-          <div className="table-scroll">
-            <table className="w-full min-w-[600px] text-sm">
-              <thead>
-                <tr className="text-slate-400 border-b border-slate-800">
-                  <th className="text-left py-2 pr-4">Player</th>
-                  <th className="text-right py-2 pr-4">Power</th>
-                  <th className="text-right py-2 pr-4">Troops</th>
-                  <th className="text-right py-2 pr-4">March</th>
-                  <th className="text-right py-2 pr-4">Rally Cap</th>
-                  <th className="text-left py-2 pr-4">Troop Type</th>
-                  <th className="text-right py-2 pr-4">Score</th>
-                  {canManage && <th className="py-2 text-center">Link</th>}
-                  {canManage && <th className="py-2 text-center">Actions</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {members?.map(m => {
-                  const score = (m.member_scores as any)?.[0]?.overall_score ?? 0
-                  const troopType = (m.member_combat_stats as any)?.[0]?.troop_type_primary
-                  return (
-                    <tr key={m.id} className="border-b border-slate-800/50 hover:bg-slate-800/50">
-                      <td className="py-2 pr-4">
-                        <div className="flex items-center gap-2">
-                          <PlayerAvatar
-                            gameId={m.game_id}
-                            avatarUrl={freshAvatar(m)}
-                            memberId={m.id}
-                            playerName={m.player_name}
-                            sizeClass="w-7 h-7"
-                          />
-                          <Link href={`/alliances/${params.id}/members/${m.id}`} className="text-amber-400 hover:text-amber-300 font-medium">
-                            {m.player_name}
-                          </Link>
-                        </div>
-                      </td>
-                      <td className="text-right py-2 pr-4 text-slate-300">{formatPower(m.power)}</td>
-                      <td className="text-right py-2 pr-4 text-slate-400">{formatPower(m.troop_count)}</td>
-                      <td className="text-right py-2 pr-4 text-slate-400">{formatPower(m.march_size)}</td>
-                      <td className="text-right py-2 pr-4 text-slate-400">{formatPower(m.rally_capacity)}</td>
-                      <td className="py-2 pr-4">
-                        {troopType && (
-                          <Badge variant={troopType === 'infantry' ? 'red' : troopType === 'cavalry' ? 'blue' : troopType === 'archer' ? 'green' : 'default'}>
-                            {troopType}
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="text-right py-2 pr-4 font-mono text-slate-300">{score.toFixed(1)}</td>
-                      {canManage && (
-                        <td className="py-2 text-center">
-                          <CopyTokenButton token={m.access_token} />
-                        </td>
-                      )}
-                      {canManage && (
-                        <td className="py-2 text-center">
-                          <div className="flex items-center justify-center gap-1">
-                            {/* Remove from alliance (R4/R5/admin) — keeps record intact */}
-                            <RemoveMemberButton
-                              memberId={m.id}
-                              playerName={m.player_name}
-                              allianceName={allianceName}
-                              mode="remove"
-                            />
-                            {/* Delete profile permanently — system_admin only */}
-                            {isAdmin && (
-                              <RemoveMemberButton
-                                memberId={m.id}
-                                playerName={m.player_name}
-                                allianceName={allianceName}
-                                mode="delete"
-                              />
-                            )}
-                          </div>
-                        </td>
-                      )}
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-            {(!members || members.length === 0) && (
-              <p className="text-slate-400 text-sm py-6 text-center">No members yet. Add members to get started.</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      <MembersTable
+        allianceId={params.id}
+        allianceName={allianceName}
+        canManage={canManage}
+        isAdmin={isAdmin}
+        initialMembers={membersForList}
+      />
     </div>
   )
 }
