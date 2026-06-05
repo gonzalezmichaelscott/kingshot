@@ -400,10 +400,10 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
                   {(['infantry', 'cavalry', 'archer'] as const).map(t => (
                     <tr key={t} className="border-b border-slate-800/50">
                       <td className="py-2 pr-4 capitalize font-medium">{t}</td>
-                      <td className="text-right py-2 pr-2 text-slate-300">{stats[`${t}_attack`] || 0}%</td>
-                      <td className="text-right py-2 pr-2 text-slate-300">{stats[`${t}_defense`] || 0}%</td>
-                      <td className="text-right py-2 pr-2 text-slate-300">{stats[`${t}_health`] || 0}%</td>
-                      <td className="text-right py-2 text-amber-400">{stats[`${t}_lethality`] || 0}%</td>
+                      <td className="text-right py-2 pr-2 text-slate-300">{Number(stats[`${t}_attack`] || 0).toFixed(2)}%</td>
+                      <td className="text-right py-2 pr-2 text-slate-300">{Number(stats[`${t}_defense`] || 0).toFixed(2)}%</td>
+                      <td className="text-right py-2 pr-2 text-slate-300">{Number(stats[`${t}_health`] || 0).toFixed(2)}%</td>
+                      <td className="text-right py-2 text-amber-400">{Number(stats[`${t}_lethality`] || 0).toFixed(2)}%</td>
                     </tr>
                   ))}
                 </tbody>

@@ -136,12 +136,23 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
     setSaving(true)
     setError('')
 
+    // The 12 combat fields are held as raw strings while editing (to preserve
+    // partial decimals) — coerce them to numbers before sending so the zod
+    // z.number() schema accepts them. troop_type_primary stays a string.
+    const numericStats: Record<string, any> = { ...stats }
+    for (const { type } of STAT_ROWS) {
+      for (const stat of ['attack', 'defense', 'health', 'lethality']) {
+        const k = `${type}_${stat}`
+        numericStats[k] = Number(stats[k as keyof StatFields]) || 0
+      }
+    }
+
     const res = await fetch('/api/member/combat-stats', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         access_token: accessToken,
-        ...stats,
+        ...numericStats,
         source: ocrState === 'review' ? 'ocr_verified' : 'manual',
       }),
     })
@@ -200,10 +211,10 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
                 {STAT_ROWS.map(({ type, label, color }) => (
                   <tr key={type} className="border-b border-slate-800/40">
                     <td className={`py-1.5 pr-4 font-medium text-xs ${color}`}>{label}</td>
-                    <td className="text-right py-1.5 pr-2 text-slate-300">{savedExisting[`${type}_attack`] || 0}%</td>
-                    <td className="text-right py-1.5 pr-2 text-slate-300">{savedExisting[`${type}_defense`] || 0}%</td>
-                    <td className="text-right py-1.5 pr-2 text-slate-300">{savedExisting[`${type}_health`] || 0}%</td>
-                    <td className="text-right py-1.5 text-amber-400">{savedExisting[`${type}_lethality`] || 0}%</td>
+                    <td className="text-right py-1.5 pr-2 text-slate-300">{Number(savedExisting[`${type}_attack`] || 0).toFixed(2)}%</td>
+                    <td className="text-right py-1.5 pr-2 text-slate-300">{Number(savedExisting[`${type}_defense`] || 0).toFixed(2)}%</td>
+                    <td className="text-right py-1.5 pr-2 text-slate-300">{Number(savedExisting[`${type}_health`] || 0).toFixed(2)}%</td>
+                    <td className="text-right py-1.5 text-amber-400">{Number(savedExisting[`${type}_lethality`] || 0).toFixed(2)}%</td>
                   </tr>
                 ))}
               </tbody>
@@ -254,7 +265,7 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
                 onClick={() => fileRef.current?.click()}
               >
                 <Upload size={14} className="mr-1.5" />
-                Upload Screenshot (OCR)
+                📷 Scan Screenshot
               </Button>
             )}
             {(ocrState === 'no_key' || ocrState === 'review') && ocrMessage && (
@@ -328,8 +339,13 @@ export function CombatStatsEditor({ memberId, accessToken, existing }: Props) {
                               inputMode="decimal"
                               value={stats[key]}
                               onChange={e => {
+                                // Keep the raw string while typing so a trailing
+                                // "." or partial decimal (e.g. "306." → "306.6")
+                                // isn't stripped by premature number parsing.
+                                // Allow digits and up to 2 decimal places; coerced
+                                // to a number on save.
                                 const v = e.target.value.replace(/[^0-9.]/g, '')
-                                setStat(key, v === '' ? 0 : parseFloat(v) || 0)
+                                if (v === '' || /^\d*\.?\d{0,2}$/.test(v)) setStat(key, v)
                               }}
                               className={`h-8 text-xs pr-6 ${conf !== undefined && conf < 0.7 ? 'border-amber-500/50' : ''}`}
                             />

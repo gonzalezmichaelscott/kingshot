@@ -10,6 +10,7 @@ import Link from 'next/link'
 import { parseMarkdownToHtml } from '@/components/ui/RichTextEditor'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { CombatStatsEditor } from '@/components/members/CombatStatsEditor'
+import { ScanScreenshotButton } from '@/components/members/ScanScreenshotButton'
 import { HeroManager } from '@/components/members/HeroManager'
 import { TroopDataEditor } from '@/components/members/TroopDataEditor'
 import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
@@ -105,6 +106,40 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
     // Also re-sync server data (the page is force-dynamic, so this returns fresh rows).
+    router.refresh()
+  }
+
+  // Persist the subset of power/march/rally the member selected from an OCR scan,
+  // merged onto whatever is already in the form, then reflect it locally.
+  async function applyScannedStats(selected: Record<string, number>) {
+    const merged = {
+      power: selected.power ?? (parseInt(String(stats.power)) || 0),
+      march_size: selected.march_size ?? (parseInt(String(stats.march_size)) || 0),
+      rally_capacity: selected.rally_capacity ?? (parseInt(String(stats.rally_capacity)) || 0),
+    }
+    setError('')
+    let res: Response
+    try {
+      res = await fetch('/api/member/stats', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ access_token: member.access_token, ...merged }),
+      })
+    } catch {
+      setError('Network error — please check your connection and try again.')
+      return
+    }
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      setError(d.error || 'Save failed — your stats were not updated. Please try again.')
+      return
+    }
+    setStats(merged)
+    member.power = merged.power
+    member.march_size = merged.march_size
+    member.rally_capacity = merged.rally_capacity
+    setSaved(true)
+    setTimeout(() => setSaved(false), 2000)
     router.refresh()
   }
 
@@ -218,6 +253,21 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
               <p className="text-xs text-slate-500">
                 Troop count is calculated automatically from your Troops tab.
               </p>
+
+              {/* OCR: scan a Governor profile screenshot to fill these in */}
+              <div className="pt-1">
+                <ScanScreenshotButton
+                  allowedKeys={['power', 'march_size', 'rally_capacity']}
+                  onApply={applyScannedStats}
+                  helpText={
+                    'For best results:\n' +
+                    '• Power stats: screenshot your Governor profile screen\n' +
+                    '• Combat stats: screenshot your Research or Troop stats screen\n' +
+                    '• Make sure text is clear and not blurry'
+                  }
+                />
+              </div>
+
               {error && (
                 <div className="bg-red-950/40 border border-red-800/60 rounded-lg px-3 py-2">
                   <p className="text-red-400 text-sm">{error}</p>
