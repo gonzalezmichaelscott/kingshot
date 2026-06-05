@@ -63,17 +63,26 @@ export async function getKvkContext(kingdomId: string) {
     .eq('slug', KVK_SLUG)
     .single()
 
+  if (!eventType) {
+    // Without the event type, no alliance can have an "active" KVK event — make
+    // that loud rather than silently returning 0 attending members.
+    console.warn(`[KVK] getKvkContext: no event_types row for slug "${KVK_SLUG}" — run the schema seed.`)
+  }
+
   const { data: alliances } = await svc
     .from('alliances')
     .select('id, name, tag, kvk_enabled')
     .eq('kingdom_id', kingdomId)
 
   const enabled = (alliances || []).filter(a => a.kvk_enabled)
+  console.log(`[KVK] getKvkContext kingdom=${kingdomId} kvkEnabledAlliances=${enabled.length} (of ${(alliances || []).length})`)
 
   const result: any[] = []
   for (const a of enabled) {
     let latest: any = null
     if (eventType) {
+      // No date filter on purpose: the latest non-completed event (upcoming OR
+      // currently active) is the one members submit attendance on.
       const { data: evs } = await svc
         .from('events')
         .select('*, event_types(*)')
@@ -84,10 +93,15 @@ export async function getKvkContext(kingdomId: string) {
         .limit(1)
       latest = await autoCompleteIfEnded(svc, evs?.[0] || null)
     }
+    const isActive = !!(latest && latest.status !== 'completed')
+    console.log(
+      `[KVK] getKvkContext alliance=[${a.tag}](${a.id}) latestEvent=${latest?.id || 'none'} ` +
+      `status=${latest?.status || '-'} battle_start=${latest?.battle_start_utc || '-'} active=${isActive}`
+    )
     result.push({
       ...a,
       event: latest,
-      activeEvent: latest && latest.status !== 'completed' ? latest : null,
+      activeEvent: isActive ? latest : null,
     })
   }
 
@@ -99,15 +113,22 @@ export async function getKvkContext(kingdomId: string) {
  * event ids, each annotated with its availability row and source event id.
  */
 export async function loadAttendingKvkMembers(activeEventIds: string[]) {
-  if (!activeEventIds.length) return []
+  if (!activeEventIds.length) {
+    console.log('[KVK] loadAttendingKvkMembers: no active event ids → 0 attending members')
+    return []
+  }
   const svc = createServiceClient()
-  const { data: avail } = await svc
+  // IMPORTANT: `members` has TWO foreign keys to `alliances` (alliance_id and
+  // previous_alliance_id), so a bare `alliances(...)` embed is AMBIGUOUS and makes
+  // PostgREST reject the whole query (data=null → 0 members). Disambiguate with the
+  // explicit FK name, exactly as the rest of the codebase does.
+  const { data: avail, error } = await svc
     .from('event_availability')
     .select(`
       *,
       members (
         *,
-        alliances (name, tag),
+        alliances!members_alliance_id_fkey (name, tag),
         member_scores (*),
         member_combat_stats (troop_type_primary, id),
         member_heroes (id)
@@ -116,7 +137,18 @@ export async function loadAttendingKvkMembers(activeEventIds: string[]) {
     .in('event_id', activeEventIds)
     .eq('will_attend', true)
 
-  return (avail || [])
-    .filter(a => a.members)
-    .map(a => ({ ...a.members, _availability: a, _eventId: a.event_id }))
+  if (error) {
+    console.error('[KVK] loadAttendingKvkMembers query FAILED:', error.message, error.details || '', error.hint || '')
+    return []
+  }
+
+  const rows = avail || []
+  const withMember = rows.filter(a => a.members)
+  console.log(
+    `[KVK] loadAttendingKvkMembers eventIds=${JSON.stringify(activeEventIds)} ` +
+    `attendanceRows=${rows.length} resolvedMembers=${withMember.length} ` +
+    `droppedMissingMember=${rows.length - withMember.length}`
+  )
+
+  return withMember.map(a => ({ ...a.members, _availability: a, _eventId: a.event_id }))
 }

@@ -391,16 +391,23 @@ async function loadKvkMembersForScoring(memberIds: string[], eventType: any, ava
   const supabase = createServiceClient()
   const weights = eventType.scoring_weights as Record<string, Record<string, number>>
 
-  const { data: rawMembers } = await supabase
+  // `members` has two FKs to `alliances` (alliance_id + previous_alliance_id), so
+  // a bare `alliances(...)` embed is ambiguous and fails the whole query (data=null
+  // → "No attending members found"). Disambiguate with the explicit FK name.
+  const { data: rawMembers, error } = await supabase
     .from('members')
     .select(`
       *,
-      alliances ( name, tag ),
+      alliances!members_alliance_id_fkey ( name, tag ),
       member_combat_stats (*),
       member_heroes ( *, heroes (*) ),
       member_scores (*)
     `)
     .in('id', memberIds)
+
+  if (error) {
+    console.error('[KVK] loadKvkMembersForScoring query FAILED:', error.message, error.details || '', error.hint || '')
+  }
 
   return (rawMembers || []).map(m => {
     const stats = (m.member_combat_stats as any)?.[0]
