@@ -25,7 +25,7 @@ export default async function WorldChatPage() {
   const [{ data: messages }, { data: profiles }, { data: members }, { data: alliances }, { data: flags }] =
     await Promise.all([
       svc.from('world_chat_messages').select('*').order('created_at', { ascending: false }).limit(50),
-      svc.from('user_profiles').select('id, display_name, alliance_id, active_member_id'),
+      svc.from('user_profiles').select('id, display_name, alliance_id, active_member_id, role'),
       svc.from('members').select('id, player_name, linked_user_id, alliance_id').not('linked_user_id', 'is', null),
       svc.from('alliances').select('id, tag'),
       svc.from('report_flags').select('message_id').eq('message_type', 'world_chat').eq('status', 'pending'),
@@ -56,14 +56,14 @@ export default async function WorldChatPage() {
   // Build the directory (auth user id -> { name, allianceTag }) and the @ mention list.
   // FEATURE 1 — prefer the user's ACTIVE profile name so multi-account players show
   // the correct game tag for whichever profile is currently active.
-  const directory: Record<string, { name: string; allianceTag: string }> = {}
+  const directory: Record<string, { name: string; allianceTag: string; role?: string }> = {}
   const mentionMembers: any[] = []
   for (const p of profiles || []) {
     const activeName = p.active_member_id ? memberNameById.get(p.active_member_id) : null
     const name = activeName || playerNameByUser.get(p.id) || p.display_name || 'Unknown'
     const allianceId = p.alliance_id || memberAllianceByUser.get(p.id)
     const allianceTag = allianceId ? (tagById.get(allianceId) || 'Guest') : 'Guest'
-    directory[p.id] = { name, allianceTag }
+    directory[p.id] = { name, allianceTag, role: p.role }
     if (name !== 'Unknown') {
       mentionMembers.push({ id: p.id, player_name: name, linked_user_id: p.id })
     }

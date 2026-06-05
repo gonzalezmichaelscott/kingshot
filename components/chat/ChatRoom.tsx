@@ -369,6 +369,10 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
             const isOwn = msg.author_id === currentUser?.id
             const isImage = isImageMessage(msg.content)
             const senderName = resolveSenderName(msg.author_id, msg.user_profiles?.display_name, memberByUser)
+            // Only a System Admin may delete a System Admin's message.
+            const authorIsAdmin = msg.user_profiles?.role === 'system_admin'
+            const viewerIsAdmin = currentUser?.role === 'system_admin'
+            const canDeleteThis = canDelete && (viewerIsAdmin || !authorIsAdmin)
             return (
               <div key={msg.id} id={`msg-${msg.id}`} className={`flex gap-2 ${isOwn ? 'flex-row-reverse' : ''} ${highlightId === msg.id ? 'ring-2 ring-amber-400 rounded-2xl -m-1 p-1' : ''}`}>
                 <div className={`max-w-[80%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
@@ -414,7 +418,7 @@ export function ChatRoom({ allianceId, allianceName, initialMessages, currentUse
                         {tr.pending[msg.id] ? '...' : tr.visible[msg.id] ? 'Show Original' : 'Translate'}
                       </button>
                     )}
-                    {canDelete && (
+                    {canDeleteThis && (
                       <button onClick={() => deleteMessage(msg.id)} className="text-xs text-red-500/50 hover:text-red-400">
                         <Trash2 size={10} />
                       </button>

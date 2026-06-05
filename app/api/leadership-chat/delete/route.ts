@@ -33,6 +33,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // Messages authored by a System Admin can ONLY be removed by a System Admin
+  // (defense-in-depth: the author-self path must not delete an admin message).
+  if (!isAdmin && message.author_id) {
+    const { data: author } = await svc
+      .from('user_profiles').select('role').eq('id', message.author_id).maybeSingle()
+    if (author?.role === 'system_admin') {
+      return NextResponse.json({ error: 'Only a System Admin can delete a System Admin message.' }, { status: 403 })
+    }
+  }
+
   const { error } = await svc.from('leadership_chat_messages').delete().eq('id', messageId)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

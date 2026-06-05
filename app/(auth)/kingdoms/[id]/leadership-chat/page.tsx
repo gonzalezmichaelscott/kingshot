@@ -77,12 +77,12 @@ export default async function LeadershipChatPage({ params }: { params: { id: str
   }
 
   // Directory (author id -> { name, allianceTag }) + the R4/R5 mention list.
-  const directory: Record<string, { name: string; allianceTag: string }> = {}
+  const directory: Record<string, { name: string; allianceTag: string; role?: string }> = {}
   const mentionMembers: any[] = []
   for (const p of leaders || []) {
     const name = playerNameByUser.get(p.id) || p.display_name || 'Unknown'
     const allianceTag = p.alliance_id ? (tagById.get(p.alliance_id) || 'Guest') : 'Guest'
-    directory[p.id] = { name, allianceTag }
+    directory[p.id] = { name, allianceTag, role: p.role }
     if (name !== 'Unknown') {
       mentionMembers.push({ id: p.id, player_name: name, linked_user_id: p.id })
     }
@@ -93,7 +93,7 @@ export default async function LeadershipChatPage({ params }: { params: { id: str
   // (e.g. a System Admin with no alliance in this kingdom).
   if (!directory[user.id]) {
     const tag = profile?.alliance_id ? (tagById.get(profile.alliance_id) || 'Admin') : 'Admin'
-    directory[user.id] = { name: playerNameByUser.get(user.id) || 'Admin', allianceTag: tag }
+    directory[user.id] = { name: playerNameByUser.get(user.id) || 'Admin', allianceTag: tag, role: profile?.role }
   }
 
   // Only System Admin can delete ANY message; authors delete their own (isOwn).

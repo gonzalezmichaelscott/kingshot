@@ -134,6 +134,10 @@ export function KvkChatSection({ kingdomId, currentUserId, currentUserRole, alli
             const isOwn = msg.author_id === currentUserId
             // Game tag first; never show the real auth name (Fix 4).
             const senderName = nameDirectory[msg.author_id] || author?.display_name || 'Unknown'
+            // Only a System Admin may delete a System Admin's message.
+            const authorIsAdmin = author?.role === 'system_admin'
+            const viewerIsAdmin = currentUserRole === 'system_admin'
+            const canDeleteThis = canDelete && (viewerIsAdmin || !authorIsAdmin)
             return (
               <div key={msg.id} className={`flex gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
                 <div className={`max-w-[80%] flex flex-col gap-0.5 ${isOwn ? 'items-end' : 'items-start'}`}>
@@ -154,7 +158,7 @@ export function KvkChatSection({ kingdomId, currentUserId, currentUserRole, alli
                         <Globe size={9} />{translating === msg.id ? '…' : 'TR'}
                       </button>
                     )}
-                    {canDelete && (
+                    {canDeleteThis && (
                       <button onClick={() => deleteMessage(msg.id)} className="text-[10px] text-red-500/50 hover:text-red-400">
                         <Trash2 size={9} />
                       </button>

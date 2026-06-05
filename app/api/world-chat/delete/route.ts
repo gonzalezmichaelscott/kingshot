@@ -21,6 +21,8 @@ export async function POST(request: NextRequest) {
     .from('user_profiles').select('role').eq('id', user.id).single()
   const isModerator = ['system_admin', 'r5'].includes(profile?.role || '')
 
+  const isAdmin = profile?.role === 'system_admin'
+
   const svc = createServiceClient()
   const { data: message } = await svc
     .from('world_chat_messages').select('id, author_id').eq('id', data.messageId).maybeSingle()
@@ -28,6 +30,16 @@ export async function POST(request: NextRequest) {
 
   if (!isModerator && message.author_id !== user.id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // Messages authored by a System Admin can ONLY be removed by a System Admin —
+  // a moderator (R5) or the previous author-self path must not delete them.
+  if (!isAdmin && message.author_id) {
+    const { data: author } = await svc
+      .from('user_profiles').select('role').eq('id', message.author_id).maybeSingle()
+    if (author?.role === 'system_admin') {
+      return NextResponse.json({ error: 'Only a System Admin can delete a System Admin message.' }, { status: 403 })
+    }
   }
 
   const { error } = await svc.from('world_chat_messages').delete().eq('id', data.messageId)

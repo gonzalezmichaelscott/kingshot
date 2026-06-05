@@ -17,7 +17,7 @@ interface Props {
   currentUserRole: string
   currentUserLang?: string
   /** auth user id -> { name, allianceTag } for sender labels + own messages */
-  directory: Record<string, { name: string; allianceTag: string }>
+  directory: Record<string, { name: string; allianceTag: string; role?: string }>
   /** members-shaped list ({ id, player_name, linked_user_id }) for @ autocomplete */
   mentionMembers: any[]
   canDelete: boolean
@@ -350,6 +350,10 @@ export function WorldChatRoom({
             const isOwn = msg.author_id === currentUserId
             const isImage = isImageMessage(msg.content)
             const identity = resolveWorldIdentity(msg.author_id, directory)
+            // Only a System Admin may delete a System Admin's message.
+            const authorIsAdmin = identity.role === 'system_admin'
+            const viewerIsAdmin = currentUserRole === 'system_admin'
+            const canDeleteThis = (canDelete || isOwn) && (viewerIsAdmin || !authorIsAdmin)
             return (
               <div key={msg.id} id={`worldmsg-${msg.id}`} className={`flex gap-2 ${isOwn ? 'flex-row-reverse' : ''}`}>
                 <div className={`max-w-[80%] ${isOwn ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
@@ -409,7 +413,7 @@ export function WorldChatRoom({
                         </button>
                       )
                     )}
-                    {(canDelete || isOwn) && (
+                    {canDeleteThis && (
                       <button onClick={() => deleteMessage(msg.id)} title="Delete message" className="text-xs text-red-500/50 hover:text-red-400">
                         <Trash2 size={10} />
                       </button>

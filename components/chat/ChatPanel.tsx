@@ -409,6 +409,10 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
             const isOwn = msg.author_id === currentUserId
             const isImage = isImageMessage(msg.content)
             const senderName = resolveSenderName(msg.author_id, msg.user_profiles?.display_name, memberByUser)
+            // Only a System Admin may delete a System Admin's message.
+            const authorIsAdmin = msg.user_profiles?.role === 'system_admin'
+            const viewerIsAdmin = currentUserRole === 'system_admin'
+            const canDeleteThis = canDelete && (viewerIsAdmin || !authorIsAdmin)
             return (
               <div key={msg.id} id={`panelmsg-${msg.id}`} className={`flex gap-1.5 ${isOwn ? 'flex-row-reverse' : ''} ${highlightId === msg.id ? 'ring-2 ring-amber-400 rounded-xl -m-1 p-1' : ''}`}>
                 <div className={`max-w-[85%] flex flex-col gap-0.5 ${isOwn ? 'items-end' : 'items-start'}`}>
@@ -454,7 +458,7 @@ export function ChatPanel({ allianceId, allianceName, currentUserId, currentUser
                         {tr.pending[msg.id] ? '…' : tr.visible[msg.id] ? 'Original' : 'TR'}
                       </button>
                     )}
-                    {canDelete && (
+                    {canDeleteThis && (
                       <button onClick={() => deleteMessage(msg.id)} className="text-[10px] text-red-500/50 hover:text-red-400">
                         <Trash2 size={9} />
                       </button>

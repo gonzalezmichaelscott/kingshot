@@ -8,6 +8,9 @@
 export interface WorldChatIdentity {
   name: string
   allianceTag: string
+  // Author's account role (e.g. 'system_admin'), used to gate delete-button
+  // visibility — only a System Admin may delete a System Admin's message.
+  role?: string
 }
 
 /** Map of auth user id -> { name, allianceTag }. */
