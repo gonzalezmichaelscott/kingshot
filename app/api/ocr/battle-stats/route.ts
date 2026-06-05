@@ -52,7 +52,10 @@ async function callGoogleVision(base64: string): Promise<string> {
   // (e.g. "data:image/jpeg;base64,") that may have slipped through.
   const content = base64.includes(',') ? base64.split(',').pop()! : base64
 
-  const endpoint = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`
+  // Pass the API key via the x-goog-api-key header (Google's recommended way)
+  // rather than a ?key= query parameter — this can sidestep "requests blocked"
+  // errors tied to HTTP-referrer / query-key restrictions.
+  const endpoint = 'https://vision.googleapis.com/v1/images:annotate'
   const requestBody = {
     requests: [
       {
@@ -61,11 +64,14 @@ async function callGoogleVision(base64: string): Promise<string> {
       },
     ],
   }
-  console.log('[OCR] Vision request: base64 length', content.length, '| feature TEXT_DETECTION')
+  console.log('[OCR] Vision request: base64 length', content.length, '| feature TEXT_DETECTION | auth via x-goog-api-key header')
 
   const res = await fetch(endpoint, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    },
     body: JSON.stringify(requestBody),
   })
 
