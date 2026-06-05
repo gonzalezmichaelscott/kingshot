@@ -4,6 +4,9 @@ import { AvailabilityPanel } from './AvailabilityPanel'
 import { KvkAttendanceManager } from './KvkAttendanceManager'
 import { AssignmentsTable } from './AssignmentsTable'
 import { BattlePlanButton } from './BattlePlanButton'
+import { CastleRallies } from '@/components/kvk/CastleRallies'
+import { buildCastleRallies, splitCastleRoles } from '@/lib/rally-fill'
+import { isManualAssignment } from '@/lib/kvk'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AlertTriangle, Castle, Users, Shield, Check } from 'lucide-react'
@@ -65,6 +68,27 @@ export function CastleBattleEvent({ event, availability, assignments, members, a
   const hasPlan = assignments.length > 0
 
   const bySquad = (key: string) => assignments.filter(a => a.squad === key)
+
+  // FIX 5 — castle multi-rally allocation. Single-alliance event, so every rally
+  // is from the same alliance (no transfers). march/rally come from the members.
+  const memberById: Record<string, any> = {}
+  for (const m of members) memberById[m.id] = m
+  const castleAssignees = bySquad('castle').map((a: any) => {
+    const m = memberById[a.member_id] || {}
+    return {
+      id: a.member_id,
+      player_name: m.player_name || (a.members as any)?.player_name || 'Unknown',
+      game_id: m.game_id || null,
+      tag: null,
+      role: a.role,
+      is_backup: a.is_backup,
+      isManual: isManualAssignment(a.reasoning),
+      march_size: m.march_size || 0,
+      rally_capacity: m.rally_capacity || 0,
+    }
+  })
+  const { leaders: castleLeaders, joiners: castleJoiners } = splitCastleRoles(castleAssignees)
+  const castleRallies = buildCastleRallies(castleLeaders, castleJoiners)
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
@@ -246,7 +270,22 @@ export function CastleBattleEvent({ event, availability, assignments, members, a
         </Card>
       )}
 
-      {bySquad('castle').length > 0 && <AssignmentsTable assignments={bySquad('castle')} title="Castle Team" />}
+      {castleRallies.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Castle size={18} className="text-amber-500" />
+              Castle — Rally Allocation
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-xs text-slate-500 mb-3">
+              Fill the castle with {castleRallies.length >= 2 ? 'these full rallies' : 'this rally'} before turrets. Each rally is filled to its leader&apos;s capacity (rally capacity − march size).
+            </p>
+            <CastleRallies rallies={castleRallies} />
+          </CardContent>
+        </Card>
+      )}
       {bySquad('north_turret').length > 0 && <AssignmentsTable assignments={bySquad('north_turret')} title="North Turret" />}
       {bySquad('east_turret').length > 0 && <AssignmentsTable assignments={bySquad('east_turret')} title="East Turret" />}
       {bySquad('south_turret').length > 0 && <AssignmentsTable assignments={bySquad('south_turret')} title="South Turret" />}

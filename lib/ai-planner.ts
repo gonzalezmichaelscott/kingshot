@@ -60,11 +60,30 @@ RALLY LEADER SELECTION RULES:
 - Zoe NEVER leads attack rallies — her kit is purely defensive
 - Garrison/defense: Zoe, Jabel, Eric, Alcar, Charles (Gen 7)
 
-CASTLE PRIORITY (KVK Castle Battle):
-Holding the castle for 151 consecutive minutes wins the entire KVK instantly. ALWAYS assign the kingdom's strongest rally leaders and highest-scoring joiners to the castle FIRST. Only after the castle is fully staffed assign remaining players to turrets and support. Never sacrifice castle strength for turret assignments. Order of filling: (1) top rally leader to the castle, (2) fill castle joiner slots with the highest-scoring joiners, (3) assign remaining players to the four turrets by turret score, (4) everyone left becomes support.
+CASTLE ALLOCATION RULES (KVK Castle Battle):
+- The 151-minute instant win condition is ONLY achievable by holding the castle — turrets are secondary objectives.
+- Castle MUST have a minimum of 2 fully-staffed rallies before ANY turret gets a rally leader.
+- Fill each castle rally to capacity using rally_capacity - march_size math (see RALLY CAPACITY FILLING) before starting the next rally.
+- Ideal castle: 2-3 rally leaders each with their rally filled to capacity.
+- If total attending players cannot fill 2 complete castle rallies AND turret rallies: put ALL rally-capable players on castle, and send everyone remaining to support.
+- NEVER create incomplete rallies spread across multiple structures — 2 strong complete castle rallies beats 1 castle rally + 4 half-empty turret rallies.
+- Strict priority order: (1) Castle Rally 1 filled completely, (2) Castle Rally 2 filled completely, (3) Castle Rally 3 filled completely (only with very strong attendance), (4-7) North/East/South/West turrets — ONLY once the castle has 2+ complete rallies, (8) Support gets everyone who is not in a rally.
+- A "complete" rally = a leader plus at least 2 joiners (or a leader alone if no joiners remain but the capacity math is satisfied). Support players attack enemy troops, not structures.
+
+RALLY CAPACITY FILLING (applies to ALL event types — KVK Castle, Castle Battle, Swordland, Tri Alliance):
+Do NOT use a fixed joiner count like "3-5 joiners". Compute the joiners per rally from real capacity math:
+1. available_joiner_space = rally_leader.rally_capacity - rally_leader.march_size (the leader's own troops fill part of their rally).
+2. Sort available joiners by march_size DESCENDING (largest march fills the most space).
+3. Add joiners one at a time, subtracting each joiner's march_size from available_joiner_space, until the next joiner would exceed the remaining space or no joiners remain.
+INCOMPLETE DATA DEFAULTS:
+- If the rally leader's rally_capacity = 0 OR march_size = 0: default to a MAXIMUM of 15 joiners per rally (the game's hard cap) and add a warning: "Rally capacity data incomplete — defaulting to max 15 joiners".
+- If a joiner's march_size = 0: estimate their march contribution as 50,000 and add a warning: "March size unknown for [player] — using estimate".
 
 RALLY JOINER RULE:
-Joiners must be from the same alliance as their rally leader UNLESS the joiner has kvk_willing_to_move = true. Willing-to-move members can be assigned across alliance lines if it meaningfully improves rally strength. Always note in reasoning when a cross-alliance joiner assignment is made.
+- A joiner only needs a cross-alliance TRANSFER when the rally leader is in a DIFFERENT alliance. If the joiner and rally leader are ALREADY in the same alliance, they join directly — set kvk_transfer = false, no transfer_alliance, and DO NOT add a transfer_recommendation.
+- Only set kvk_transfer = true when rally_leader.alliance !== joiner.alliance AND the joiner has kvk_willing_to_move = true.
+- Members who are NOT willing to move must only join same-alliance rally leaders.
+- Always note in reasoning when a genuine cross-alliance joiner assignment is made.
 
 JOINER OPTIMIZATION:
 - Best attack joiner stack: Chenko (101) + Amane (102) — different effect_ops multiply
@@ -104,6 +123,11 @@ export interface BattlePlanAssignment {
   kvk_transfer?: boolean
   transfer_alliance?: string
   transfer_rally_leader?: string
+  // Rally-fill helpers (FIX 3) populated server-side from member data so member
+  // instructions can show "filling ~X of Y march slots". Not produced by the AI.
+  _march_size?: number
+  _available_joiner_space?: number
+  _rally_incomplete?: boolean
 }
 
 export interface TransferRecommendation {
@@ -305,6 +329,7 @@ ATTENDING MEMBERS (${members.length} total):`
   Power: ${m.power.toLocaleString()}
   March Size: ${m.march_size.toLocaleString()}
   Rally Capacity: ${m.rally_capacity.toLocaleString()}
+  Rally Fill Math: rally_cap=${(m.rally_capacity || 0).toLocaleString()}, march=${(m.march_size || 0).toLocaleString()}, available_joiner_space=${Math.max(0, (m.rally_capacity || 0) - (m.march_size || 0)).toLocaleString()}
   Troop Count: ${m.troop_count.toLocaleString()} | Effective Strength: ${m.effective_troop_strength.toLocaleString()}
   Primary Troop Type: ${sanitizeForJson(m.troop_type)}${troopBreakdown ? `\n  Troop Breakdown:\n${troopBreakdown}` : ''}
   Hero Score: ${m.hero_score.toFixed(1)}
@@ -372,8 +397,11 @@ Respond ONLY with valid JSON in this exact schema (raw JSON, no code fences):
   return prompt
 }
 
-async function storeAssignments(eventId: string, plan: BattlePlan, event: any) {
+async function storeAssignments(eventId: string, plan: BattlePlan, event: any, members: any[] = []) {
   const supabase = createServiceClient()
+
+  // FIX 3 — annotate assignments with march/rally-fill data for member instructions.
+  attachRallyFillData(plan, members)
 
   // Clear existing assignments
   await supabase.from('event_assignments').delete().eq('event_id', eventId)
@@ -543,6 +571,7 @@ async function loadKvkMembersForScoring(memberIds: string[], eventType: any, ava
     return {
       member_id: m.id,
       player_name: m.player_name,
+      alliance_id: m.alliance_id || null,
       alliance_name: (m.alliances as any)?.name || null,
       alliance_tag: (m.alliances as any)?.tag || null,
       kvk_willing_to_move: !!m.kvk_willing_to_move,
@@ -570,12 +599,95 @@ async function loadKvkMembersForScoring(memberIds: string[], eventType: any, ava
  * manual overrides by skipping members that aren't in the plan, and regenerates
  * member_instructions for each AI assignment.
  */
+/**
+ * FIX 2 — a cross-alliance transfer is only legitimate when the joiner's rally
+ * leader is in a DIFFERENT alliance. The model sometimes flags a transfer even
+ * when the rally leader is in the joiner's own alliance (e.g. recommending a TNT
+ * member move to HXA to join a leader who is themselves in TNT). This clears
+ * those false transfers and prunes matching transfer_recommendations.
+ */
+function reconcileTransfers(plan: BattlePlan, members: any[]) {
+  const allianceById: Record<string, string | null> = {}
+  for (const m of members) allianceById[m.member_id] = m.alliance_id || null
+
+  // The (non-backup) rally leader assigned to each squad.
+  const leaderBySquad: Record<string, any> = {}
+  for (const a of plan.assignments) {
+    if (a.squad && a.role?.toLowerCase().includes('leader') && !a.is_backup) {
+      leaderBySquad[a.squad] = a
+    }
+  }
+
+  for (const a of plan.assignments) {
+    if (!a.kvk_transfer) continue
+    const joinerAlliance = allianceById[a.member_id]
+
+    // Resolve the rally leader's alliance: prefer the leader assigned to the same
+    // squad; fall back to matching transfer_rally_leader by player name.
+    let leaderAlliance: string | null = null
+    const squadLeader = a.squad ? leaderBySquad[a.squad] : null
+    if (squadLeader) leaderAlliance = allianceById[squadLeader.member_id] ?? null
+    if (!leaderAlliance && a.transfer_rally_leader) {
+      const lm = members.find(m => m.player_name === a.transfer_rally_leader)
+      if (lm) leaderAlliance = lm.alliance_id || null
+    }
+
+    // Same alliance → no transfer needed: assign as a normal joiner.
+    if (joinerAlliance && leaderAlliance && joinerAlliance === leaderAlliance) {
+      a.kvk_transfer = false
+      delete a.transfer_alliance
+      delete a.transfer_rally_leader
+    }
+  }
+
+  // Drop transfer recommendations that are same-alliance or no longer back a
+  // flagged transfer assignment.
+  if (Array.isArray(plan.transfer_recommendations)) {
+    plan.transfer_recommendations = plan.transfer_recommendations.filter(t => {
+      const home = (t.home_alliance || '').trim().toLowerCase()
+      const rec = (t.recommended_alliance || '').trim().toLowerCase()
+      if (home && rec && home === rec) return false
+      return plan.assignments.some(a => a.kvk_transfer && a.player_name === t.player_name)
+    })
+  }
+}
+
+/**
+ * FIX 3 — annotate each assignment with the data needed for capacity-aware member
+ * instructions: the player's own march_size, and (for rally leaders) the space
+ * available to joiners (rally_capacity - march_size). Incomplete leader data is
+ * flagged so instructions fall back to the "max 15 joiners" guidance.
+ */
+function attachRallyFillData(plan: BattlePlan, members: any[]) {
+  const byId: Record<string, any> = {}
+  for (const m of members) byId[m.member_id] = m
+
+  for (const a of plan.assignments) {
+    const m = byId[a.member_id]
+    a._march_size = Number(m?.march_size) || 0
+
+    if (a.role?.toLowerCase().includes('leader') && !a.is_backup) {
+      const cap = Number(m?.rally_capacity) || 0
+      const march = Number(m?.march_size) || 0
+      if (!cap || !march) {
+        a._rally_incomplete = true
+        a._available_joiner_space = 0
+      } else {
+        a._available_joiner_space = Math.max(0, cap - march)
+      }
+    }
+  }
+}
+
 async function storeKvkAssignments(
   plan: BattlePlan,
   eventIdByMember: Record<string, string>,
   eventName: string,
   eventStartByMember: Record<string, string | null>,
+  members: any[] = [],
 ) {
+  attachRallyFillData(plan, members)
+
   const supabase = createServiceClient()
   const now = new Date().toISOString()
 
@@ -680,9 +792,14 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 
       delete a.transfer_alliance
       delete a.transfer_rally_leader
     }
+  } else {
+    // Plan B: a transfer is only real when the joiner and their rally leader are
+    // in DIFFERENT alliances. Strip any "transfer" the model flagged where they
+    // are actually in the SAME alliance (the Kyib→HXA-for-IdahoPotato bug).
+    reconcileTransfers(plan, members)
   }
 
-  await storeKvkAssignments(plan, eventIdByMember, pseudoEvent.name, eventStartByMember)
+  await storeKvkAssignments(plan, eventIdByMember, pseudoEvent.name, eventStartByMember, members)
   return { plan, eventIds: activeEventIds }
 }
 
@@ -729,7 +846,7 @@ async function generateSwordlandPlan(members: any[], event: any, eventId: string
     warnings: [...(p1?.warnings || []), ...(p2?.warnings || [])],
   }
 
-  await storeAssignments(eventId, merged, event)
+  await storeAssignments(eventId, merged, event, members)
   return merged
 }
 
@@ -749,7 +866,7 @@ export async function generateBattlePlan(eventId: string): Promise<BattlePlan> {
 
   const plan: BattlePlan = await runPlannerModel(prompt)
 
-  await storeAssignments(eventId, plan, event)
+  await storeAssignments(eventId, plan, event, members)
   return plan
 }
 

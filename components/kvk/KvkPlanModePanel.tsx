@@ -112,7 +112,9 @@ export function KvkPlanModePanel({
                 ? 'Generating Kingdom Plan...'
                 : success
                 ? 'Plan Generated!'
-                : `Generate ${planMode === 'A' ? 'Plan A (Alliance Only)' : 'Plan B (Optimal)'}`}
+                : planMode === 'A'
+                ? 'Generate Plan A — Alliance Only'
+                : 'Generate Plan B — Optimal with Transfers'}
             </Button>
             <p className="text-xs text-slate-500">
               Combines every attending member across participating alliances and assigns them to the castle,

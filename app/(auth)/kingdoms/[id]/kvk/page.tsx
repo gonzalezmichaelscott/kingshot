@@ -8,12 +8,12 @@ import { notFound, redirect } from 'next/navigation'
 import { formatPower } from '@/lib/utils'
 import { KvkChatSection } from '@/components/kvk/KvkChatSection'
 import { KvkStructureBoard } from '@/components/kvk/KvkStructureBoard'
-import { KvkGeneratePlanButton } from '@/components/kvk/KvkGeneratePlanButton'
 import { KvkNewCycleButton } from '@/components/kvk/KvkNewCycleButton'
 import { KvkReadiness } from '@/components/kvk/KvkReadiness'
 import { KvkPlanModePanel } from '@/components/kvk/KvkPlanModePanel'
 import { KvkSyncButton } from '@/components/kvk/KvkSyncButton'
 import { getKvkContext, loadAttendingKvkMembers, KVK_STRUCTURES, isManualAssignment } from '@/lib/kvk'
+import { buildCastleRallies, splitCastleRoles } from '@/lib/rally-fill'
 import { KeepAwake } from '@/components/ui/KeepAwake'
 import { createServiceClient } from '@/lib/supabase/server'
 
@@ -190,6 +190,24 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
     }
   })
 
+  // FIX 5 — group the castle squad into multiple rallies (Rally 1/2/3) using the
+  // rally-capacity formula. march_size / rally_capacity come from the attending
+  // member pool (assignments only carry name/tag).
+  const statById: Record<string, { march_size: number; rally_capacity: number }> = {}
+  for (const m of attendingMembers) {
+    statById[m.id] = { march_size: m.march_size || 0, rally_capacity: m.rally_capacity || 0 }
+  }
+  const castleAssignees = assignments
+    .filter(a => a.squad === 'castle')
+    .map((a: any) => ({
+      ...toAssignee(a),
+      is_backup: a.is_backup,
+      march_size: statById[a.member_id]?.march_size || 0,
+      rally_capacity: statById[a.member_id]?.rally_capacity || 0,
+    }))
+  const { leaders: castleLeaders, joiners: castleJoiners } = splitCastleRoles(castleAssignees)
+  const castleRallies = buildCastleRallies(castleLeaders, castleJoiners)
+
   const pool = attendingMembers.map(m => ({
     id: m.id,
     player_name: m.player_name,
@@ -291,6 +309,7 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
           <KvkStructureBoard
             kingdomId={params.id}
             structures={structures}
+            castleRallies={castleRallies}
             hourLabels={hourLabels}
             pool={pool}
             canManage={canManage}

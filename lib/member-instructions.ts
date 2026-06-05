@@ -33,6 +33,16 @@ function joinerInstructions(
   const formation = a.formation_recommendation || 'Use your primary troop type'
   const squadLabel = a.squad ? ` (Squad ${a.squad})` : ''
 
+  // FIX 3 — capacity-aware joiner slot line.
+  const leaderSpace = leader?._available_joiner_space || 0
+  const myMarch = a._march_size || 0
+  let slotLine = ''
+  if (leader?._rally_incomplete) {
+    slotLine = '\nRally capacity data is incomplete — this rally takes up to 15 joiners (the game maximum).'
+  } else if (leaderSpace > 0 && myMarch > 0) {
+    slotLine = `\nYou are filling approximately ${myMarch.toLocaleString()} of ${leaderSpace.toLocaleString()} available march slots in this rally.`
+  }
+
   const transferBlock = a.kvk_transfer
     ? `\n*** KVK TRANSFER ***
 You have been recommended to temporarily join ${a.transfer_alliance || "another alliance"}'s rally.
@@ -46,7 +56,7 @@ YOUR ROLE: Rally Joiner${squadLabel}
 YOUR SQUAD LEADER: ${leaderName}
 
 WHAT TO DO:
-Join ${leaderName}'s rally when they launch it. You are one of ${squadJoiners.length} joiners in this squad.
+Join ${leaderName}'s rally when they launch it. You are one of ${squadJoiners.length} joiners in this squad.${slotLine}
 
 HEROES TO USE:
 ${heroLines(a.hero_recommendation)}

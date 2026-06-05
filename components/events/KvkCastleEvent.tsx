@@ -2,7 +2,6 @@ import { EventHeader } from './EventHeader'
 import { AvailabilityPanel } from './AvailabilityPanel'
 import { KvkAttendanceManager } from './KvkAttendanceManager'
 import { AssignmentsTable } from './AssignmentsTable'
-import { BattlePlanButton } from './BattlePlanButton'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AlertTriangle, Castle, Users, Shield } from 'lucide-react'
@@ -92,11 +91,16 @@ export function KvkCastleEvent({ event, availability, assignments, members, alli
         />
       )}
 
-      {/* Generate Plan */}
+      {/* The KVK battle plan is a KINGDOM-level operation — generate it from the
+          KVK Command hub, not per alliance event. (Button intentionally removed.) */}
       {canManage && (
-        <Card>
-          <CardContent className="py-4">
-            <BattlePlanButton eventId={event.id} />
+        <Card className="border-amber-500/20">
+          <CardContent className="py-3">
+            <p className="text-sm text-slate-400">
+              The KVK battle plan is generated for the whole kingdom from the{' '}
+              <span className="text-amber-400 font-medium">KVK Command hub</span> — it combines every
+              participating alliance. Collect attendance here, then generate the plan there.
+            </p>
           </CardContent>
         </Card>
       )}
