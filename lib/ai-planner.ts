@@ -229,6 +229,21 @@ async function loadAttendingMembersWithScores(eventId: string) {
   return { members, event, weights }
 }
 
+// Strip characters from free-text member fields (player names, hero notes, etc.)
+// that could corrupt the prompt's line structure or the JSON the model is asked
+// to mirror back: control chars, then escape backslashes and double quotes.
+function sanitizeForJson(str: string): string {
+  if (!str) return ''
+  return String(str)
+    .replace(/[\x00-\x1F\x7F]/g, '')
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+}
+
+// Hard cap on prompt size. If the member list would push past this, we drop
+// members from the tail until it fits and tell the model the list was truncated.
+const MAX_PROMPT_CHARS = 80000
+
 function buildPlanningPrompt(members: any[], event: any, kvkOptions?: { planMode?: 'A' | 'B' }): string {
   const eventType = event.event_types
   const rules = eventType.rules
@@ -248,7 +263,7 @@ STRICT rule: every rally joiner MUST be from the SAME alliance as their rally le
 You MAY assign willing-to-move members (kvk_willing_to_move = true) to join a rally leader from a DIFFERENT alliance when it meaningfully improves rally strength. For each such cross-alliance joiner set kvk_transfer = true, transfer_alliance = the rally leader's alliance, and transfer_rally_leader = the rally leader's player name. Also populate transfer_recommendations with one entry per transferred player: { player_name, home_alliance, recommended_alliance, rally_leader, strength_improvement }. Members who are NOT willing to move must still only join same-alliance rally leaders.\n`
     : ''
 
-  return `You are a battle planning assistant for the mobile strategy game Kingshot.
+  const header = `You are a battle planning assistant for the mobile strategy game Kingshot.
 ${planModeBlock}${castleBattleBlock}
 
 EVENT: ${eventType.name}
@@ -257,40 +272,49 @@ OBJECTIVES: ${JSON.stringify(objectives)}
 KEY RULES: ${JSON.stringify(rules.key_rules || [])}
 EVENT RULES: ${JSON.stringify(rules)}
 
-ATTENDING MEMBERS (${members.length} total):
-${members.map(m => {
-  const troopBreakdown = m.troop_data
-    ? (['infantry', 'cavalry', 'archer'] as const).map(type => {
-        const typeData = m.troop_data[type]
-        if (!typeData || typeof typeData !== 'object') return null
-        const tgLevel = Number(typeData.tg_level) || 0
-        const tiers = Object.keys(TIER_POWER)
-          .map(tier => {
-            const v = Number(typeData[tier] ?? typeData[tier.toUpperCase()]) || 0
-            return v > 0 ? `${tier.toUpperCase()}=${v.toLocaleString()}` : null
-          })
-          .filter(Boolean)
-          .reverse() // show T10 first
-        if (!tiers.length && tgLevel === 0) return null
-        const eff = calculateEffectiveTroopStrength(m.troop_data, type)
-        return `    ${type}: TG${tgLevel}${tiers.length ? ` | ${tiers.join(', ')}` : ''} (eff: ${Math.round(eff).toLocaleString()})`
-      }).filter(Boolean).join('\n')
-    : null
+ATTENDING MEMBERS (${members.length} total):`
 
-  return `
-- Player: ${m.player_name}
-  ID: ${m.member_id}${m.alliance_name ? `\n  Alliance: [${m.alliance_tag || ''}] ${m.alliance_name}` : ''}${m.kvk_willing_to_move !== undefined ? `\n  KVK Willing To Move: ${m.kvk_willing_to_move ? 'YES (may join a different alliance\'s rally)' : 'no (same-alliance rallies only)'}` : ''}
+  // Build each member's block separately so we can drop blocks from the tail if
+  // the prompt would exceed MAX_PROMPT_CHARS. All free-text fields are sanitized.
+  const memberBlocks = members.map(m => {
+    const troopBreakdown = m.troop_data
+      ? (['infantry', 'cavalry', 'archer'] as const).map(type => {
+          const typeData = m.troop_data[type]
+          if (!typeData || typeof typeData !== 'object') return null
+          const tgLevel = Number(typeData.tg_level) || 0
+          const tiers = Object.keys(TIER_POWER)
+            .map(tier => {
+              const v = Number(typeData[tier] ?? typeData[tier.toUpperCase()]) || 0
+              return v > 0 ? `${tier.toUpperCase()}=${v.toLocaleString()}` : null
+            })
+            .filter(Boolean)
+            .reverse() // show T10 first
+          if (!tiers.length && tgLevel === 0) return null
+          const eff = calculateEffectiveTroopStrength(m.troop_data, type)
+          return `    ${type}: TG${tgLevel}${tiers.length ? ` | ${tiers.join(', ')}` : ''} (eff: ${Math.round(eff).toLocaleString()})`
+        }).filter(Boolean).join('\n')
+      : null
+
+    const heroesDetail = m.heroes_detail && m.heroes_detail.length
+      ? m.heroes_detail.map((h: string) => sanitizeForJson(h)).join('; ')
+      : 'none entered'
+
+    return `
+- Player: ${sanitizeForJson(m.player_name)}
+  ID: ${m.member_id}${m.alliance_name ? `\n  Alliance: [${sanitizeForJson(m.alliance_tag || '')}] ${sanitizeForJson(m.alliance_name)}` : ''}${m.kvk_willing_to_move !== undefined ? `\n  KVK Willing To Move: ${m.kvk_willing_to_move ? 'YES (may join a different alliance\'s rally)' : 'no (same-alliance rallies only)'}` : ''}
   Power: ${m.power.toLocaleString()}
   March Size: ${m.march_size.toLocaleString()}
   Rally Capacity: ${m.rally_capacity.toLocaleString()}
   Troop Count: ${m.troop_count.toLocaleString()} | Effective Strength: ${m.effective_troop_strength.toLocaleString()}
-  Primary Troop Type: ${m.troop_type}${troopBreakdown ? `\n  Troop Breakdown:\n${troopBreakdown}` : ''}
+  Primary Troop Type: ${sanitizeForJson(m.troop_type)}${troopBreakdown ? `\n  Troop Breakdown:\n${troopBreakdown}` : ''}
   Hero Score: ${m.hero_score.toFixed(1)}
-  Combat Heroes: ${m.heroes_detail && m.heroes_detail.length ? m.heroes_detail.join('; ') : 'none entered'}${!m.has_combat_heroes ? '\n  ⚠ No combat heroes entered — battle plan recommendations will be limited' : ''}
+  Combat Heroes: ${heroesDetail}${!m.has_combat_heroes ? '\n  ⚠ No combat heroes entered — battle plan recommendations will be limited' : ''}
   Role Scores: Rally Leader=${m.scores.rallyLeader.toFixed(2)}, Joiner=${m.scores.joiner.toFixed(2)}, Castle=${m.scores.castle.toFixed(2)}, Turret=${m.scores.turret.toFixed(2)}, Support=${m.scores.support.toFixed(2)}
   Available: ${m.available_from || 'all event'} to ${m.available_to || 'all event'}
-  Squad Preference: ${m.squad_preference || 'none'}`
-}).join('')}
+  Squad Preference: ${sanitizeForJson(m.squad_preference || 'none')}`
+  })
+
+  const footer = `
 
 INSTRUCTIONS:
 1. Assign every attending member a primary role and squad (if applicable)
@@ -329,6 +353,23 @@ Respond ONLY with valid JSON in this exact schema (raw JSON, no code fences):
   "backup_plan": "What happens when primary players rotate out",
   "warnings": ["Players with missing stats that reduce plan accuracy"]
 }`
+
+  // Assemble, dropping members from the tail until the prompt fits the cap.
+  const compose = (blocks: string[], omitted: number) => {
+    const note = omitted > 0
+      ? `\n\n[NOTE: member list truncated to fit context limit — showing ${blocks.length} of ${members.length} members; ${omitted} omitted]`
+      : ''
+    return `${header}${blocks.join('')}${note}${footer}`
+  }
+
+  let blocks = memberBlocks
+  let prompt = compose(blocks, 0)
+  while (prompt.length > MAX_PROMPT_CHARS && blocks.length > 1) {
+    const drop = Math.max(1, Math.floor(blocks.length * 0.1))
+    blocks = blocks.slice(0, blocks.length - drop)
+    prompt = compose(blocks, memberBlocks.length - blocks.length)
+  }
+  return prompt
 }
 
 async function storeAssignments(eventId: string, plan: BattlePlan, event: any) {
@@ -381,6 +422,53 @@ function extractJSON(text: string): string {
   const end = text.lastIndexOf('}')
   if (start === -1 || end === -1) throw new Error('No JSON found in response')
   return text.slice(start, end + 1)
+}
+
+/**
+ * Run the battle-planner model for a given prompt and parse its JSON reply.
+ *
+ * Both failure modes are handled so a bad run surfaces a clear message instead of
+ * crashing the request:
+ *  - the Claude API call itself (network / rate limit / API error)
+ *  - parsing the model's JSON reply. The original "Expected ',' or ']' ... at
+ *    position N" crash came from here: when the reply is cut off at the output
+ *    token limit (stop_reason === 'max_tokens') the JSON is truncated mid-array.
+ */
+async function runPlannerModel(prompt: string): Promise<BattlePlan> {
+  let response: any
+  try {
+    response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 4000,
+      system: BATTLE_PLANNER_SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: prompt }],
+    })
+  } catch (err: any) {
+    console.error('[BattlePlan] Claude API request failed:', err?.message || err)
+    throw new Error(`Battle plan service is temporarily unavailable (${err?.message || 'AI request failed'}). Please try again.`)
+  }
+
+  const text = response?.content?.[0]?.type === 'text' ? response.content[0].text : ''
+  const stopReason = response?.stop_reason
+
+  let jsonStr: string
+  try {
+    jsonStr = extractJSON(text)
+  } catch {
+    console.error('[BattlePlan] No JSON object found in model reply. stop_reason=', stopReason, 'length=', text.length)
+    throw new Error('The battle planner returned an unreadable response (no JSON found). Please try generating the plan again.')
+  }
+
+  try {
+    return JSON.parse(jsonStr) as BattlePlan
+  } catch (err: any) {
+    // A truncated reply (hit the output token limit) is the most common cause.
+    const hint = stopReason === 'max_tokens'
+      ? ' The response was cut off at the output limit — try again, or reduce the number of attending members.'
+      : ' Please try generating the plan again.'
+    console.error('[BattlePlan] Failed to parse model JSON:', err?.message, '| stop_reason=', stopReason, '| length=', jsonStr.length)
+    throw new Error(`The battle planner returned malformed JSON (${err?.message || 'parse error'}).${hint}`)
+  }
 }
 
 /**
@@ -582,15 +670,7 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 
   }
   const prompt = buildPlanningPrompt(members, pseudoEvent, { planMode })
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-5',
-    max_tokens: 4000,
-    system: BATTLE_PLANNER_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: prompt }],
-  })
-
-  const text = response.content[0].type === 'text' ? response.content[0].text : ''
-  const plan: BattlePlan = JSON.parse(extractJSON(text))
+  const plan: BattlePlan = await runPlannerModel(prompt)
 
   // Plan A is strict same-alliance: defensively strip any transfer flags the model emitted.
   if (planMode === 'A') {
@@ -612,14 +692,7 @@ async function planOneLegion(legion: 'legion1' | 'legion2', members: any[], even
   const prompt = buildPlanningPrompt(members, event) +
     `\n\nIMPORTANT: This plan is for ${label} ONLY. These ${members.length} members all fight together in ${label}. Set "squad": "${legion}" on every assignment.`
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-5',
-    max_tokens: 4000,
-    system: BATTLE_PLANNER_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: prompt }],
-  })
-  const text = response.content[0].type === 'text' ? response.content[0].text : ''
-  const plan: BattlePlan = JSON.parse(extractJSON(text))
+  const plan: BattlePlan = await runPlannerModel(prompt)
   // Force the squad to the legion regardless of what the model returned.
   for (const a of plan.assignments) a.squad = legion
   return plan
@@ -674,15 +747,7 @@ export async function generateBattlePlan(eventId: string): Promise<BattlePlan> {
 
   const prompt = buildPlanningPrompt(members, event)
 
-  const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-5',
-    max_tokens: 4000,
-    system: BATTLE_PLANNER_SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: prompt }],
-  })
-
-  const text = response.content[0].type === 'text' ? response.content[0].text : ''
-  const plan: BattlePlan = JSON.parse(extractJSON(text))
+  const plan: BattlePlan = await runPlannerModel(prompt)
 
   await storeAssignments(eventId, plan, event)
   return plan
