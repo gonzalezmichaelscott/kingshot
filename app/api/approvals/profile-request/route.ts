@@ -91,40 +91,58 @@ export async function POST(request: NextRequest) {
     })
 
     // Create or relink a member record for this user.
-    //  1) An existing record already in THIS alliance → just refresh identity.
-    //  2) A rejoin: the user owns a member record elsewhere / with no alliance
-    //     (they left). Move that SAME record here so all stats/heroes/troop data
-    //     carry over — do NOT create a new record.
-    //  3) Otherwise (brand-new member) → insert a fresh record.
+    //  1) The request names a SPECIFIC source record (rejoin/move) → relink that
+    //     exact record (FIX 1). Never guess "any member of the user".
+    //  2) An existing record already in THIS alliance → just refresh role/state.
+    //  3) A legacy rejoin with no source: the user owns a record elsewhere → move
+    //     that SAME record here so all stats/heroes/troop data carry over.
+    //  4) Otherwise (brand-new member) → insert a fresh record.
     const { data: ownMembers } = await svc.from('members')
-      .select('id, alliance_id')
+      .select('id, alliance_id, linked_user_id')
       .eq('linked_user_id', req.user_id)
       .order('updated_at', { ascending: false })
 
+    // FIX 1 — the exact record this request was bound to, if any. Verified to be
+    // owned by the requesting user before we touch it.
+    const boundSource = req.source_member_id
+      ? (ownMembers || []).find((m: any) => m.id === req.source_member_id)
+      : null
+
     const inThisAlliance = (ownMembers || []).find((m: any) => m.alliance_id === req.alliance_id)
-    const elsewhere = (ownMembers || []).find((m: any) => m.alliance_id !== req.alliance_id)
+    const elsewhere = boundSource || (ownMembers || []).find((m: any) => m.alliance_id !== req.alliance_id)
 
     let resultMemberId: string | null = null
-    if (inThisAlliance?.id) {
+    if (boundSource?.id) {
+      // FIX 1 + FIX 2 — relink the EXACT bound record. Do NOT overwrite its
+      // player_name / game_id: each member record owns its own in-game identity.
       await svc.from('members').update({
-        player_name: req.governor_name,
-        game_id: req.player_id || null,
+        alliance_id: req.alliance_id,
+        previous_alliance_id: boundSource.alliance_id || null,
+        role: finalRole,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      }).eq('id', boundSource.id)
+        .eq('linked_user_id', req.user_id)
+      resultMemberId = boundSource.id
+    } else if (inThisAlliance?.id) {
+      // FIX 2 — refresh role/active only; never overwrite this record's identity.
+      await svc.from('members').update({
         role: finalRole,
         is_active: true,
         updated_at: new Date().toISOString(),
       }).eq('id', inThisAlliance.id)
       resultMemberId = inThisAlliance.id
     } else if (elsewhere?.id) {
-      // Rejoin / transfer: relink the existing record (stats intact).
+      // Legacy rejoin / transfer: relink the existing record (stats intact).
+      // FIX 2 — do NOT overwrite player_name / game_id.
       await svc.from('members').update({
         alliance_id: req.alliance_id,
         previous_alliance_id: elsewhere.alliance_id || null,
         role: finalRole,
         is_active: true,
-        player_name: req.governor_name,
-        game_id: req.player_id || null,
         updated_at: new Date().toISOString(),
       }).eq('id', elsewhere.id)
+        .eq('linked_user_id', req.user_id)
       resultMemberId = elsewhere.id
     } else {
       const { data: insertedMember } = await svc.from('members').insert({

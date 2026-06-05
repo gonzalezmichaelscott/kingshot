@@ -147,6 +147,7 @@ export default async function MembersPage({ params }: { params: { id: string } }
                           <PlayerAvatar
                             gameId={m.game_id}
                             avatarUrl={freshAvatar(m)}
+                            memberId={m.id}
                             playerName={m.player_name}
                             sizeClass="w-7 h-7"
                           />

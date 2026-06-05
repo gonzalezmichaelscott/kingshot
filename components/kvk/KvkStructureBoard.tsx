@@ -163,7 +163,7 @@ function StructureDetail({ kingdomId, structure, hourLabels, pool, canManage }: 
         </p>
         {structure.leader ? (
           <div className="flex items-center gap-2">
-            <PlayerAvatar gameId={structure.leader.game_id} playerName={structure.leader.player_name} sizeClass="w-8 h-8" />
+            <PlayerAvatar gameId={structure.leader.game_id} memberId={structure.leader.id} playerName={structure.leader.player_name} sizeClass="w-8 h-8" />
             <span className="text-sm text-amber-400 font-medium">
               {structure.leader.tag ? `[${structure.leader.tag}] ` : ''}{structure.leader.player_name}
             </span>
@@ -183,7 +183,7 @@ function StructureDetail({ kingdomId, structure, hourLabels, pool, canManage }: 
           <div className="grid sm:grid-cols-2 gap-1.5">
             {structure.joiners.map(j => (
               <div key={j.id} className="flex items-center gap-2 bg-slate-800 rounded px-2 py-1.5">
-                <PlayerAvatar gameId={j.game_id} playerName={j.player_name} sizeClass="w-6 h-6" />
+                <PlayerAvatar gameId={j.game_id} memberId={j.id} playerName={j.player_name} sizeClass="w-6 h-6" />
                 <span className="text-xs text-slate-300 truncate">{j.tag ? `[${j.tag}] ` : ''}{j.player_name}</span>
                 {j.kvk_transfer && <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-semibold flex-shrink-0">KVK Transfer</span>}
                 {j.isManual && <ManualBadge />}

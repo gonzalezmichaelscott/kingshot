@@ -63,10 +63,13 @@ export async function POST(request: NextRequest, { params }: { params: { memberI
       }
     }
 
-    // Remove the member from the alliance directory: clear the alliance link and
-    // mark the record inactive so they no longer appear in the members list.
-    // We remember the previous alliance so onboarding can greet them by name and
-    // so the SAME record can be reused (stats intact) when they join a new one.
+    // FIX 3 — Operate on THIS specific member record only (params.memberId is the
+    // authoritative identifier). Never "find any member of this user": a user may
+    // own several profiles across alliances and only this one is being left.
+    // Remove it from the alliance directory: clear the alliance link and mark the
+    // record inactive so they no longer appear in the members list. We remember the
+    // previous alliance so onboarding can greet them by name and so the SAME record
+    // can be reused (stats intact) when they join a new one.
     await service.from('members').update({
       alliance_id: null,
       is_active: false,
@@ -74,9 +77,28 @@ export async function POST(request: NextRequest, { params }: { params: { memberI
       updated_at: new Date().toISOString(),
     }).eq('id', member.id)
 
-    // Set linked user's alliance_id to NULL
+    // Only clear the linked user's alliance pointer when the profile they are
+    // leaving is their CURRENTLY ACTIVE profile. If they have another profile
+    // active (e.g. they left an alt), the user_profiles row must stay pointed at
+    // that active profile's alliance — clearing it here would corrupt the session.
     if (member.linked_user_id) {
-      await service.from('user_profiles').update({ alliance_id: null }).eq('id', member.linked_user_id)
+      const { data: userProfile } = await service
+        .from('user_profiles')
+        .select('active_member_id, alliance_id')
+        .eq('id', member.linked_user_id)
+        .maybeSingle()
+
+      const leavingActive =
+        userProfile?.active_member_id === member.id ||
+        // Legacy rows with no explicit active_member_id: treat the member in the
+        // user's current alliance as the active one.
+        (!userProfile?.active_member_id && userProfile?.alliance_id === member.alliance_id)
+
+      if (leavingActive) {
+        await service.from('user_profiles')
+          .update({ alliance_id: null, active_member_id: null })
+          .eq('id', member.linked_user_id)
+      }
     }
 
     return NextResponse.json({ success: true })

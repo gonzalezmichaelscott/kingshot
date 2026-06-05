@@ -145,6 +145,7 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
           <div className="flex items-center gap-3">
             <PlayerAvatar
               gameId={member.game_id}
+              memberId={member.id}
               playerName={member.player_name}
               sizeClass="w-12 h-12"
             />
@@ -244,7 +245,7 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
               {canTransfer && (
                 <div className="pt-3 border-t border-slate-800">
                   <p className="text-xs text-slate-500 mb-2">Moved to a new server or alliance?</p>
-                  <TransferAllianceFlow variant="link" />
+                  <TransferAllianceFlow variant="link" sourceMemberId={member.id} />
                 </div>
               )}
             </CardContent>

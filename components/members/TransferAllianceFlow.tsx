@@ -16,9 +16,16 @@ interface Props {
   variant?: 'button' | 'link'
   /** Override the trigger label. */
   label?: string
+  /**
+   * FIX 1/4 — the SPECIFIC member record this flow operates on. On the dashboard
+   * this is the active profile's member id; on the self-service page it is the
+   * token's member id. Sent to the API so the server moves the correct profile
+   * instead of "whichever member it finds first" for the user.
+   */
+  sourceMemberId?: string | null
 }
 
-export function TransferAllianceFlow({ variant = 'button', label }: Props) {
+export function TransferAllianceFlow({ variant = 'button', label, sourceMemberId = null }: Props) {
   const supabase = createClient()
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<Step>('loading')
@@ -119,7 +126,7 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
     const res = await fetch('/api/onboarding/rejoin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ alliance_id: selectedAlliance.id }),
+      body: JSON.stringify({ alliance_id: selectedAlliance.id, source_member_id: sourceMemberId }),
     })
     const d = await res.json().catch(() => ({}))
     setLoading(false)
@@ -137,6 +144,7 @@ export function TransferAllianceFlow({ variant = 'button', label }: Props) {
       body: JSON.stringify({
         target_alliance_id: selectedAlliance.id,
         target_member_id: mode === 'claim' && foundProfile ? foundProfile.id : null,
+        source_member_id: sourceMemberId,
       }),
     })
     const d = await res.json().catch(() => ({}))

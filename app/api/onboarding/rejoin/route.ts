@@ -18,6 +18,10 @@ import { z } from 'zod'
 
 const schema = z.object({
   alliance_id: z.string().uuid(),
+  // FIX 1 — the SPECIFIC profile being moved. The client should send the active
+  // profile's member id (or the self-service token's member id). Optional for
+  // backward compatibility; we fall back to the user's active profile.
+  source_member_id: z.string().uuid().optional().nullable(),
 })
 
 const VALID_ROLES = ['r1', 'r2', 'r3', 'r4', 'r5']
@@ -42,14 +46,43 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Alliance not found.' }, { status: 404 })
     }
 
-    // Find this user's existing claimed member record (most recently updated).
-    const { data: members } = await svc
-      .from('members')
-      .select('id, alliance_id, player_name, game_id')
-      .eq('linked_user_id', user.id)
-      .order('updated_at', { ascending: false })
+    // FIX 1 — Identify the SPECIFIC member record being moved (profile-aware).
+    // Resolution order:
+    //   1) the explicit source_member_id sent by the client, else
+    //   2) the user's active profile (user_profiles.active_member_id), else
+    //   3) (legacy) the most recently updated owned record.
+    // In every case we re-load the record and verify the requesting user owns it
+    // (members.linked_user_id = auth.uid()) so we never operate on someone else's
+    // — or the wrong own — profile.
+    const { data: userProfile } = await svc
+      .from('user_profiles')
+      .select('active_member_id')
+      .eq('id', user.id)
+      .maybeSingle()
 
-    const existing = (members || [])[0]
+    const targetMemberId = body.source_member_id || userProfile?.active_member_id || null
+
+    let existing: any = null
+    if (targetMemberId) {
+      const { data } = await svc
+        .from('members')
+        .select('id, alliance_id, player_name, game_id, linked_user_id')
+        .eq('id', targetMemberId)
+        .maybeSingle()
+      if (!data || data.linked_user_id !== user.id) {
+        return NextResponse.json({ error: 'That profile is not yours to move.' }, { status: 403 })
+      }
+      existing = data
+    } else {
+      // Legacy fallback: the most recently updated record this user owns.
+      const { data: members } = await svc
+        .from('members')
+        .select('id, alliance_id, player_name, game_id, linked_user_id')
+        .eq('linked_user_id', user.id)
+        .order('updated_at', { ascending: false })
+      existing = (members || [])[0]
+    }
+
     if (!existing) {
       return NextResponse.json({ error: 'No claimed profile found to move.' }, { status: 400 })
     }
@@ -83,6 +116,8 @@ export async function POST(request: NextRequest) {
       player_id: existing.game_id || null,
       requested_role: requestedRole,
       status: 'pending',
+      // FIX 1 — bind the request to the EXACT record so approval relinks only it.
+      source_member_id: existing.id,
     }).select('id').single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
@@ -98,7 +133,11 @@ export async function POST(request: NextRequest) {
       previous_alliance_id: currentAllianceId,
       updated_at: new Date().toISOString(),
     }).eq('id', existing.id)
-    await svc.from('user_profiles').update({ alliance_id: null }).eq('id', user.id)
+    // Only detach the user_profiles pointer when the profile being moved is the
+    // user's ACTIVE one — never clear the session because an alt was moved.
+    if (userProfile?.active_member_id === existing.id || !userProfile?.active_member_id) {
+      await svc.from('user_profiles').update({ alliance_id: null, active_member_id: null }).eq('id', user.id)
+    }
 
     // Notify every eligible approver (same as a new join request).
     try {

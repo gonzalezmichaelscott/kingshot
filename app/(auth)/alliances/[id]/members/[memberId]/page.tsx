@@ -19,6 +19,7 @@ import { requireAllianceAccess, canManageAlliance } from '@/lib/access'
 import { Breadcrumbs } from '@/components/nav/Breadcrumbs'
 import { BackButton } from '@/components/nav/BackButton'
 import { RemoveMemberButton } from '@/components/members/RemoveMemberButton'
+import { AdminMoveMemberButton } from '@/components/members/AdminMoveMemberButton'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 import { RefreshAvatarButton } from '@/components/members/RefreshAvatarButton'
 
@@ -144,6 +145,7 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
             <PlayerAvatar
               gameId={member.game_id}
               avatarUrl={freshAvatarUrl}
+              memberId={member.id}
               playerName={member.player_name}
               sizeClass="w-10 h-10"
               showLevel
@@ -255,6 +257,15 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
           linkedUserId={member.linked_user_id}
           currentRole={linkedProfile?.role || null}
           actorRole={profile?.role || null}
+        />
+      )}
+
+      {/* Admin: Move to Alliance — system_admin only (FIX 6) */}
+      {isAdmin && (
+        <AdminMoveMemberButton
+          memberId={member.id}
+          playerName={member.player_name}
+          currentAllianceId={params.id}
         />
       )}
 

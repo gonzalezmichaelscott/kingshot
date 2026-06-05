@@ -25,6 +25,12 @@ interface PlayerAvatarProps {
    * the component uses it directly and makes NO client-side API call. (FIX 8)
    */
   avatarUrl?: string | null
+  /**
+   * The specific member record this avatar belongs to. When set, a freshly
+   * fetched avatar is cached onto ONLY this record (FIX 4 — profile-aware). When
+   * omitted (e.g. search results that aren't member rows) no cache write occurs.
+   */
+  memberId?: string | null
   /** Player display name — used for initials fallback and accessible alt text. */
   playerName: string
   /**
@@ -51,6 +57,7 @@ interface PlayerAvatarProps {
 export function PlayerAvatar({
   gameId,
   avatarUrl: cachedAvatarUrl = null,
+  memberId = null,
   playerName,
   sizeClass = 'w-9 h-9',
   showLevel = false,
@@ -84,12 +91,17 @@ export function PlayerAvatar({
             if (json?.data) {
               if (json.data.profilePhoto) {
                 setAvatarUrl(json.data.profilePhoto)
-                // Persist to the DB so future loads skip the API entirely.
-                fetch('/api/member/cache-avatar', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ game_id: gameId, avatar_url: json.data.profilePhoto }),
-                }).catch(() => {/* non-fatal */})
+                // Persist to the DB so future loads skip the API entirely — but
+                // ONLY when we know the specific member record (FIX 4). Without a
+                // memberId the write would have to key on game_id and could stamp
+                // the avatar onto other profiles, so we skip caching instead.
+                if (memberId) {
+                  fetch('/api/member/cache-avatar', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ member_id: memberId, game_id: gameId, avatar_url: json.data.profilePhoto }),
+                  }).catch(() => {/* non-fatal */})
+                }
               }
               if (json.data.level) setLevel(json.data.level)
               if (json.data.kingdom) setKingdom(json.data.kingdom)
@@ -104,7 +116,7 @@ export function PlayerAvatar({
 
     observer.observe(el)
     return () => observer.disconnect()
-  }, [gameId, cachedAvatarUrl])
+  }, [gameId, cachedAvatarUrl, memberId])
 
   return (
     <div className="flex items-center gap-1.5 flex-shrink-0">
