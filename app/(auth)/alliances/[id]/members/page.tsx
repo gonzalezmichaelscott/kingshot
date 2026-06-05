@@ -85,6 +85,9 @@ export default async function MembersPage({ params }: { params: { id: string } }
     .from('members')
     .select('*, member_scores(overall_score, rally_leader_score, joiner_score), member_combat_stats(troop_type_primary)')
     .eq('alliance_id', params.id)
+    // Only active roster members — deactivated/transferred records (is_active =
+    // false), including any soft-deleted duplicates, must not appear in the list.
+    .eq('is_active', true)
     .order('power', { ascending: false })
 
   const breadcrumbs = [
