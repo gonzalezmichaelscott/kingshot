@@ -40,10 +40,20 @@ export async function GET(request: NextRequest) {
   status text check (status in ('idle','running','complete')) default 'idle',
   started_at timestamptz,
   scheduled_for timestamptz,
+  landing_mode text default 'simultaneous',
+  landing_gap int default 3,
+  custom_order jsonb,
+  round int default 1,
   created_by uuid references auth.users(id),
   created_at timestamptz default now(),
   expires_at timestamptz default (now() + interval '24 hours')
 );
+
+-- If the table already exists, add the newer columns:
+-- ALTER TABLE rally_timer_sessions ADD COLUMN IF NOT EXISTS landing_mode text default 'simultaneous';
+-- ALTER TABLE rally_timer_sessions ADD COLUMN IF NOT EXISTS landing_gap int default 3;
+-- ALTER TABLE rally_timer_sessions ADD COLUMN IF NOT EXISTS custom_order jsonb;
+-- ALTER TABLE rally_timer_sessions ADD COLUMN IF NOT EXISTS round int default 1;
 
 ALTER TABLE rally_timer_sessions ENABLE ROW LEVEL SECURITY;
 

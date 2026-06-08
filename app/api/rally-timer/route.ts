@@ -34,6 +34,8 @@ export async function POST(request: NextRequest) {
           scheduled_for: body.scheduled_for ?? null,
           landing_mode: body.landing_mode ?? 'simultaneous',
           landing_gap: body.landing_gap ?? 3,
+          custom_order: body.custom_order ?? null,
+          round: body.round ?? 1,
         })
         .eq('id', body.id)
         .select()

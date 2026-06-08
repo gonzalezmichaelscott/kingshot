@@ -3,9 +3,19 @@ import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   Play, Square, RotateCcw, Volume2, VolumeX, Plus, Share2,
-  Clock, Timer, User, Crown, Loader2, Copy, Check, Layers, Target
+  Clock, Timer, Crown, Loader2, Copy, Check, Layers, Target,
+  GripVertical, Trash2, AlertTriangle, Flag
 } from 'lucide-react'
-import { computePlan, waveLabel, sortByMarch, LANDING_GAPS, type LandingMode } from '@/lib/rally-timer'
+import {
+  DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
+  sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { computePlan, waveLabel, LANDING_GAPS, type LandingMode } from '@/lib/rally-timer'
 import { useNoSleep } from '@/hooks/useNoSleep'
 
 interface PlayerInfo {
@@ -61,12 +71,49 @@ function formatElapsed(seconds: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
+// "Launch at 0:00" / "Launch at 1:27" style (no zero-padded minutes).
+function formatClock(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
 function speak(text: string) {
   if (typeof window === 'undefined' || !window.speechSynthesis) return
   const utt = new SpeechSynthesisUtterance(text)
   utt.rate = 1.1
   utt.pitch = 1
   window.speechSynthesis.speak(utt)
+}
+
+// A single draggable row in the manual Landing Order list (FIX 1).
+function LandingOrderItem({ id, wave, total, name, launchOffset }: {
+  id: string; wave: number; total: number; name: string; launchOffset: number
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id })
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+  }
+  const isFinisher = wave === total
+  return (
+    <div ref={setNodeRef} style={style}
+      className={`flex items-center gap-2 px-2.5 py-2 rounded-lg border ${isFinisher ? 'border-amber-500/50 bg-amber-500/10' : 'border-slate-700 bg-slate-800'} touch-none`}>
+      <button {...attributes} {...listeners}
+        className="text-slate-500 hover:text-slate-300 cursor-grab active:cursor-grabbing p-1 -ml-1 flex-shrink-0"
+        title="Drag to reorder">
+        <GripVertical size={16} />
+      </button>
+      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${isFinisher ? 'bg-amber-500 text-slate-900' : 'bg-slate-700 text-slate-200'}`}>
+        {isFinisher ? 'Finisher' : `Wave ${wave}`}
+      </span>
+      <span className="font-semibold text-sm truncate flex-1 min-w-0">{name}</span>
+      <span className="text-xs text-amber-300 font-medium whitespace-nowrap flex-shrink-0">
+        Launch at {formatClock(launchOffset)}
+      </span>
+    </div>
+  )
 }
 
 export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Props) {
@@ -86,6 +133,11 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
   // Landing mode (FEATURE 7)
   const [landingMode, setLandingMode] = useState<LandingMode>(session.landing_mode === 'staggered' ? 'staggered' : 'simultaneous')
   const [landingGap, setLandingGap] = useState<number>(session.landing_gap || 3)
+  // Manual landing order (FIX 1) + round counter + auto-reset (FIX 2)
+  const [customOrder, setCustomOrder] = useState<string[] | null>(session.custom_order || null)
+  const [round, setRound] = useState<number>(session.round || 1)
+  const [resetCancelled, setResetCancelled] = useState(false)
+  const [showHardReset, setShowHardReset] = useState(false)
 
   const [name, setName] = useState('')
   const [playerId, setPlayerId] = useState('')
@@ -98,12 +150,20 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
   const [playerCache, setPlayerCache] = useState<Map<string, PlayerInfo>>(new Map())
   const [fetchingPlayer, setFetchingPlayer] = useState(false)
 
-  const alertedRef = useRef<Set<string>>(new Set())
+  const alertedRef = useRef<Set<string>>(new Set())       // launch announcements
+  const landedRef = useRef<Set<string>>(new Set())        // per-player landing announcements
+  const allLandedSpokenRef = useRef(false)                // final "all landed" announcement
+  const autoResetFiredRef = useRef(false)                 // guard so auto-reset fires once
   const spokenCountdownRef = useRef<Set<number>>(new Set())
   const playerFetchTimerRef = useRef<NodeJS.Timeout | null>(null)
   const broadcastRef = useRef<any>(null)
   const nameRef = useRef(name)
   const supabase = createClient()
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  )
 
   useEffect(() => { nameRef.current = name }, [name])
 
@@ -144,15 +204,25 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playerId])
 
+  function clearRoundRefs() {
+    alertedRef.current.clear()
+    spokenCountdownRef.current.clear()
+    landedRef.current.clear()
+    allLandedSpokenRef.current = false
+    autoResetFiredRef.current = false
+  }
+
   // Apply a synced session snapshot (from broadcast OR postgres change).
   function applySnapshot(s: any) {
     if (s.label !== undefined) setLabel(s.label || 'Rally Timer')
     if (s.players) setPlayers((s.players as any[]).map((p: any) => ({ ...p })))
     if (s.landing_mode) setLandingMode(s.landing_mode === 'staggered' ? 'staggered' : 'simultaneous')
     if (s.landing_gap) setLandingGap(s.landing_gap)
+    if (s.custom_order !== undefined) setCustomOrder(s.custom_order || null)
+    if (s.round !== undefined && s.round !== null) setRound(s.round)
     if (s.status === 'running' && s.started_at) {
-      alertedRef.current.clear()
-      spokenCountdownRef.current.clear()
+      clearRoundRefs()
+      setResetCancelled(false)
       setStartedAt(new Date(s.started_at).getTime())
       setStatus('running')
     } else if (s.status === 'idle' || s.status === 'complete') {
@@ -160,8 +230,8 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
       setStartedAt(null)
       setElapsed(0)
       setCountdownNum(null)
-      alertedRef.current.clear()
-      spokenCountdownRef.current.clear()
+      setResetCancelled(false)
+      clearRoundRefs()
     }
   }
 
@@ -171,7 +241,11 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
     const channel = supabase.channel(`rally-timer:${session.id}`, { config: { broadcast: { self: false } } })
     channel
       .on('broadcast', { event: 'timer_started' }, ({ payload }) => applySnapshot({ ...payload, status: 'running' }))
-      .on('broadcast', { event: 'timer_reset' }, () => applySnapshot({ status: 'idle' }))
+      .on('broadcast', { event: 'timer_reset' }, ({ payload }) => applySnapshot({ status: 'idle', ...(payload || {}) }))
+      .on('broadcast', { event: 'timer_hard_reset' }, () => applySnapshot({
+        status: 'idle', players: [], custom_order: null, round: 1,
+        landing_mode: 'simultaneous', landing_gap: 3, label,
+      }))
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rally_timer_sessions', filter: `id=eq.${session.id}` }, (payload) => {
         applySnapshot(payload.new as any)
       })
@@ -181,7 +255,7 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id])
 
-  // Unified timer tick: handles countdown (started_at in the future) + launches.
+  // Unified timer tick: countdown → launches → landings → auto-reset.
   useEffect(() => {
     if (status !== 'running' || startedAt == null) return
     const tick = () => {
@@ -199,31 +273,70 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
       setCountdownNum(null)
       const el = Math.floor(delta / 1000)
       setElapsed(el)
-      const plan = computePlan(players, landingMode, landingGap)
+      const plan = computePlan(players, landingMode, landingGap, customOrder)
       const total = plan.length
+      if (total === 0) return
+      const lastArrival = Math.max(...plan.map(p => p.arrivalOffset))
+
+      // Launch announcements.
       plan.forEach(cp => {
         if (el >= cp.launchOffset && !alertedRef.current.has(cp.id)) {
           alertedRef.current.add(cp.id)
           if (audioOn) {
-            const wave = landingMode === 'staggered' ? ` — ${waveLabel(cp.sortedIndex, total)} wave` : ''
+            const wave = landingMode === 'staggered' ? ` — ${waveLabel(cp.orderIndex, total)}` : ''
             speak(`Launch now ${cp.name}${wave}`)
           }
         }
       })
+
+      // Landing announcements (FIX 2). Staggered = per-player; simultaneous = together.
+      if (landingMode === 'staggered') {
+        plan.forEach(cp => {
+          if (el >= cp.arrivalOffset && !landedRef.current.has(cp.id)) {
+            landedRef.current.add(cp.id)
+            if (audioOn) speak(`Rally landed — ${cp.name}`)
+            broadcast('rally_landed', { name: cp.name })
+          }
+        })
+      }
+
+      // Final "all rallies landed" announcement + auto-reset trigger.
+      if (el >= lastArrival && !allLandedSpokenRef.current) {
+        allLandedSpokenRef.current = true
+        if (audioOn) {
+          speak(landingMode === 'simultaneous'
+            ? 'All rallies landed. Preparing for next round.'
+            : 'All rallies have landed. Preparing for next round.')
+        }
+        broadcast('all_rallies_landed', {})
+      }
+
+      // Auto-reset 10s after the last landing (unless cancelled). Leader only.
+      if (el - lastArrival >= 10 && !resetCancelled && !autoResetFiredRef.current) {
+        autoResetFiredRef.current = true
+        resetRally(round + 1)
+      }
     }
     const id = setInterval(tick, 250)
     tick()
     return () => clearInterval(id)
-  }, [status, startedAt, players, audioOn, landingMode, landingGap])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, startedAt, players, audioOn, landingMode, landingGap, customOrder, round, resetCancelled])
 
-  const plan = computePlan(players, landingMode, landingGap) // sorted, with offsets
-  const baseTime = sortByMarch(players)[0]?.marchTime || 0
-  const base = plan.find(p => p.sortedIndex === 0)
+  const plan = computePlan(players, landingMode, landingGap, customOrder) // ordered, with offsets
+  const base = plan.find(p => p.launchOffset === 0) || plan[0]
+  const lastArrival = plan.length ? Math.max(...plan.map(p => p.arrivalOffset)) : 0
+  const allLanded = status === 'running' && countdownNum === null && plan.length > 0 && elapsed >= lastArrival
+  const sinceAllLanded = elapsed - lastArrival
+  const showBanner = allLanded && sinceAllLanded < 5
+  const resetCountdown = Math.max(0, 10 - sinceAllLanded)
+  const showResetCountdown = allLanded && !resetCancelled && resetCountdown > 0
 
   async function saveSession(updates: any) {
     const merged = {
       ...session, label, players,
       landing_mode: landingMode, landing_gap: landingGap,
+      custom_order: customOrder, round,
       ...updates,
     }
     if (session.id && canEdit) {
@@ -244,8 +357,8 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
 
   async function startRally() {
     if (players.length === 0) return
-    alertedRef.current.clear()
-    spokenCountdownRef.current.clear()
+    clearRoundRefs()
+    setResetCancelled(false)
 
     // With the 3-2-1 countdown ON, the timer's true zero is 3s in the future.
     // Every device (leader + viewers) shows the same countdown then starts at the
@@ -260,19 +373,53 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
     broadcast('timer_started', {
       started_at: startedIso, players, label,
       landing_mode: landingMode, landing_gap: landingGap,
+      custom_order: customOrder, round,
     })
     await saveSession({ status: 'running', started_at: startedIso })
   }
 
-  async function resetRally() {
+  // Reset to the pre-launch ready state. Players, march times and staggered order
+  // are preserved. An auto-reset after all landings bumps the round counter.
+  async function resetRally(nextRound?: number) {
+    const r = nextRound ?? round
     setStatus('idle')
     setStartedAt(null)
     setElapsed(0)
     setCountdownNum(null)
-    alertedRef.current.clear()
-    spokenCountdownRef.current.clear()
-    broadcast('timer_reset', {})
-    await saveSession({ status: 'idle', started_at: null })
+    setResetCancelled(false)
+    clearRoundRefs()
+    if (r !== round) setRound(r)
+    broadcast('timer_reset', { round: r })
+    await saveSession({ status: 'idle', started_at: null, round: r })
+  }
+
+  function cancelAutoReset() {
+    setResetCancelled(true)
+    // Tell viewers to stop their countdown display. The leader simply stops
+    // counting toward a reset; nothing is persisted.
+    broadcast('reset_cancelled', {})
+  }
+
+  // FIX 3 — wipe all players, settings and the round counter; session stays.
+  async function hardReset() {
+    setPlayers([])
+    setCustomOrder(null)
+    setRound(1)
+    setLandingMode('simultaneous')
+    setLandingGap(3)
+    setStatus('idle')
+    setStartedAt(null)
+    setElapsed(0)
+    setCountdownNum(null)
+    setResetCancelled(false)
+    clearRoundRefs()
+    setShowHardReset(false)
+    broadcast('timer_hard_reset', {})
+    await saveSession({
+      players: [], custom_order: null, round: 1,
+      landing_mode: 'simultaneous', landing_gap: 3,
+      status: 'idle', started_at: null,
+    })
   }
 
   async function addPlayer() {
@@ -318,8 +465,28 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
 
   async function removePlayer(id: string) {
     const updated = players.filter(p => p.id !== id)
+    const newOrder = customOrder ? customOrder.filter(pid => pid !== id) : null
     setPlayers(updated)
-    await saveSession({ players: updated })
+    setCustomOrder(newOrder)
+    await saveSession({ players: updated, custom_order: newOrder })
+  }
+
+  // FIX 1 — drag to reorder the landing waves; persist so all viewers match.
+  async function onDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const ids = plan.map(p => p.id)
+    const oldIndex = ids.indexOf(active.id as string)
+    const newIndex = ids.indexOf(over.id as string)
+    if (oldIndex === -1 || newIndex === -1) return
+    const next = arrayMove(ids, oldIndex, newIndex)
+    setCustomOrder(next)
+    await saveSession({ custom_order: next })
+  }
+
+  async function resetToAuto() {
+    setCustomOrder(null)
+    await saveSession({ custom_order: null })
   }
 
   function copyShareLink() {
@@ -335,6 +502,8 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
   // Keep the screen awake while a rally timer is actively running (silent, no badge)
   useNoSleep(running)
 
+  const orderIds = plan.map(p => p.id)
+
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 sm:p-4 space-y-4 max-w-full min-w-0 overflow-hidden">
       {/* Session header */}
@@ -348,8 +517,11 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
             className="flex-1 bg-transparent text-base font-bold text-slate-100 focus:outline-none border-b border-transparent focus:border-amber-500 transition-colors"
           />
         ) : (
-          <span className="font-bold text-base">{label}</span>
+          <span className="font-bold text-base flex-1">{label}</span>
         )}
+        <span className="text-[11px] bg-slate-800 text-amber-300 border border-slate-700 px-2 py-0.5 rounded-full font-semibold whitespace-nowrap flex-shrink-0">
+          Round {round}
+        </span>
         {session.id && (
           <button
             onClick={() => setShowShare(true)}
@@ -406,13 +578,36 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
         <div className={`text-4xl sm:text-5xl font-mono font-bold tracking-wider ${countdownNum !== null ? 'text-amber-300 animate-pulse' : running ? 'text-amber-400' : 'text-slate-600'}`}>
           {countdownNum !== null ? countdownNum : formatElapsed(elapsed)}
         </div>
-        {running && base && (
+        {running && base && countdownNum === null && (
           <p className="text-xs text-slate-400 mt-1">
             BASE: {base.name} ({formatMarchTime(base.marchTime)})
-            {landingMode === 'staggered' && <span className="text-amber-400"> · Finisher (lands last)</span>}
+            {landingMode === 'staggered' && <span className="text-amber-400"> · launches first</span>}
           </p>
         )}
       </div>
+
+      {/* All-rallies-landed banner + auto-reset countdown (FIX 2) */}
+      {allLanded && (
+        <div className="border border-amber-500/60 bg-amber-500/15 rounded-xl p-3 text-center space-y-2">
+          {showBanner && (
+            <p className="text-amber-300 font-bold text-base flex items-center justify-center gap-2">
+              <Flag size={16} /> All rallies have landed!
+            </p>
+          )}
+          {showResetCountdown && (
+            <div className="flex items-center justify-center gap-3 flex-wrap">
+              <span className="text-slate-200 text-sm font-medium">Resetting in {Math.ceil(resetCountdown)} seconds…</span>
+              <button onClick={cancelAutoReset}
+                className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-semibold transition-colors">
+                Cancel Reset
+              </button>
+            </div>
+          )}
+          {resetCancelled && (
+            <p className="text-slate-400 text-xs">Auto-reset cancelled. Press Stop to reset manually.</p>
+          )}
+        </div>
+      )}
 
       {/* Controls — min 44px touch targets for easy tapping on mobile */}
       <div className="flex items-center gap-2 flex-wrap">
@@ -422,12 +617,12 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
             <Play size={15} /> Start Rally
           </button>
         ) : (
-          <button onClick={resetRally}
+          <button onClick={() => resetRally()}
             className="flex items-center justify-center gap-2 px-4 min-h-[44px] bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition-colors">
             <Square size={15} /> Stop
           </button>
         )}
-        <button onClick={resetRally} className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors" title="Reset">
+        <button onClick={() => resetRally()} className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors" title="Reset">
           <RotateCcw size={16} />
         </button>
         <button onClick={() => setAudioOn(a => !a)}
@@ -474,6 +669,31 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
         </div>
       )}
 
+      {/* Manual Landing Order (FIX 1) — staggered mode only, leaders only, when idle */}
+      {canEdit && landingMode === 'staggered' && !running && plan.length > 0 && (
+        <div className="border-t border-slate-800 pt-3 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-slate-500 font-semibold uppercase tracking-wide">Landing Order</p>
+            <button onClick={resetToAuto}
+              className="flex items-center gap-1 text-xs text-slate-400 hover:text-amber-400 transition-colors">
+              <RotateCcw size={12} /> Reset to Auto
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            Wave 1 lands FIRST (weakens defenses) · last wave is the Finisher (captures). Drag to reorder.
+          </p>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={orderIds} strategy={verticalListSortingStrategy}>
+              <div className="space-y-1.5">
+                {plan.map(p => (
+                  <LandingOrderItem key={p.id} id={p.id} wave={p.wave} total={plan.length} name={p.name} launchOffset={p.launchOffset} />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        </div>
+      )}
+
       {/* Add player form */}
       {canEdit && (
         <div className="border-t border-slate-800 pt-3 space-y-2">
@@ -508,15 +728,21 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
       {plan.length > 0 && (
         <div className="space-y-2">
           {plan.map((p) => {
-            const isBase = p.sortedIndex === 0
-            const launching = running && elapsed >= p.launchOffset && elapsed - p.launchOffset < 5
-            const hasLaunched = running && elapsed - p.launchOffset >= 5
+            const isBase = p.launchOffset === 0
+            const launching = running && countdownNum === null && elapsed >= p.launchOffset && elapsed - p.launchOffset < 5 && elapsed < p.arrivalOffset
+            const inTransit = running && countdownNum === null && elapsed - p.launchOffset >= 5 && elapsed < p.arrivalOffset
+            const justLanded = running && countdownNum === null && elapsed >= p.arrivalOffset && elapsed - p.arrivalOffset < 4
+            const landed = running && countdownNum === null && elapsed - p.arrivalOffset >= 4
             const remaining = p.launchOffset - elapsed
 
-            const cardClass = launching
+            const cardClass = justLanded
+              ? 'border-sky-400 bg-sky-400/20 animate-pulse'
+              : launching
               ? 'border-green-500 bg-green-500/20 animate-pulse'
-              : hasLaunched
+              : landed
               ? 'border-slate-700 bg-slate-800/50 opacity-60'
+              : inTransit
+              ? 'border-slate-700 bg-slate-800/50 opacity-80'
               : isBase
               ? 'border-amber-500/50 bg-amber-500/10'
               : 'border-slate-700 bg-slate-800'
@@ -537,15 +763,16 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
                       {isBase && <Crown size={12} className="text-amber-400" />}
                       <span className="font-semibold text-sm truncate">{p.name}</span>
                       {landingMode === 'staggered' && (
-                        <span className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">{waveLabel(p.sortedIndex, plan.length)} Wave</span>
+                        <span className="text-[10px] bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">{waveLabel(p.orderIndex, plan.length)}</span>
                       )}
+                      {justLanded && <span className="text-sky-300 font-bold text-xs">{p.name} has landed!</span>}
                       {launching && <span className="text-green-400 font-bold text-xs">LAUNCH NOW!</span>}
-                      {hasLaunched && <span className="text-slate-500 text-xs">Launched</span>}
+                      {landed && <span className="text-slate-500 text-xs">Landed</span>}
                     </div>
                     <div className="flex gap-2 text-xs text-slate-400 flex-wrap">
                       <span className="flex items-center gap-0.5"><Clock size={10} />{formatMarchTime(p.marchTime)}</span>
                       <span>
-                        Launch <span className="text-amber-300 font-medium">{p.launchOffset === 0 ? 'at 0:00' : `+${formatMarchTime(p.launchOffset)}`}</span>
+                        Launch <span className="text-amber-300 font-medium">{p.launchOffset === 0 ? 'at 0:00' : `at ${formatClock(p.launchOffset)}`}</span>
                         {' · arrives '}<span className="text-slate-300">{formatElapsed(p.arrivalOffset)}</span>
                         {running && countdownNum === null && remaining > 0 && (
                           <span className="ml-1 text-slate-500">({formatMarchTime(remaining)} remaining)</span>
@@ -587,6 +814,41 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
                 </span>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {/* Hard reset (FIX 3) — R4/R5/system_admin only (canEdit) */}
+      {canEdit && session.id && (
+        <div className="border-t border-slate-800 pt-3">
+          <button onClick={() => setShowHardReset(true)}
+            className="flex items-center gap-2 px-3 py-2 bg-red-900/40 hover:bg-red-900/70 border border-red-800/60 text-red-300 rounded-lg text-xs font-semibold transition-colors">
+            <Trash2 size={14} /> Hard Reset
+          </button>
+        </div>
+      )}
+
+      {/* Hard reset confirmation */}
+      {showHardReset && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setShowHardReset(false)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 w-full max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={18} className="text-red-500" />
+              <h3 className="font-bold text-lg">Hard Reset</h3>
+            </div>
+            <p className="text-sm text-slate-400">
+              This will clear all players and settings from this timer. Are you sure?
+            </p>
+            <div className="flex gap-2">
+              <button onClick={hardReset}
+                className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition-colors">
+                Hard Reset
+              </button>
+              <button onClick={() => setShowHardReset(false)}
+                className="px-3 py-2 text-slate-300 hover:bg-slate-800 rounded-lg text-sm transition-colors">
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

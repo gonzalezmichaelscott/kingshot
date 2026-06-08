@@ -1,6 +1,7 @@
 'use client'
 import { useState } from 'react'
 import { Timer, Plus, Trash2 } from 'lucide-react'
+import { createClient } from '@/lib/supabase/client'
 import { RallyTimerSession } from './RallyTimerSession'
 
 interface Props {
@@ -23,6 +24,9 @@ export function RallyTimerDashboard({ allianceId, userId, canEdit, initialSessio
         : [{ id: null, label: 'Castle', players: [], status: 'idle', started_at: null, _local: true }]
   )
   const [creating, setCreating] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const supabase = createClient()
 
   async function addSession() {
     if (sessions.length >= 5) return
@@ -51,10 +55,23 @@ export function RallyTimerDashboard({ allianceId, userId, canEdit, initialSessio
 
   async function removeSession(idx: number) {
     const s = sessions[idx]
-    if (s.id && canEdit) {
-      await fetch(`/api/rally-timer?id=${s.id}`, { method: 'DELETE' })
+    setDeleting(true)
+    try {
+      if (s.id && canEdit) {
+        // Tell anyone currently watching the shared link the timer is gone, then delete.
+        try {
+          const channel = supabase.channel(`rally-timer:${s.id}`)
+          await channel.subscribe()
+          await channel.send({ type: 'broadcast', event: 'session_deleted', payload: {} })
+          supabase.removeChannel(channel)
+        } catch { /* best-effort broadcast */ }
+        await fetch(`/api/rally-timer?id=${s.id}`, { method: 'DELETE' })
+      }
+      setSessions(prev => prev.filter((_, i) => i !== idx))
+    } finally {
+      setDeleting(false)
+      setConfirmDelete(null)
     }
-    setSessions(prev => prev.filter((_, i) => i !== idx))
   }
 
   function updateSession(idx: number, updated: any) {
@@ -110,11 +127,13 @@ export function RallyTimerDashboard({ allianceId, userId, canEdit, initialSessio
         <div className={`grid grid-cols-1 gap-4 ${sessions.length > 1 ? 'lg:grid-cols-2 xl:grid-cols-3' : ''}`}>
           {sessions.map((session, idx) => (
             <div key={session.id || idx} className="relative min-w-0">
-              {sessions.length > 1 && (
+              {/* Delete session — R4/R5/system_admin only (canEdit). Local-only
+                  placeholder sessions (no id) can always be removed from the view. */}
+              {(canEdit || !session.id) && (
                 <button
-                  onClick={() => removeSession(idx)}
-                  className="absolute top-2 right-2 z-10 text-red-500/50 hover:text-red-400 p-1 rounded"
-                  title="Remove this timer"
+                  onClick={() => session.id ? setConfirmDelete(idx) : removeSession(idx)}
+                  className="absolute top-2 right-2 z-10 bg-red-600/90 hover:bg-red-600 text-white p-1.5 rounded-lg shadow"
+                  title="Delete this timer session"
                 >
                   <Trash2 size={14} />
                 </button>
@@ -129,6 +148,37 @@ export function RallyTimerDashboard({ allianceId, userId, canEdit, initialSessio
           ))}
         </div>
       </div>
+
+      {/* Delete confirmation dialog */}
+      {confirmDelete !== null && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => !deleting && setConfirmDelete(null)}>
+          <div className="bg-slate-900 border border-slate-700 rounded-2xl p-5 w-full max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              <Trash2 size={18} className="text-red-500" />
+              <h3 className="font-bold text-lg">Delete timer session</h3>
+            </div>
+            <p className="text-sm text-slate-400">
+              Delete this timer session? This cannot be undone.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => removeSession(confirmDelete)}
+                disabled={deleting}
+                className="flex-1 px-3 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-semibold transition-colors disabled:opacity-50"
+              >
+                {deleting ? 'Deleting…' : 'Delete'}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(null)}
+                disabled={deleting}
+                className="px-3 py-2 text-slate-300 hover:bg-slate-800 rounded-lg text-sm transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
