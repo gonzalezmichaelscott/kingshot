@@ -16,6 +16,7 @@ import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
 import { PreferredLanguageSelect } from '@/components/members/PreferredLanguageSelect'
 import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
+import { GoogleTranslate } from '@/components/ui/GoogleTranslate'
 import { TransferAllianceFlow } from '@/components/members/TransferAllianceFlow'
 import { CheckCircle2, ArrowRightLeft } from 'lucide-react'
 
@@ -142,23 +143,28 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
 
         {/* Header */}
         <div className="flex items-start justify-between gap-3 pt-4">
-          <div className="flex items-center gap-3">
-            <PlayerAvatar
-              gameId={member.game_id}
-              memberId={member.id}
-              playerName={member.player_name}
-              sizeClass="w-12 h-12"
-            />
-            <div>
-              <h1 className="text-xl font-bold">{member.player_name}</h1>
-              <p className="text-slate-400 text-sm">
-                {alliance ? `[${alliance.tag}] ${alliance.name}` : 'Not in an alliance'}
-              </p>
-              {/* Kingdom and level are lazily populated by PlayerAvatar's fetch;
-                  we display them inline here via a sibling fetcher */}
-              {member.game_id && (
-                <PlayerInfoBadges gameId={member.game_id} />
-              )}
+          {/* Left column: translate option (kept on the left so it never overlaps
+              the right-aligned Claim Profile action), then the player identity. */}
+          <div className="space-y-3 min-w-0">
+            <GoogleTranslate />
+            <div className="flex items-center gap-3">
+              <PlayerAvatar
+                gameId={member.game_id}
+                memberId={member.id}
+                playerName={member.player_name}
+                sizeClass="w-12 h-12"
+              />
+              <div>
+                <h1 className="text-xl font-bold">{member.player_name}</h1>
+                <p className="text-slate-400 text-sm">
+                  {alliance ? `[${alliance.tag}] ${alliance.name}` : 'Not in an alliance'}
+                </p>
+                {/* Kingdom and level are lazily populated by PlayerAvatar's fetch;
+                    we display them inline here via a sibling fetcher */}
+                {member.game_id && (
+                  <PlayerInfoBadges gameId={member.game_id} />
+                )}
+              </div>
             </div>
           </div>
         </div>

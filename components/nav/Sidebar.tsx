@@ -13,6 +13,7 @@ import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { isBackendRole } from '@/lib/access'
 import { ChatPanel } from '@/components/chat/ChatPanel'
+import { GoogleTranslate } from '@/components/ui/GoogleTranslate'
 
 interface SidebarProps {
   allianceId?: string
@@ -200,6 +201,13 @@ export function Sidebar({ allianceId, role, userId, allianceName, kingdomId }: S
               {chatOpen ? 'Close Chat' : 'Alliance Chat'}
             </button>
           )}
+
+          {/* Translate — embedded above Sign out, with a small divider */}
+          <div className="pt-1">
+            <div className="border-t border-slate-800 mb-2" />
+            <GoogleTranslate className="px-3 pb-1" />
+          </div>
+
           <button
             onClick={handleLogout}
             className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:bg-slate-800 hover:text-slate-100 w-full transition-colors"
