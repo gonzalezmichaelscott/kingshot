@@ -6,7 +6,6 @@ import type { MemberHeroData, MemberProfile, TroopData } from '@/lib/scoring'
 import { generateMemberInstructions } from '@/lib/member-instructions'
 import { getKvkContext } from '@/lib/kvk'
 import { MAX_JOINERS_PER_RALLY, MARCH_ESTIMATE, DEFAULT_CAPACITY } from '@/lib/rally-fill'
-import { autoPopulateCityAssignments } from '@/lib/kvk-city'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -1243,13 +1242,6 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 
   }
 
   await storeKvkAssignments(plan, eventIdByMember, pseudoEvent.name, eventStartByMember, members)
-
-  // FEATURE 3 — pre-populate the castle positioning map from these assignments.
-  try {
-    await autoPopulateCityAssignments(kingdomId)
-  } catch (err: any) {
-    console.error('[KVK] autoPopulateCityAssignments failed (non-fatal):', err?.message || err)
-  }
 
   return { plan, eventIds: activeEventIds }
 }
