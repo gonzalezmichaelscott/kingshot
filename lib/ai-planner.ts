@@ -1132,11 +1132,17 @@ export interface KvkLeaderRef {
   member: any
 }
 
-export interface AiJoinerAssignment {
+// PHASE 2A — the AI returns ONLY a ranking (best joiner first). It does NOT decide
+// which structure / rally a joiner goes to; deterministic code does that.
+export interface RankedJoiner {
   member_name: string
-  structure: JoinerStructure
-  role: 'joiner' | 'support'
-  rally_number: 1 | 2 | null
+  priority: number          // 1 = highest priority (placed first)
+  skill_tier: string        // S | A | B | F
+  skill_code: string        // LETHALITY_UP, ATTACK_UP, …
+  is_chance_based: boolean
+  troop_type: string
+  march_size: number
+  notes: string
 }
 
 const STRUCTURE_LEADER_LABEL: Record<Exclude<JoinerStructure, 'support'>, string> = {
@@ -1196,104 +1202,205 @@ function pushSupport(assignments: BattlePlanAssignment[], m: any) {
   } as BattlePlanAssignment)
 }
 
-/** Build the focused PHASE 2 joiner-assignment prompt (leaders locked, joiners listed). */
-function buildJoinerPrompt(leaders: KvkLeaderRef[], availableMembers: any[], planMode: 'A' | 'B'): string {
-  const leaderLines = leaders.map(l => {
-    const m = l.member
-    const tag = m.alliance_tag || m.alliance_name || '—'
-    const cap = (Number(m.rally_capacity) || 0).toLocaleString()
-    const march = (Number(m.march_size) || 0).toLocaleString()
-    const formation = STRUCTURE_FORMATION[l.structure].replace(/\s*\(.*\)$/, '')
-    return `- ${STRUCTURE_LEADER_LABEL[l.structure]}: ${sanitizeForJson(m.player_name)} ([${sanitizeForJson(tag)}]) — rally_cap: ${cap}, march: ${march}, alliance: ${sanitizeForJson(m.alliance_name || tag)}, formation: ${formation}`
-  }).join('\n')
-
+/**
+ * Build the PHASE 2A joiner-RANKING prompt. The AI only ranks the available joiners
+ * by rally value (skill tier, code diversity, chance-based dedup, troop-type fit,
+ * march size). It does NOT choose structures — deterministic code does the placement.
+ */
+function buildJoinerRankingPrompt(availableMembers: any[]): string {
   const joinerLines = availableMembers.map(m => {
     const tag = m.alliance_tag || m.alliance_name || '—'
     const js: JoinerSkill = m.joiner_skill || { hero: null, skill: null, code: 'NONE', tier: 'F', chance: false }
-    const willing = m.kvk_willing_to_move ? ' willing_to_move=YES' : ''
-    return `- ${sanitizeForJson(m.player_name)} [${sanitizeForJson(tag)}] march=${fmtK(m.march_size)} troops=${sanitizeForJson(m.primary_troop_type || m.troop_type || 'mixed')} hero=${sanitizeForJson(js.hero || 'none')} skill=${sanitizeForJson(js.skill || 'none')} tier=${js.tier} code=${js.code} chance=${js.chance}${willing}`
+    return `- ${sanitizeForJson(m.player_name)} [${sanitizeForJson(tag)}] march=${fmtK(m.march_size)} troops=${sanitizeForJson(m.primary_troop_type || m.troop_type || 'mixed')} hero=${sanitizeForJson(js.hero || 'none')} skill=${sanitizeForJson(js.skill || 'none')} tier=${js.tier} code=${js.code} chance=${js.chance}`
   }).join('\n')
 
-  return `KVK CASTLE BATTLE — JOINER ASSIGNMENT (PHASE 2)
+  return `KVK CASTLE BATTLE — JOINER RANKING (PHASE 2A)
 
-The rally leaders below were chosen deterministically by score and are FINAL. Do NOT change, move, or reassign any leader. Assign ONLY the available joiners that follow.
+You are NOT deciding which structure or rally each joiner goes to — deterministic code handles placement and capacity. Your ONLY job is to RANK every available joiner from best to worst by rally value, so the strongest joiners are placed into the castle rallies first.
 
-Structure assignments are FINAL and must not be changed:
-${leaderLines || '(no rally leaders available — assign everyone to support)'}
+Rank using these criteria, in priority order:
+1. EXPEDITION SKILL TIER: S > A > B > F. S-tier joiners (Chenko/Yeonwoo lethality, Vivian damage_taken_up) are the most valuable; F-tier (economy/gathering or no combat skill) are the least.
+2. SKILL CODE DIVERSITY: heroes whose skill codes (LETHALITY_UP, ATTACK_UP, DAMAGE_TAKEN_UP, …) mix for multiplicative stacking should rank high — a spread of different codes near the top beats many identical codes.
+3. CHANCE-BASED SKILLS: chance-based skills (chance=true) do not stack. Rank a single chance-based hero reasonably, but push DUPLICATES of the same chance-based code lower; set is_chance_based=true for them.
+4. TROOP TYPE SUITABILITY: infantry-heavy joiners are preferred for the castle 60/20/20 garrison — rank them slightly above pure-archer joiners of otherwise equal skill.
+5. MARCH SIZE: final tie-breaker — larger march fills more rally capacity.
 
 AVAILABLE JOINERS (${availableMembers.length}) — format: name [alliance] march troops hero skill tier code chance:
 ${joinerLines || '(none)'}
 
-Assign each available joiner to a structure rally following these rules in priority order:
-
-RULE 1 — SKILL QUALITY: Prioritize S-tier joiners (Chenko/Yeonwoo lethality, Vivian damage_taken_up) for Castle Rally 1 first, then Castle Rally 2. These provide the most rally value.
-RULE 2 — SKILL STACKING: Each rally has only 4 joiner skill slots. Stat-based skills STACK (two Chenkos = additive lethality, both useful). Chance-based skills (chance=true) DO NOT STACK — assign only ONE chance-based hero per skill code per rally.
-RULE 3 — SKILL CODE DIVERSITY: Within a rally, mix different skill codes for multiplicative effect. A LETHALITY_UP + ATTACK_UP + DAMAGE_TAKEN_UP combination beats three LETHALITY_UP joiners.
-RULE 4 — TROOP TYPE COMPLEMENT: Match joiner troop types to the rally leader's formation. Castle Rally 1 and 2 prefer infantry-heavy joiners to maintain the 60/20/20 garrison. A joiner who is 100% archers when a castle rally needs infantry should go to a less critical structure or support.
-RULE 5 — MARCH SIZE: After skill quality and troop type are satisfied, larger march size fills more rally capacity. Use march size to break ties between joiners of equal skill quality.
-RULE 6 — SAME ALLIANCE: ${planMode === 'A'
-    ? 'PLAN A is active — every joiner MUST be from the SAME alliance as their rally leader. Never assign a joiner to a leader in a different alliance.'
-    : 'PLAN B is active — a joiner with willing_to_move=YES MAY join a rally leader from a DIFFERENT alliance when it meaningfully improves the rally. Joiners without willing_to_move=YES must still join only same-alliance leaders.'}
-RULE 7 — RALLY CAPACITY: Stop adding joiners to a rally when capacity is filled (leader rally_cap − leader march − sum of joiner marches <= 0). Default to a maximum of 15 joiners per rally when capacity data is missing.
-RULE 8 — ALL REMAINING GO TO SUPPORT: Any member not assigned to a rally becomes Support.
-
-Return assignments as JSON only (raw JSON, no markdown, no code fences), exactly one entry per available joiner:
+Return raw JSON only (no markdown, no code fences). Include EVERY available joiner EXACTLY ONCE, ordered best-first, with priority=1 the best, 2 the next, and so on:
 {
-  "assignments": [
-    { "member_name": "string", "structure": "castle_1|castle_2|north|east|south|west|support", "role": "joiner|support", "rally_number": 1 | 2 | null }
+  "ranked_joiners": [
+    { "member_name": "string", "priority": 1, "skill_tier": "S|A|B|F", "skill_code": "string", "is_chance_based": false, "troop_type": "string", "march_size": 0, "notes": "short reason for the rank" }
   ]
 }`
 }
 
-/** Parse the joiner-assignment JSON reply. Returns null on failure. */
-function parseJoinerReply(text: string): AiJoinerAssignment[] | null {
+/** Parse the joiner-RANKING JSON reply. Returns null on failure. */
+function parseRankedJoiners(text: string): RankedJoiner[] | null {
   let jsonStr: string
   try { jsonStr = extractJSON(text) } catch { return null }
   let obj: any
   try { obj = JSON.parse(jsonStr) } catch { return null }
-  const arr = Array.isArray(obj?.assignments) ? obj.assignments : null
+  const arr = Array.isArray(obj?.ranked_joiners) ? obj.ranked_joiners : null
   if (!arr) return null
-  const valid: JoinerStructure[] = ['castle_1', 'castle_2', 'north', 'east', 'south', 'west', 'support']
   return arr
-    .map((a: any) => ({
-      member_name: String(a?.member_name || '').trim(),
-      structure: (valid.includes(a?.structure) ? a.structure : 'support') as JoinerStructure,
-      role: a?.role === 'joiner' ? 'joiner' : 'support',
-      rally_number: a?.rally_number === 1 ? 1 : a?.rally_number === 2 ? 2 : null,
-    } as AiJoinerAssignment))
-    .filter((a: AiJoinerAssignment) => a.member_name)
+    .map((r: any, i: number) => ({
+      member_name: String(r?.member_name || '').trim(),
+      priority: Number.isFinite(Number(r?.priority)) ? Number(r.priority) : i + 1,
+      skill_tier: String(r?.skill_tier || 'F'),
+      skill_code: String(r?.skill_code || 'UNKNOWN'),
+      is_chance_based: !!r?.is_chance_based,
+      troop_type: String(r?.troop_type || 'mixed'),
+      march_size: Number(r?.march_size) || 0,
+      notes: String(r?.notes || ''),
+    } as RankedJoiner))
+    .filter((r: RankedJoiner) => r.member_name)
 }
 
 /**
- * PHASE 2 — assign joiners with a focused AI call. The six structure leaders are
- * already locked (Phase 1); this call only places the remaining attending members
- * onto rallies using expedition-skill quality, troop type and march size. The prompt
- * is far smaller than the legacy full-plan prompt, so there is no JSON truncation
- * risk. Returns the parsed joiner assignments (empty array if none / on failure —
- * callers fall every unplaced member back to Support).
+ * PHASE 2A — ask the AI to RANK the available joiners by rally value (best first).
+ * The AI does not choose structures; deterministic code (fillStructuresInOrder) does.
+ * Returns the ranked list, or [] on failure (the caller then falls back to a
+ * march-size-descending ordering).
  */
 export async function assignJoinersWithAI(
   leaders: KvkLeaderRef[],
   availableMembers: any[],
   planMode: 'A' | 'B',
   _eventType?: any,
-): Promise<AiJoinerAssignment[]> {
+): Promise<RankedJoiner[]> {
   if (!availableMembers || availableMembers.length === 0) return []
 
-  const prompt = buildJoinerPrompt(leaders, availableMembers, planMode)
+  const prompt = buildJoinerRankingPrompt(availableMembers)
   // Reuse the planner model — its system prompt carries all verified joiner-skill
-  // mechanics (stacking, skill codes, chance-based rules).
+  // mechanics (tiers, stacking, skill codes, chance-based rules).
   const { text } = await callPlannerModel(prompt)
-  let parsed = parseJoinerReply(text)
+  let parsed = parseRankedJoiners(text)
   if (!parsed) {
     const { text: retry } = await callPlannerModel(`${prompt}\n\nRespond with ONLY the JSON object — no prose, no code fences.`)
-    parsed = parseJoinerReply(retry)
+    parsed = parseRankedJoiners(retry)
   }
   if (!parsed) {
-    console.error('[KVK] assignJoinersWithAI: could not parse joiner reply; all joiners fall back to Support.')
+    console.error('[KVK] assignJoinersWithAI: could not parse joiner ranking; falling back to march-size order.')
     return []
   }
   return parsed
+}
+
+/**
+ * PHASE 2B — PURE deterministic placement. Given joiners in priority order (best
+ * first) and the locked leaders, fill structures STRICTLY in order:
+ *   Castle Rally 1 → Castle Rally 2 → North → East → South → West → Support.
+ * Each structure is filled to capacity (rally_cap − leader march, max 15 when data
+ * missing) before the next one starts. A member lands in exactly one structure and
+ * is removed from the pool the moment it is placed.
+ *
+ * Plan A: only same-alliance joiners may fill a structure (a structure is left
+ *   partially filled rather than cross-alliance filled).
+ * Plan B: any remaining joiner may fill; a cross-alliance placement is flagged as a
+ *   transfer with a transfer recommendation.
+ *
+ * Returns the joiner + support assignments (NOT the leaders) and any transfers.
+ */
+function fillStructuresInOrder(
+  rankedMembers: any[],
+  leaders: KvkLeaderRef[],
+  planMode: 'A' | 'B',
+): { assignments: BattlePlanAssignment[]; transfers: TransferRecommendation[] } {
+  const assignments: BattlePlanAssignment[] = []
+  const transfers: TransferRecommendation[] = []
+  const allianceLabel = (m: any) => m?.alliance_tag || m?.alliance_name || ''
+
+  const pool = [...rankedMembers]          // priority order, best first (mutated)
+  const placed = new Set<string>()
+
+  const FILL_ORDER: Exclude<JoinerStructure, 'support'>[] = ['castle_1', 'castle_2', 'north', 'east', 'south', 'west']
+  const leaderByStructure: Record<string, any> = {}
+  for (const l of leaders) leaderByStructure[l.structure] = l.member
+
+  for (const structure of FILL_ORDER) {
+    const leader = leaderByStructure[structure]
+    if (!leader) continue
+    const slot = slotForStructureCode(structure)
+    const isTurret = slot.squad !== 'castle'
+
+    const cap = Number(leader.rally_capacity) || 0
+    const march = Number(leader.march_size) || 0
+    const incomplete = !cap || !march
+    let space = incomplete ? DEFAULT_CAPACITY : Math.max(0, cap - march)
+    const maxJoiners = incomplete ? MAX_JOINERS_PER_RALLY : Number.POSITIVE_INFINITY
+    let count = 0
+    const usedChanceCodes = new Set<string>()   // chance-based codes already in THIS rally
+
+    // Walk the priority-ordered pool; assign each eligible joiner that still fits.
+    for (let k = 0; k < pool.length;) {
+      if (count >= maxJoiners) break
+      if (!incomplete && space <= 0) break
+
+      const m = pool[k]
+      const sameAlliance = m.alliance_id === leader.alliance_id
+
+      // Plan A: same-alliance only. Plan B: any (cross-alliance flagged below).
+      if (planMode === 'A' && !sameAlliance) { k++; continue }
+
+      const js: JoinerSkill = m.joiner_skill || { hero: null, skill: null, code: 'NONE', tier: 'F', chance: false }
+      // No duplicate chance-based skill codes within one rally.
+      const code = js.code
+      if (js.chance && code && code !== 'NONE' && code !== 'UNKNOWN' && usedChanceCodes.has(code)) { k++; continue }
+
+      const jm = Number(m.march_size) || MARCH_ESTIMATE
+      // Skip a joiner that overflows the remaining space so a smaller one can top off.
+      if (!incomplete && jm > space) { k++; continue }
+
+      // Place this joiner.
+      pool.splice(k, 1)
+      placed.add(m.member_id)
+      space -= jm
+      count++
+      if (js.chance && code) usedChanceCodes.add(code)
+
+      const crossAlliance = !sameAlliance             // only reachable in Plan B
+      const transfer = planMode === 'B' && crossAlliance
+      const sc = structure
+      const skillNote = js.hero && js.tier !== 'F'
+        ? `${js.hero}${js.skill ? ` ${js.skill}` : ''} (${js.tier}-tier ${js.code}${js.chance ? ', chance-based' : ''})`
+        : 'march size'
+
+      assignments.push({
+        member_id: m.member_id,
+        player_name: m.player_name,
+        role: isTurret ? 'turret_joiner' : 'joiner',
+        squad: slot.squad,
+        rally_number: slot.rally_number,
+        is_primary: true,
+        is_backup: false,
+        reasoning: `Assigned to ${STRUCTURE_LEADER_LABEL[sc].replace(' Leader', '')} as joiner for ${skillNote}.`,
+        formation_recommendation: STRUCTURE_FORMATION[sc],
+        kvk_transfer: transfer,
+        transfer_alliance: transfer ? allianceLabel(leader) : undefined,
+        transfer_rally_leader: transfer ? leader.player_name : undefined,
+      } as BattlePlanAssignment)
+
+      if (transfer) {
+        transfers.push({
+          player_name: m.player_name,
+          home_alliance: allianceLabel(m),
+          recommended_alliance: allianceLabel(leader),
+          rally_leader: leader.player_name,
+          strength_improvement: `Joins ${STRUCTURE_LEADER_LABEL[sc]} (skill: ${js.code})`,
+        })
+      }
+      // k stays — we spliced the current element out.
+    }
+  }
+
+  // Everyone left in the pool → Support (RULE 8).
+  for (const m of pool) {
+    if (!placed.has(m.member_id)) pushSupport(assignments, m)
+  }
+
+  return { assignments, transfers }
 }
 
 /**
@@ -1531,78 +1638,36 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 
   const leaderIds = new Set(leaderAssignments.map(a => a.member_id))
   const availableMembers = members.filter(m => !leaderIds.has(m.member_id))
 
-  // ── PHASE 2 — JOINERS (AI, skill-aware). Focused, small prompt → no truncation.
-  const aiJoiners = await assignJoinersWithAI(leaders, availableMembers, planMode, eventType)
+  // ── PHASE 2A — AI RANKS the joiners by rally value (no structure decisions).
+  const ranked = await assignJoinersWithAI(leaders, availableMembers, planMode, eventType)
 
-  // Map AI replies (keyed by player name) back to member ids, consuming duplicates.
+  // Resolve the ranking into an ordered list of member objects (best first),
+  // consuming duplicate names. Members the AI omitted (or, if ranking failed,
+  // everyone) are appended by march size descending.
   const membersByName: Record<string, any[]> = {}
   for (const m of availableMembers) (membersByName[m.player_name] ||= []).push(m)
-  const leaderByStructure: Record<string, any> = {}
-  for (const l of leaders) leaderByStructure[l.structure] = l.member
 
-  const assignments: BattlePlanAssignment[] = [...leaderAssignments]
-  const transfers: TransferRecommendation[] = []
-  const allianceLabel = (m: any) => m?.alliance_tag || m?.alliance_name || ''
-  const placed = new Set<string>()
-
-  for (const aj of aiJoiners) {
-    const queue = membersByName[aj.member_name]
-    const m = queue && queue.length ? queue.shift() : null
-    if (!m || placed.has(m.member_id)) continue
-    placed.add(m.member_id)
-
-    const structure = aj.structure
-    const leaderMember = structure !== 'support' ? leaderByStructure[structure] : null
-    if (structure === 'support' || !leaderMember) {
-      pushSupport(assignments, m)
-      continue
-    }
-    const slot = slotForStructureCode(structure)
-    const crossAlliance = m.alliance_id !== leaderMember.alliance_id
-
-    // Plan A safety net: a cross-alliance joiner cannot legally join → support.
-    if (planMode === 'A' && crossAlliance) {
-      pushSupport(assignments, m)
-      continue
-    }
-
-    const sc = structure as Exclude<JoinerStructure, 'support'>
-    const isTurret = slot.squad !== 'castle'
-    const transfer = planMode === 'B' && crossAlliance
-    const js: JoinerSkill = m.joiner_skill || { hero: null, skill: null, code: 'NONE', tier: 'F', chance: false }
-    const skillNote = js.hero && js.tier !== 'F'
-      ? `${js.hero}${js.skill ? ` ${js.skill}` : ''} (${js.tier}-tier ${js.code}${js.chance ? ', chance-based' : ''})`
-      : 'march size'
-    assignments.push({
-      member_id: m.member_id,
-      player_name: m.player_name,
-      role: isTurret ? 'turret_joiner' : 'joiner',
-      squad: slot.squad,
-      rally_number: slot.rally_number,
-      is_primary: true,
-      is_backup: false,
-      reasoning: `Assigned to ${STRUCTURE_LEADER_LABEL[sc].replace(' Leader', '')} as joiner for ${skillNote}.`,
-      formation_recommendation: STRUCTURE_FORMATION[sc],
-      kvk_transfer: transfer,
-      transfer_alliance: transfer ? allianceLabel(leaderMember) : undefined,
-      transfer_rally_leader: transfer ? leaderMember.player_name : undefined,
-    } as BattlePlanAssignment)
-
-    if (transfer) {
-      transfers.push({
-        player_name: m.player_name,
-        home_alliance: allianceLabel(m),
-        recommended_alliance: allianceLabel(leaderMember),
-        rally_leader: leaderMember.player_name,
-        strength_improvement: `Joins ${STRUCTURE_LEADER_LABEL[sc]} (skill: ${js.code})`,
-      })
+  const orderedMembers: any[] = []
+  const consumed = new Set<string>()
+  if (ranked.length > 0) {
+    const sortedRank = [...ranked].sort((a, b) => (a.priority || 0) - (b.priority || 0))
+    for (const r of sortedRank) {
+      const queue = membersByName[r.member_name]
+      const m = queue && queue.length ? queue.shift() : null
+      if (m && !consumed.has(m.member_id)) {
+        consumed.add(m.member_id)
+        orderedMembers.push(m)
+      }
     }
   }
+  const leftover = availableMembers
+    .filter(m => !consumed.has(m.member_id))
+    .sort((a, b) => (Number(b.march_size) || 0) - (Number(a.march_size) || 0))
+  orderedMembers.push(...leftover)
 
-  // Any available member the AI omitted → Support (RULE 8).
-  for (const m of availableMembers) {
-    if (!placed.has(m.member_id)) pushSupport(assignments, m)
-  }
+  // ── PHASE 2B — CODE fills structures in strict order with capacity math.
+  const { assignments: joinerAssignments, transfers } = fillStructuresInOrder(orderedMembers, leaders, planMode)
+  const assignments: BattlePlanAssignment[] = [...leaderAssignments, ...joinerAssignments]
 
   // ── Narrative — a small, separate AI call (best-effort). Per-player instructions
   // remain deterministic via generateMemberInstructions inside storeKvkAssignments.
