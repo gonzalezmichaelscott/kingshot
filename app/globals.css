@@ -27,6 +27,7 @@ body {
    The widget injects its own banner frame (which pushes the page down via
    body{top}) and a light-styled dropdown. Hide the banner, cancel the push,
    and restyle the dropdown to match the dark UI. */
+.goog-te-banner-frame,
 .goog-te-banner-frame.skiptranslate,
 .goog-te-gadget-icon {
   display: none !important;

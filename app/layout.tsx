@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from 'next'
 import { Inter } from 'next/font/google'
 import './globals.css'
 import { InstallPrompt } from '@/components/ui/InstallPrompt'
+import { GoogleTranslate } from '@/components/ui/GoogleTranslate'
 
 const inter = Inter({ subsets: ['latin'] })
 
@@ -30,6 +31,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark">
       <body className={`${inter.className} antialiased bg-slate-950 text-slate-100 min-h-screen`}>
         {children}
+        <GoogleTranslate />
         <InstallPrompt />
       </body>
     </html>

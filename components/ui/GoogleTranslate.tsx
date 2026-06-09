@@ -13,7 +13,7 @@ import Script from 'next/script'
 export function GoogleTranslate({ className = '' }: { className?: string }) {
   return (
     <div
-      className={`inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900/80 px-2 py-1 ${className}`}
+      className={`fixed top-3 right-3 z-[100] inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/90 px-2.5 py-1 shadow-lg backdrop-blur ${className}`}
       title="Translate this page"
     >
       <span aria-hidden className="text-sm leading-none">🌐</span>
@@ -26,7 +26,7 @@ export function GoogleTranslate({ className = '' }: { className?: string }) {
           window.googleTranslateElementInit = function () {
             new window.google.translate.TranslateElement({
               pageLanguage: 'en',
-              includedLanguages: 'zh-CN,zh-TW,ru,ar,es,pt,id,vi,th,ko,ja,fr,de,tr,pl,uk,hi',
+              includedLanguages: 'zh-CN,zh-TW,ru,ar,es,pt,id,vi,th,ko,ja,fr,de,tr,pl,uk,hi,ms,tl',
               layout: window.google.translate.TranslateElement.InlineLayout.SIMPLE,
               autoDisplay: false
             }, 'google_translate_element');

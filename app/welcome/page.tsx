@@ -5,7 +5,6 @@ import {
   Sparkles, ClipboardList, Wand2, ArrowRight, BookOpen,
 } from 'lucide-react'
 import { SECTIONS } from '@/components/guide/guideSections'
-import { GoogleTranslate } from '@/components/ui/GoogleTranslate'
 
 export const metadata: Metadata = {
   title: 'KS Command — Kingshot Alliance Coordination Platform',
@@ -74,15 +73,12 @@ export default function WelcomePage() {
             <Sword className="text-amber-500" size={22} />
             <span className="font-bold text-amber-500">KS Command</span>
           </div>
-          <div className="flex items-center gap-3">
-            <GoogleTranslate />
-            <Link
-              href="/login"
-              className="text-sm font-medium px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors"
-            >
-              Sign In
-            </Link>
-          </div>
+          <Link
+            href="/login"
+            className="text-sm font-medium px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors"
+          >
+            Sign In
+          </Link>
         </div>
       </header>
 
