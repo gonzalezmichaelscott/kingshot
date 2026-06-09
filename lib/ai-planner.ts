@@ -506,11 +506,15 @@ function sanitizeJoinerWidgetMentions(plan: BattlePlan): void {
 // members from the tail until it fits and tell the model the list was truncated.
 const MAX_PROMPT_CHARS = 80000
 
-function buildPlanningPrompt(members: any[], event: any, kvkOptions?: { planMode?: 'A' | 'B' }): string {
+function buildPlanningPrompt(members: any[], event: any, kvkOptions?: { planMode?: 'A' | 'B'; simplify?: boolean }): string {
   const eventType = event.event_types
   const rules = eventType.rules
   const objectives = eventType.objectives
   const planMode = kvkOptions?.planMode
+  // FIX 2 — when retrying after a truncated reply, emit a slimmer member block
+  // (power, march_size, rally_capacity, lead hero / first skill only) so the JSON
+  // reply fits inside the output token limit.
+  const simplify = !!kvkOptions?.simplify
 
   // Single-alliance Castle Battle: castle is top priority over the four turrets.
   const castleBattleBlock = eventType.slug === 'castle_battle'
@@ -539,6 +543,20 @@ ATTENDING MEMBERS (${members.length} total):`
   // Build each member's block separately so we can drop blocks from the tail if
   // the prompt would exceed MAX_PROMPT_CHARS. All free-text fields are sanitized.
   const memberBlocks = members.map(m => {
+    // Simplified block (FIX 2 retry): only the essentials needed to assign + a
+    // single lead-hero / first-expedition-skill hint. Full hero/troop detail omitted.
+    if (simplify) {
+      const leadHero = m.heroes_detail && m.heroes_detail.length
+        ? sanitizeForJson(m.heroes_detail[0])
+        : 'none entered'
+      return `
+- Player: ${sanitizeForJson(m.player_name)}
+  ID: ${m.member_id}${m.alliance_name ? `\n  Alliance: [${sanitizeForJson(m.alliance_tag || '')}] ${sanitizeForJson(m.alliance_name)}` : ''}${m.kvk_willing_to_move !== undefined ? `\n  KVK Willing To Move: ${m.kvk_willing_to_move ? 'YES' : 'no'}` : ''}
+  Power: ${(m.power || 0).toLocaleString()} | March Size: ${(m.march_size || 0).toLocaleString()} | Rally Capacity: ${(m.rally_capacity || 0).toLocaleString()}
+  Lead Hero / First Skill: ${leadHero}
+  Role Scores: RL=${m.scores.rallyLeader.toFixed(1)}, J=${m.scores.joiner.toFixed(1)}, C=${m.scores.castle.toFixed(1)}, T=${m.scores.turret.toFixed(1)}, S=${m.scores.support.toFixed(1)}`
+    }
+
     const troopBreakdown = m.troop_data
       ? (['infantry', 'cavalry', 'archer'] as const).map(type => {
           const typeData = m.troop_data[type]
@@ -690,22 +708,17 @@ function extractJSON(text: string): string {
   return text.slice(start, end + 1)
 }
 
-/**
- * Run the battle-planner model for a given prompt and parse its JSON reply.
- *
- * Both failure modes are handled so a bad run surfaces a clear message instead of
- * crashing the request:
- *  - the Claude API call itself (network / rate limit / API error)
- *  - parsing the model's JSON reply. The original "Expected ',' or ']' ... at
- *    position N" crash came from here: when the reply is cut off at the output
- *    token limit (stop_reason === 'max_tokens') the JSON is truncated mid-array.
- */
-async function runPlannerModel(prompt: string): Promise<BattlePlan> {
+// Output token budget. Raised from 8000 → 16000 (FIX 2): the larger verified
+// mechanics knowledge base pushed long plans past 8000 tokens, truncating the JSON
+// mid-array ("Expected ',' or ']' ... at position N").
+const PLANNER_MAX_TOKENS = 16000
+
+async function callPlannerModel(prompt: string): Promise<{ text: string; stopReason: string | null }> {
   let response: any
   try {
     response = await anthropic.messages.create({
       model: 'claude-sonnet-4-5',
-      max_tokens: 8000,
+      max_tokens: PLANNER_MAX_TOKENS,
       system: BATTLE_PLANNER_SYSTEM_PROMPT,
       messages: [{ role: 'user', content: prompt }],
     })
@@ -713,31 +726,60 @@ async function runPlannerModel(prompt: string): Promise<BattlePlan> {
     console.error('[BattlePlan] Claude API request failed:', err?.message || err)
     throw new Error(`Battle plan service is temporarily unavailable (${err?.message || 'AI request failed'}). Please try again.`)
   }
-
   const text = response?.content?.[0]?.type === 'text' ? response.content[0].text : ''
-  const stopReason = response?.stop_reason
+  return { text, stopReason: response?.stop_reason ?? null }
+}
 
+/** Parse the model's JSON reply, scrubbing joiner widget mentions. null on failure. */
+function tryParsePlan(text: string): BattlePlan | null {
   let jsonStr: string
   try {
     jsonStr = extractJSON(text)
   } catch {
-    console.error('[BattlePlan] No JSON object found in model reply. stop_reason=', stopReason, 'length=', text.length)
-    throw new Error('The battle planner returned an unreadable response (no JSON found). Please try generating the plan again.')
+    return null
   }
-
   try {
     const parsed = JSON.parse(jsonStr) as BattlePlan
     // FIX 1 — scrub joiner widget mentions from all narrative before it is stored.
     sanitizeJoinerWidgetMentions(parsed)
     return parsed
-  } catch (err: any) {
-    // A truncated reply (hit the output token limit) is the most common cause.
-    const hint = stopReason === 'max_tokens'
-      ? ' The response was cut off at the output limit — try again, or reduce the number of attending members.'
-      : ' Please try generating the plan again.'
-    console.error('[BattlePlan] Failed to parse model JSON:', err?.message, '| stop_reason=', stopReason, '| length=', jsonStr.length)
-    throw new Error(`The battle planner returned malformed JSON (${err?.message || 'parse error'}).${hint}`)
+  } catch {
+    return null
   }
+}
+
+/**
+ * Run the battle-planner model for a given prompt and parse its JSON reply.
+ *
+ * FIX 2 — if the first reply can't be parsed (most commonly because it was cut off
+ * at the output token limit, stop_reason === 'max_tokens', truncating the JSON
+ * mid-array) and a `buildSimplifiedPrompt` is supplied, automatically retry ONCE
+ * with a slimmer prompt (less per-member detail) so the JSON fits. Callers that run
+ * a post-processor (e.g. enforceKvkAssignmentOrder for KVK) keep doing so on the
+ * returned plan — the retry is transparent.
+ */
+async function runPlannerModel(prompt: string, buildSimplifiedPrompt?: () => string): Promise<BattlePlan> {
+  const { text, stopReason } = await callPlannerModel(prompt)
+  const plan = tryParsePlan(text)
+  if (plan) return plan
+
+  if (buildSimplifiedPrompt) {
+    console.warn(`[BattlePlan] First reply unparseable (stop_reason=${stopReason}, len=${text.length}); retrying with a simplified prompt.`)
+    const { text: text2, stopReason: stop2 } = await callPlannerModel(buildSimplifiedPrompt())
+    const plan2 = tryParsePlan(text2)
+    if (plan2) return plan2
+    const hint2 = stop2 === 'max_tokens'
+      ? ' The response was cut off at the output limit even after simplifying — reduce the number of attending members.'
+      : ' Please try generating the plan again.'
+    console.error('[BattlePlan] Simplified retry also failed. stop_reason=', stop2, 'len=', text2.length)
+    throw new Error(`The battle planner returned malformed JSON after a simplified retry.${hint2}`)
+  }
+
+  const hint = stopReason === 'max_tokens'
+    ? ' The response was cut off at the output limit — try again, or reduce the number of attending members.'
+    : ' Please try generating the plan again.'
+  console.error('[BattlePlan] Failed to parse model JSON. stop_reason=', stopReason, 'len=', text.length)
+  throw new Error(`The battle planner returned malformed JSON.${hint}`)
 }
 
 /**
@@ -1168,8 +1210,12 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 
 
   // The AI plan is used ONLY for narrative (summary, formations, per-member
   // reasoning/hero advice, coverage gaps, etc.). Structure placement is decided
-  // deterministically below (FIX 2).
-  const aiPlan: BattlePlan = await runPlannerModel(prompt)
+  // deterministically below (FIX 2). enforceKvkAssignmentOrder still runs on the
+  // returned plan even if the simplified retry was used.
+  const aiPlan: BattlePlan = await runPlannerModel(
+    prompt,
+    () => buildPlanningPrompt(members, pseudoEvent, { planMode, simplify: true }),
+  )
 
   // FIX 2 — deterministic structure assignment order REPLACES the AI's WHO-goes-WHERE.
   const { assignments, transfer_recommendations } = enforceKvkAssignmentOrder(members, planMode)
@@ -1211,10 +1257,13 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 
 async function planOneLegion(legion: 'legion1' | 'legion2', members: any[], event: any): Promise<BattlePlan | null> {
   if (members.length === 0) return null
   const label = legion === 'legion1' ? 'Legion 1' : 'Legion 2'
-  const prompt = buildPlanningPrompt(members, event) +
-    `\n\nIMPORTANT: This plan is for ${label} ONLY. These ${members.length} members all fight together in ${label}. Set "squad": "${legion}" on every assignment.`
+  const legionSuffix = `\n\nIMPORTANT: This plan is for ${label} ONLY. These ${members.length} members all fight together in ${label}. Set "squad": "${legion}" on every assignment.`
+  const prompt = buildPlanningPrompt(members, event) + legionSuffix
 
-  const plan: BattlePlan = await runPlannerModel(prompt)
+  const plan: BattlePlan = await runPlannerModel(
+    prompt,
+    () => buildPlanningPrompt(members, event, { simplify: true }) + legionSuffix,
+  )
   // Force the squad to the legion regardless of what the model returned.
   for (const a of plan.assignments) a.squad = legion
   return plan
@@ -1269,7 +1318,10 @@ export async function generateBattlePlan(eventId: string): Promise<BattlePlan> {
 
   const prompt = buildPlanningPrompt(members, event)
 
-  const plan: BattlePlan = await runPlannerModel(prompt)
+  const plan: BattlePlan = await runPlannerModel(
+    prompt,
+    () => buildPlanningPrompt(members, event, { simplify: true }),
+  )
 
   await storeAssignments(eventId, plan, event, members)
   return plan

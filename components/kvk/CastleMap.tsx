@@ -198,12 +198,14 @@ export function CastleMap({ eventId, members, initialAssignments, roleByMember, 
               )
             })}
 
-            {/* Turrets — purple squares with "T" at the castle's four side midpoints */}
+            {/* Turrets — purple squares with "T" at the four diamond tips (corners
+                of the square become the top/right/bottom/left tips after rotation) */}
             {TURRETS.map(t => (
               <g key={t.side}>
-                <rect x={t.x - 3.5} y={t.y - 3.5} width="7" height="7" rx="1" fill="#7c3aed" stroke="#a855f7" strokeWidth="0.5" />
+                <rect x={t.x - 4.5} y={t.y - 4.5} width="9" height="9" rx="1" fill="#7c3aed" stroke="#a855f7" strokeWidth="0.6" />
                 <g transform={`rotate(-45 ${t.x} ${t.y})`}>
-                  <text x={t.x} y={t.y + 1.4} textAnchor="middle" fontSize="3.4" fontWeight="bold" fill="#fff">T</text>
+                  <text x={t.x} y={t.y + 0.3} textAnchor="middle" fontSize="3.4" fontWeight="bold" fill="#fff">T</text>
+                  <text x={t.x} y={t.y + 3} textAnchor="middle" fontSize="1.8" fill="#ddd6fe">{t.label}</text>
                 </g>
               </g>
             ))}
@@ -220,6 +222,10 @@ export function CastleMap({ eventId, members, initialAssignments, roleByMember, 
           </svg>
         </div>
       </div>
+
+      <p className="text-[11px] text-slate-500 text-center -mt-1">
+        Front 2 rows shown — 6 positions per row per face. Turrets sit at the four diamond tips (N/E/S/W).
+      </p>
 
       {/* Selected slot editor */}
       {canManage && selected && selectedSlot && (

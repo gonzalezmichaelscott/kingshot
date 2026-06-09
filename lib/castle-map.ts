@@ -2,46 +2,69 @@
 // (FEATURE 3). Pure module with no server/client dependencies so it can be used by
 // both the CastleMap client component and the server-side auto-population.
 //
-// The map is authored in a normal orthogonal coordinate system (viewBox 0..100).
-// The CastleMap component rotates the whole SVG 45° via CSS so it reads as the
-// in-game diamond; slot contents are counter-rotated -45° to stay upright.
+// GEOMETRY (FIX 1): the map is authored in a normal orthogonal square (viewBox
+// 0..100) and the whole SVG is rotated 45° via CSS, which turns it into the
+// in-game diamond. Under a clockwise 45° rotation the four CORNERS of the square
+// land on the four pointed TIPS of the diamond (top/right/bottom/left), so the
+// turrets are placed at the corners:
+//   top-left  corner → top tip    → North turret
+//   top-right corner → right tip   → East turret
+//   bottom-right     → bottom tip  → South turret
+//   bottom-left      → left  tip   → West turret
+// The four EDGES of the square become the four diagonal FACES of the diamond,
+// each carrying a row of 6 city slots (2 rows deep). Slot contents are
+// counter-rotated -45° in the component so text stays upright.
 
 export type Side = 'n' | 'e' | 's' | 'w'
 
 export interface CitySlot {
-  id: string        // `${side}-${depth}-${lateral}`  e.g. "n-0-1"
+  id: string        // `${side}-${row}-${col}`  e.g. "n-0-2"
   side: Side
-  depth: number     // 0 = nearest the castle (front line), higher = rear/support
-  lateral: number   // 0..2 across the face
-  x: number         // center x in the 0..100 viewBox
+  depth: number     // row: 0 = nearest the castle (front line), higher = rear/outer
+  lateral: number   // col: 0..5 across the face
+  x: number         // center x in the 0..100 viewBox (pre-rotation)
   y: number         // center y
 }
 
 export const MAP_VIEWBOX = 100
 export const SLOT_SIZE = 9          // square side length in viewBox units
-export const CASTLE_MIN = 39
-export const CASTLE_MAX = 61
+export const CASTLE_MIN = 38
+export const CASTLE_MAX = 62
 export const OUTER_MIN = 4          // dashed battle-boundary diamond
 export const OUTER_MAX = 96
 
-const DEPTHS = 2
-const LATERALS = 3
-const LATERAL_CENTERS = [36, 50, 64]
-// Depth 0 sits just outside the castle face; depth 1 is one step further out.
-const DEPTH_OFFSETS = [30, 18]      // distance band centers (north/west use 100-?)
+// 6 columns per face, 2 rows deep (inner front line + one rear row) = 48 slots.
+export const ROWS = 2
+export const COLS = 6
+const COL_MIN = 20
+const COL_MAX = 80
+const ROW_INNER = 30   // row 0 sits just outside the castle face
+const ROW_STEP = 12    // each subsequent row steps outward toward the boundary
+
+// Column fill priority: center columns first so a rally leader (placed first)
+// lands on the centered front-line slot of its face.
+const COL_ORDER = [2, 3, 1, 4, 0, 5]
+
+function colCoord(col: number): number {
+  return COL_MIN + (col * (COL_MAX - COL_MIN)) / (COLS - 1)
+}
+/** Distance of a row from the relevant edge, measured toward the castle. */
+function rowInset(row: number): number {
+  return ROW_INNER - row * ROW_STEP   // row0 = 30 (inner), row1 = 18 (outer)
+}
 
 function buildSlots(): CitySlot[] {
   const slots: CitySlot[] = []
-  for (let depth = 0; depth < DEPTHS; depth++) {
-    const near = DEPTH_OFFSETS[depth]        // toward top/left
-    const far = MAP_VIEWBOX - near           // toward bottom/right
-    for (let lateral = 0; lateral < LATERALS; lateral++) {
-      const lat = LATERAL_CENTERS[lateral]
-      // North: above castle. East: right. South: below. West: left.
-      slots.push({ id: `n-${depth}-${lateral}`, side: 'n', depth, lateral, x: lat, y: near })
-      slots.push({ id: `e-${depth}-${lateral}`, side: 'e', depth, lateral, x: far, y: lat })
-      slots.push({ id: `s-${depth}-${lateral}`, side: 's', depth, lateral, x: lat, y: far })
-      slots.push({ id: `w-${depth}-${lateral}`, side: 'w', depth, lateral, x: near, y: lat })
+  for (let row = 0; row < ROWS; row++) {
+    const ri = rowInset(row)
+    for (let col = 0; col < COLS; col++) {
+      const cc = colCoord(col)
+      // North face = LEFT edge (small x); East = TOP edge (small y);
+      // South = RIGHT edge (large x); West = BOTTOM edge (large y).
+      slots.push({ id: `n-${row}-${col}`, side: 'n', depth: row, lateral: col, x: ri, y: cc })
+      slots.push({ id: `e-${row}-${col}`, side: 'e', depth: row, lateral: col, x: cc, y: ri })
+      slots.push({ id: `s-${row}-${col}`, side: 's', depth: row, lateral: col, x: MAP_VIEWBOX - ri, y: cc })
+      slots.push({ id: `w-${row}-${col}`, side: 'w', depth: row, lateral: col, x: cc, y: MAP_VIEWBOX - ri })
     }
   }
   return slots
@@ -53,23 +76,19 @@ export const SLOT_BY_ID: Record<string, CitySlot> = Object.fromEntries(
   CITY_SLOTS.map(s => [s.id, s])
 )
 
-// Turret centers (purple "T") at the four midpoints of the castle's sides.
+// Turret centers (purple "T") at the four CORNERS of the square → diamond tips.
 export const TURRETS: { side: Side; x: number; y: number; label: string }[] = [
-  { side: 'n', x: 50, y: CASTLE_MIN, label: 'N' },
-  { side: 'e', x: CASTLE_MAX, y: 50, label: 'E' },
-  { side: 's', x: 50, y: CASTLE_MAX, label: 'S' },
-  { side: 'w', x: CASTLE_MIN, y: 50, label: 'W' },
+  { side: 'n', x: 8, y: 8, label: 'N' },   // top-left corner  → top tip
+  { side: 'e', x: 92, y: 8, label: 'E' },  // top-right corner → right tip
+  { side: 's', x: 92, y: 92, label: 'S' }, // bottom-right     → bottom tip
+  { side: 'w', x: 8, y: 92, label: 'W' },  // bottom-left      → left tip
 ]
-
-// Lateral fill priority within a face: center first, then the flanks — so a rally
-// leader (placed first) lands on the centered front-line slot.
-const LATERAL_ORDER = [1, 0, 2]
 
 /** Slot ids for one face, ordered nearest-the-castle first (front line → rear). */
 export function slotIdsForSide(side: Side): string[] {
   const ids: string[] = []
-  for (let depth = 0; depth < DEPTHS; depth++) {
-    for (const lateral of LATERAL_ORDER) ids.push(`${side}-${depth}-${lateral}`)
+  for (let row = 0; row < ROWS; row++) {
+    for (const col of COL_ORDER) ids.push(`${side}-${row}-${col}`)
   }
   return ids
 }
@@ -79,9 +98,9 @@ const SIDE_ORDER: Side[] = ['n', 'e', 's', 'w']
 /** Every slot id ordered globally nearest-first (used for overflow placement). */
 export const ALL_SLOTS_NEAREST_FIRST: string[] = (() => {
   const ids: string[] = []
-  for (let depth = 0; depth < DEPTHS; depth++) {
+  for (let row = 0; row < ROWS; row++) {
     for (const side of SIDE_ORDER) {
-      for (const lateral of LATERAL_ORDER) ids.push(`${side}-${depth}-${lateral}`)
+      for (const col of COL_ORDER) ids.push(`${side}-${row}-${col}`)
     }
   }
   return ids
