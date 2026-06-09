@@ -13,7 +13,7 @@ import Script from 'next/script'
 export function GoogleTranslate({ className = '' }: { className?: string }) {
   return (
     <div
-      className={`fixed top-3 right-3 z-[100] inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/90 px-2.5 py-1 shadow-lg backdrop-blur ${className}`}
+      className={`fixed bottom-4 right-4 z-[9999] inline-flex items-center gap-1.5 rounded-full border border-slate-700 bg-slate-900/90 px-2 py-0.5 shadow-lg backdrop-blur sm:px-2.5 sm:py-1 ${className}`}
       title="Translate this page"
     >
       <span aria-hidden className="text-sm leading-none">🌐</span>
