@@ -306,14 +306,16 @@ export function calculateJoinerHeroScore(leadHero: MemberHero | null): number {
     ? exactBonus * 1.5
     : (leadHero.hero?.generation || 1) * 10
 
-  const widgetBonus = leadHero.widget_unlocked ? (leadHero.widget_level || 0) * 8 : 0
+  // ABSOLUTE RULE (FIX 1): widgets provide ZERO benefit to joiners — they only
+  // activate for rally/garrison LEADERS. Widget level must NEVER be factored into
+  // the joiner score. (It is intentionally omitted here.)
 
   // Only first expedition skill for joiners
   const skillLevels = (leadHero.expedition_skill_levels as Record<string, number>) || {}
   const skillKeys = Object.keys(skillLevels)
   const firstSkillBonus = skillKeys.length > 0 ? (skillLevels[skillKeys[0]] || 0) * 20 : 0
 
-  return statBonusScore + widgetBonus + firstSkillBonus
+  return statBonusScore + firstSkillBonus
 }
 
 /**

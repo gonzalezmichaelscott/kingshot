@@ -5,6 +5,8 @@ import { calculateRoleScores, calculateHeroScore, calculateEffectiveTroopStrengt
 import type { MemberHeroData, MemberProfile, TroopData } from '@/lib/scoring'
 import { generateMemberInstructions } from '@/lib/member-instructions'
 import { getKvkContext } from '@/lib/kvk'
+import { MAX_JOINERS_PER_RALLY, MARCH_ESTIMATE, DEFAULT_CAPACITY } from '@/lib/rally-fill'
+import { autoPopulateCityAssignments } from '@/lib/kvk-city'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -91,6 +93,7 @@ RALLY LEADER CONTRIBUTIONS (all apply to ENTIRE rally):
 - Consumable combat bonuses, pet bonuses, skin/frame/island decoration bonuses
 
 RALLY JOINER CONTRIBUTIONS (very limited — this is the most misunderstood mechanic):
+- ABSOLUTE RULE: Widget level of joiners provides ZERO benefit and must NEVER be mentioned as a joiner contribution. Widgets only activate for rally leaders and garrison leaders. Never reference joiner widget levels in any output.
 - TROOPS ONLY — these troops receive the LEADER'S buffs, NOT the joiner's own buffs
 - ONE hero skill: the FIRST expedition skill of their FIRST (Hero Captain) hero only
 - Joiners contribute NOTHING else: no research, no gear, no charms, no consumables, no pet bonuses
@@ -458,6 +461,47 @@ function sanitizeForJson(str: string): string {
     .replace(/"/g, '\\"')
 }
 
+/**
+ * FIX 1 — strip any "widget Lv N" mention from a free-text narrative string.
+ * Joiners get ZERO widget benefit, so the AI must never present a joiner's widget
+ * level as a contribution. Matches "widget Lv3", "widget Lv. 3", "widget Level 3",
+ * "widget lvl 3", with an optional leading comma / wrapping parens, then tidies up
+ * the leftover punctuation/whitespace.
+ */
+function stripWidgetMention(text: string | null | undefined): string {
+  if (!text) return text || ''
+  return String(text)
+    // ", widget Lv3" / " (widget Level 3)" / "widget lvl. 3" → removed
+    .replace(/[,;]?\s*\(?\s*widget\s*(?:lv|lvl|level)\.?\s*\d+\s*\)?/gi, '')
+    // collapse artifacts left behind: " ()" , doubled spaces, space-before-punct
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.;)])/g, '$1')
+    .replace(/\(\s+/g, '(')
+    .trim()
+}
+
+/**
+ * FIX 1 — post-processing pass that runs AFTER the AI reply is parsed and BEFORE
+ * assignments are saved. Removes any joiner widget-level references the model may
+ * have written into joiner narrative (reasoning / hero_recommendation) and the
+ * shared joiner_stacking_advice. Rally/garrison LEADERS are left untouched —
+ * their widgets are real.
+ */
+function sanitizeJoinerWidgetMentions(plan: BattlePlan): void {
+  const isLeaderRole = (role?: string | null) => {
+    const r = (role || '').toLowerCase()
+    return r.includes('leader') || r === 'garrison'
+  }
+  for (const a of plan.assignments || []) {
+    if (isLeaderRole(a.role)) continue
+    if (a.reasoning) a.reasoning = stripWidgetMention(a.reasoning)
+    if (a.hero_recommendation) a.hero_recommendation = stripWidgetMention(a.hero_recommendation)
+  }
+  // The joiner stacking advice is joiner-focused; scrub it too.
+  if (plan.joiner_stacking_advice) plan.joiner_stacking_advice = stripWidgetMention(plan.joiner_stacking_advice)
+}
+
 // Hard cap on prompt size. If the member list would push past this, we drop
 // members from the tail until it fits and tell the model the list was truncated.
 const MAX_PROMPT_CHARS = 80000
@@ -682,7 +726,10 @@ async function runPlannerModel(prompt: string): Promise<BattlePlan> {
   }
 
   try {
-    return JSON.parse(jsonStr) as BattlePlan
+    const parsed = JSON.parse(jsonStr) as BattlePlan
+    // FIX 1 — scrub joiner widget mentions from all narrative before it is stored.
+    sanitizeJoinerWidgetMentions(parsed)
+    return parsed
   } catch (err: any) {
     // A truncated reply (hit the output token limit) is the most common cause.
     const hint = stopReason === 'max_tokens'
@@ -902,6 +949,7 @@ async function storeKvkAssignments(
       member_id: a.member_id,
       role: a.role,
       squad: a.squad,
+      rally_number: (a as any).rally_number ?? null,
       is_primary: a.is_primary,
       is_backup: a.is_backup,
       reasoning,
@@ -921,6 +969,148 @@ async function storeKvkAssignments(
     await supabase.from('event_assignments').insert(rows)
     await supabase.from('events').update({ battle_plan: plan as any }).eq('id', eventId)
   }
+}
+
+/**
+ * FIX 2 — DETERMINISTIC KVK structure assignment order.
+ *
+ * WHO goes WHERE is decided entirely by this code, NOT the AI. The AI is used only
+ * for narrative text and member instructions (merged in afterwards).
+ *
+ * Strict leader order (by score, across ALL participating alliances):
+ *   1 Castle Rally 1, 2 Castle Rally 2, 3 North, 4 East, 5 South, 6 West turret.
+ * Then joiners fill each structure to capacity (rally_capacity - march_size,
+ * largest march first, max 15 when data is missing) BEFORE moving to the next:
+ *   Castle 1 → Castle 2 → North → East → South → West → everyone else to Support.
+ * Plan A: joiners must match their leader's alliance. Plan B: any alliance (a
+ * cross-alliance joiner is flagged kvk_transfer + a transfer recommendation).
+ */
+const KVK_LEADER_SLOTS: { squad: string; rally_number: number; label: string; formation: string }[] = [
+  { squad: 'castle', rally_number: 1, label: 'Castle Rally 1', formation: '60% Infantry / 20% Cavalry / 20% Archer (garrison)' },
+  { squad: 'castle', rally_number: 2, label: 'Castle Rally 2', formation: '60% Infantry / 20% Cavalry / 20% Archer (garrison)' },
+  { squad: 'north_turret', rally_number: 1, label: 'North Turret', formation: '50% Infantry / 20% Cavalry / 30% Archer (rally)' },
+  { squad: 'east_turret', rally_number: 1, label: 'East Turret', formation: '50% Infantry / 20% Cavalry / 30% Archer (rally)' },
+  { squad: 'south_turret', rally_number: 1, label: 'South Turret', formation: '50% Infantry / 20% Cavalry / 30% Archer (rally)' },
+  { squad: 'west_turret', rally_number: 1, label: 'West Turret', formation: '50% Infantry / 20% Cavalry / 30% Archer (rally)' },
+]
+
+function memberRankScore(m: any): number {
+  // Strongest player overall. scores.overall is the max of all role scores; fall
+  // back to raw power so members without computed scores still rank.
+  return Number(m?.scores?.overall) || Number(m?.power) || 0
+}
+
+export function enforceKvkAssignmentOrder(
+  attendingMembers: any[],
+  planMode: 'A' | 'B' = 'A',
+): { assignments: BattlePlanAssignment[]; transfer_recommendations: TransferRecommendation[] } {
+  const ranked = [...attendingMembers].sort(
+    (a, b) => memberRankScore(b) - memberRankScore(a) || (Number(b.power) || 0) - (Number(a.power) || 0)
+  )
+
+  const assignments: BattlePlanAssignment[] = []
+  const transfers: TransferRecommendation[] = []
+  const used = new Set<string>()
+
+  const allianceLabel = (m: any) => m?.alliance_tag || m?.alliance_name || ''
+
+  // 1. Assign the top scorers as leaders in the strict slot order.
+  const leaders: { slot: typeof KVK_LEADER_SLOTS[number]; member: any }[] = []
+  for (let i = 0; i < KVK_LEADER_SLOTS.length && i < ranked.length; i++) {
+    const slot = KVK_LEADER_SLOTS[i]
+    const m = ranked[i]
+    used.add(m.member_id)
+    leaders.push({ slot, member: m })
+    assignments.push({
+      member_id: m.member_id,
+      player_name: m.player_name,
+      role: 'rally_leader',
+      squad: slot.squad,
+      rally_number: slot.rally_number,
+      is_primary: true,
+      is_backup: false,
+      reasoning: '',
+      formation_recommendation: slot.formation,
+    } as BattlePlanAssignment)
+  }
+
+  // 2. Joiner pool — everyone not a leader, largest march first.
+  const pool = ranked
+    .filter(m => !used.has(m.member_id))
+    .sort((a, b) => (Number(b.march_size) || 0) - (Number(a.march_size) || 0))
+
+  // 3. Fill each leader's structure COMPLETELY before moving to the next.
+  for (const { slot, member: leader } of leaders) {
+    const cap = Number(leader.rally_capacity) || 0
+    const march = Number(leader.march_size) || 0
+    const incomplete = !cap || !march
+    let space = incomplete ? DEFAULT_CAPACITY : Math.max(0, cap - march)
+    const maxJoiners = incomplete ? MAX_JOINERS_PER_RALLY : Number.POSITIVE_INFINITY
+    let count = 0
+
+    while (count < maxJoiners) {
+      // Pick the largest-march eligible joiner that still fits (pool is sorted desc,
+      // so a smaller later joiner can top off the remaining space).
+      let idx = -1
+      for (let k = 0; k < pool.length; k++) {
+        const j = pool[k]
+        if (planMode === 'A' && j.alliance_id !== leader.alliance_id) continue
+        const jm = Number(j.march_size) || MARCH_ESTIMATE
+        if (!incomplete && jm > space) continue
+        idx = k
+        break
+      }
+      if (idx === -1) break
+
+      const j = pool.splice(idx, 1)[0]
+      used.add(j.member_id)
+      space -= Number(j.march_size) || MARCH_ESTIMATE
+      count++
+
+      const crossAlliance = planMode === 'B' && j.alliance_id !== leader.alliance_id
+      const isTurret = slot.squad !== 'castle'
+      assignments.push({
+        member_id: j.member_id,
+        player_name: j.player_name,
+        role: isTurret ? 'turret_joiner' : 'joiner',
+        squad: slot.squad,
+        rally_number: slot.rally_number,
+        is_primary: true,
+        is_backup: false,
+        reasoning: '',
+        formation_recommendation: slot.formation,
+        kvk_transfer: crossAlliance,
+        transfer_alliance: crossAlliance ? allianceLabel(leader) : undefined,
+        transfer_rally_leader: crossAlliance ? leader.player_name : undefined,
+      } as BattlePlanAssignment)
+
+      if (crossAlliance) {
+        transfers.push({
+          player_name: j.player_name,
+          home_alliance: allianceLabel(j),
+          recommended_alliance: allianceLabel(leader),
+          rally_leader: leader.player_name,
+          strength_improvement: `Joins ${slot.label} to fill it to capacity`,
+        })
+      }
+    }
+  }
+
+  // 4. Everyone left → Support.
+  for (const m of pool) {
+    assignments.push({
+      member_id: m.member_id,
+      player_name: m.player_name,
+      role: 'support',
+      squad: 'support',
+      rally_number: null,
+      is_primary: true,
+      is_backup: false,
+      reasoning: '',
+    } as BattlePlanAssignment)
+  }
+
+  return { assignments, transfer_recommendations: transfers }
 }
 
 /**
@@ -976,24 +1166,45 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 
   }
   const prompt = buildPlanningPrompt(members, pseudoEvent, { planMode })
 
-  const plan: BattlePlan = await runPlannerModel(prompt)
+  // The AI plan is used ONLY for narrative (summary, formations, per-member
+  // reasoning/hero advice, coverage gaps, etc.). Structure placement is decided
+  // deterministically below (FIX 2).
+  const aiPlan: BattlePlan = await runPlannerModel(prompt)
 
-  // Plan A is strict same-alliance: defensively strip any transfer flags the model emitted.
-  if (planMode === 'A') {
-    plan.transfer_recommendations = []
-    for (const a of plan.assignments) {
-      a.kvk_transfer = false
-      delete a.transfer_alliance
-      delete a.transfer_rally_leader
+  // FIX 2 — deterministic structure assignment order REPLACES the AI's WHO-goes-WHERE.
+  const { assignments, transfer_recommendations } = enforceKvkAssignmentOrder(members, planMode)
+
+  // Merge the AI's narrative back onto each deterministic assignment by member id.
+  const aiByMember: Record<string, BattlePlanAssignment> = {}
+  for (const a of aiPlan.assignments || []) aiByMember[a.member_id] = a
+  for (const a of assignments) {
+    const ai = aiByMember[a.member_id]
+    if (ai) {
+      a.reasoning = stripWidgetMention(ai.reasoning) || a.reasoning
+      a.hero_recommendation = stripWidgetMention(ai.hero_recommendation) || undefined
+      if (ai.formation_recommendation) a.formation_recommendation = ai.formation_recommendation
+      a.time_window = ai.time_window
     }
-  } else {
-    // Plan B: a transfer is only real when the joiner and their rally leader are
-    // in DIFFERENT alliances. Strip any "transfer" the model flagged where they
-    // are actually in the SAME alliance (the Kyib→HXA-for-IdahoPotato bug).
-    reconcileTransfers(plan, members)
+    if (!a.reasoning) {
+      a.reasoning = `Assigned to ${(a.squad || 'support').replace(/_/g, ' ')} as ${a.role.replace(/_/g, ' ')} by KVK deterministic order (ranked by score${a.kvk_transfer ? '; cross-alliance transfer to fill the rally' : ''}).`
+    }
+  }
+
+  const plan: BattlePlan = {
+    ...aiPlan,
+    assignments,
+    transfer_recommendations: planMode === 'B' ? transfer_recommendations : [],
   }
 
   await storeKvkAssignments(plan, eventIdByMember, pseudoEvent.name, eventStartByMember, members)
+
+  // FEATURE 3 — pre-populate the castle positioning map from these assignments.
+  try {
+    await autoPopulateCityAssignments(kingdomId)
+  } catch (err: any) {
+    console.error('[KVK] autoPopulateCityAssignments failed (non-fatal):', err?.message || err)
+  }
+
   return { plan, eventIds: activeEventIds }
 }
 

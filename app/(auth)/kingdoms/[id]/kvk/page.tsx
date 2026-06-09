@@ -13,6 +13,8 @@ import { KvkReadiness } from '@/components/kvk/KvkReadiness'
 import { KvkPlanModePanel } from '@/components/kvk/KvkPlanModePanel'
 import { KvkSyncButton } from '@/components/kvk/KvkSyncButton'
 import { getKvkContext, loadAttendingKvkMembers, KVK_STRUCTURES, isManualAssignment } from '@/lib/kvk'
+import { primaryEventIdFrom, loadCityAssignments } from '@/lib/kvk-city'
+import { CastleMapSection } from '@/components/kvk/CastleMapSection'
 import { buildCastleRallies, splitCastleRoles } from '@/lib/rally-fill'
 import { KeepAwake } from '@/components/ui/KeepAwake'
 import { createServiceClient } from '@/lib/supabase/server'
@@ -216,6 +218,17 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
     tag: (m.alliances as any)?.tag || null,
   }))
 
+  // FEATURE 3 — Castle positioning map data. The kingdom map is anchored to a
+  // deterministic "primary" active event id (shared by page, API and auto-populate).
+  const primaryEventId = primaryEventIdFrom(activeEventIds)
+  const cityAssignments = await loadCityAssignments(primaryEventId)
+  // member_id -> structure role/squad/rally for colour-coding the map slots.
+  const roleByMember: Record<string, { role: string; squad: string; rally_number: number | null }> = {}
+  for (const a of assignments) {
+    if (a.is_backup) continue
+    roleByMember[a.member_id] = { role: a.role, squad: a.squad, rally_number: a.rally_number ?? null }
+  }
+
   const battleLeaderUrl = (voiceChannels || []).find(c => c.channel_name === 'battle_leader')?.discord_invite_url
   const generalUrl = (voiceChannels || []).find(c => c.channel_name === 'general')?.discord_invite_url
 
@@ -316,6 +329,16 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
             canManage={canManage}
             canGeneratePlan={canGeneratePlan && activeAlliances.length > 0}
             hasPlan={hasPlan}
+          />
+
+          {/* Castle Positioning Map (FEATURE 3) — between Structure Assignments and Readiness */}
+          <CastleMapSection
+            kingdomId={params.id}
+            eventId={primaryEventId}
+            members={pool}
+            initialAssignments={cityAssignments}
+            roleByMember={roleByMember}
+            canManage={canManage}
           />
 
           {/* Readiness — attending members only (FIX 6/readiness) */}
