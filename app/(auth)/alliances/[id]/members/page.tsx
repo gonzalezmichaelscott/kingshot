@@ -78,20 +78,63 @@ export default async function MembersPage({ params }: { params: { id: string } }
 
   const { data: members } = await supabase
     .from('members')
-    .select('*, member_scores(overall_score, rally_leader_score, joiner_score), member_combat_stats(troop_type_primary)')
+    .select('*')
     .eq('alliance_id', params.id)
     // Only active roster members — deactivated/transferred records (is_active =
     // false), including any soft-deleted duplicates, must not appear in the list.
     .eq('is_active', true)
     .order('power', { ascending: false })
 
-  // Shape rows for the client table: resolve the cached avatar + flatten the
-  // joined score / primary troop type so the client component stays simple.
+  // The active KVK event for THIS alliance (R4/R5/admin only): the most recent
+  // non-completed Castle Battle event that has not yet ended. When one exists, the
+  // members table shows a KVK attendance toggle column.
+  const svc = createServiceClient()
+  let kvkEventId: string | null = null
+  if (canManage) {
+    const { data: kvkType } = await svc.from('event_types').select('id').eq('slug', 'kvk_castle_battle').single()
+    if (kvkType) {
+      const { data: evs } = await svc
+        .from('events')
+        .select('id, status, battle_end_utc')
+        .eq('alliance_id', params.id)
+        .eq('event_type_id', kvkType.id)
+        .order('battle_start_utc', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(1)
+      const ev = (evs || [])[0]
+      const ended = ev?.battle_end_utc && new Date(ev.battle_end_utc) < new Date()
+      if (ev && ev.status !== 'completed' && !ended) kvkEventId = ev.id
+    }
+  }
+
+  // Current attendance for the active KVK event, keyed by member id.
+  const attendanceMap: Record<string, boolean> = {}
+  if (kvkEventId) {
+    const { data: avail } = await svc
+      .from('event_availability')
+      .select('member_id, will_attend')
+      .eq('event_id', kvkEventId)
+    for (const a of avail || []) attendanceMap[a.member_id] = !!a.will_attend
+  }
+
+  // The single global TrueGold level for a member (max across troop types).
+  const readTgLevel = (td: any): number => {
+    if (!td || typeof td !== 'object') return 0
+    let max = 0
+    for (const type of ['infantry', 'cavalry', 'archer']) {
+      const tg = Number(td?.[type]?.tg_level)
+      if (!isNaN(tg) && tg > max) max = tg
+    }
+    return max
+  }
+
+  // Shape rows for the client table: resolve the cached avatar, derive the global
+  // TrueGold level, and flag current KVK attendance.
   const membersForList = (members || []).map((m: any) => ({
     ...m,
     avatarUrl: freshAvatar(m),
-    score: (m.member_scores as any)?.[0]?.overall_score ?? 0,
-    troopType: (m.member_combat_stats as any)?.[0]?.troop_type_primary ?? null,
+    tgLevel: readTgLevel(m.troop_data),
+    kvkAttending: !!attendanceMap[m.id],
   }))
 
   const breadcrumbs = [
@@ -131,6 +174,7 @@ export default async function MembersPage({ params }: { params: { id: string } }
         allianceName={allianceName}
         canManage={canManage}
         isAdmin={isAdmin}
+        kvkEventId={kvkEventId}
         initialMembers={membersForList}
       />
     </div>

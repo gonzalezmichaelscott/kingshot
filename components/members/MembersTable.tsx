@@ -3,20 +3,13 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Pencil, X, ExternalLink } from 'lucide-react'
+import { Pencil, X, ExternalLink, Check, Loader2 } from 'lucide-react'
 import { formatPower } from '@/lib/utils'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 import { CopyTokenButton } from '@/components/members/CopyTokenButton'
 import { RemoveMemberButton } from '@/components/members/RemoveMemberButton'
-
-const TROOP_TYPES = ['infantry', 'cavalry', 'archer', 'mixed'] as const
-
-function troopBadgeVariant(t: string) {
-  return t === 'infantry' ? 'red' : t === 'cavalry' ? 'blue' : t === 'archer' ? 'green' : 'default'
-}
 
 // A blank player_name must never make a row unreachable — show a clear amber
 // italic placeholder, but keep the value clickable.
@@ -29,12 +22,18 @@ interface Props {
   allianceName: string
   canManage: boolean
   isAdmin: boolean
+  // Active KVK Castle Battle event id for this alliance, or null when none is
+  // active — when set (and the viewer can manage), the table shows a KVK column.
+  kvkEventId?: string | null
   initialMembers: any[]
 }
 
-export function MembersTable({ allianceId, allianceName, canManage, isAdmin, initialMembers }: Props) {
+export function MembersTable({ allianceId, allianceName, canManage, isAdmin, kvkEventId, initialMembers }: Props) {
   const [members, setMembers] = useState<any[]>(initialMembers || [])
   const [editing, setEditing] = useState<any | null>(null)
+  const [kvkSaving, setKvkSaving] = useState<Record<string, boolean>>({})
+
+  const showKvk = !!(canManage && kvkEventId)
 
   function profileHref(m: any) {
     return `/alliances/${allianceId}/members/${m.id}`
@@ -43,6 +42,34 @@ export function MembersTable({ allianceId, allianceName, canManage, isAdmin, ini
   // Reflect a quick-edit save in the row immediately, no page reload.
   function applyEdit(id: string, patch: any) {
     setMembers(ms => ms.map(m => (m.id === id ? { ...m, ...patch } : m)))
+  }
+
+  // Toggle a member's KVK attendance on the active event (optimistic + revert on error).
+  async function toggleKvk(m: any) {
+    if (!kvkEventId || kvkSaving[m.id]) return
+    const next = !m.kvkAttending
+    setKvkSaving(s => ({ ...s, [m.id]: true }))
+    applyEdit(m.id, { kvkAttending: next })
+    try {
+      const res = await fetch('/api/kvk/attendance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event_id: kvkEventId,
+          member_id: m.id,
+          status: next ? 'attending' : 'not_attending',
+        }),
+      })
+      if (!res.ok) applyEdit(m.id, { kvkAttending: !next }) // revert
+    } catch {
+      applyEdit(m.id, { kvkAttending: !next }) // revert
+    } finally {
+      setKvkSaving(s => {
+        const c = { ...s }
+        delete c[m.id]
+        return c
+      })
+    }
   }
 
   return (
@@ -57,9 +84,8 @@ export function MembersTable({ allianceId, allianceName, canManage, isAdmin, ini
                 <th className="text-right py-2 pr-4">Troops</th>
                 <th className="text-right py-2 pr-4">March</th>
                 <th className="text-right py-2 pr-4">Rally Cap</th>
-                <th className="text-left py-2 pr-4">Troop Type</th>
+                {showKvk && <th className="py-2 text-center">KVK</th>}
                 {canManage && <th className="py-2 text-center">Quick Edit</th>}
-                <th className="text-right py-2 pr-4">Score</th>
                 {canManage && <th className="py-2 text-center">Link</th>}
                 {canManage && <th className="py-2 text-center">Actions</th>}
               </tr>
@@ -98,11 +124,22 @@ export function MembersTable({ allianceId, allianceName, canManage, isAdmin, ini
                     <td className="text-right py-2 pr-4 text-slate-400">{formatPower(m.troop_count)}</td>
                     <td className="text-right py-2 pr-4 text-slate-400">{formatPower(m.march_size)}</td>
                     <td className="text-right py-2 pr-4 text-slate-400">{formatPower(m.rally_capacity)}</td>
-                    <td className="py-2 pr-4">
-                      {m.troopType && (
-                        <Badge variant={troopBadgeVariant(m.troopType)}>{m.troopType}</Badge>
-                      )}
-                    </td>
+                    {showKvk && (
+                      <td className="py-2 text-center">
+                        <button
+                          onClick={() => toggleKvk(m)}
+                          disabled={!!kvkSaving[m.id]}
+                          title={m.kvkAttending ? 'Attending KVK — click to mark not attending' : 'Not attending KVK — click to mark attending'}
+                          className={`inline-flex items-center justify-center w-7 h-7 rounded-lg border transition-colors disabled:opacity-60 ${
+                            m.kvkAttending
+                              ? 'border-green-500/50 bg-green-500/10 text-green-400 hover:bg-green-500/20'
+                              : 'border-slate-700 text-slate-500 hover:text-slate-300 hover:bg-slate-700/60'
+                          }`}
+                        >
+                          {kvkSaving[m.id] ? <Loader2 size={14} className="animate-spin" /> : m.kvkAttending ? <Check size={14} /> : null}
+                        </button>
+                      </td>
+                    )}
                     {canManage && (
                       <td className="py-2 text-center">
                         <button
@@ -114,7 +151,6 @@ export function MembersTable({ allianceId, allianceName, canManage, isAdmin, ini
                         </button>
                       </td>
                     )}
-                    <td className="text-right py-2 pr-4 font-mono text-slate-300">{Number(m.score ?? 0).toFixed(1)}</td>
                     {canManage && (
                       <td className="py-2 text-center">
                         <CopyTokenButton token={m.access_token} />
@@ -171,7 +207,7 @@ function QuickEditModal({ member, href, onClose, onSaved }: any) {
   const [power, setPower] = useState<string>(member.power ? String(member.power) : '')
   const [marchSize, setMarchSize] = useState<string>(member.march_size ? String(member.march_size) : '')
   const [rallyCapacity, setRallyCapacity] = useState<string>(member.rally_capacity ? String(member.rally_capacity) : '')
-  const [troopType, setTroopType] = useState<string>(member.troopType || 'infantry')
+  const [tgLevel, setTgLevel] = useState<string>(member.tgLevel != null ? String(member.tgLevel) : '0')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
@@ -181,6 +217,7 @@ function QuickEditModal({ member, href, onClose, onSaved }: any) {
     const powerNum = parseInt(power) || 0
     const marchNum = parseInt(marchSize) || 0
     const rallyNum = parseInt(rallyCapacity) || 0
+    const tgNum = Math.max(0, Math.min(8, parseInt(tgLevel) || 0))
 
     try {
       // Power / march / rally via the existing member stats route.
@@ -201,17 +238,17 @@ function QuickEditModal({ member, href, onClose, onSaved }: any) {
         return
       }
 
-      // Primary troop type only when it changed (narrow route avoids clobbering
-      // the member's combat percentage stats).
-      if (troopType !== (member.troopType || 'infantry')) {
-        const r2 = await fetch('/api/member/primary-troop-type', {
+      // TrueGold level (global, all troop types) only when it changed. The narrow
+      // route merges it into troop_data without clobbering tier counts.
+      if (tgNum !== (member.tgLevel ?? 0)) {
+        const r2 = await fetch('/api/member/tg-level', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ access_token: member.access_token, troop_type_primary: troopType }),
+          body: JSON.stringify({ access_token: member.access_token, tg_level: tgNum }),
         })
         if (!r2.ok) {
           const d = await r2.json().catch(() => ({}))
-          setError(d.error || 'Stats saved, but the troop type could not be updated.')
+          setError(d.error || 'Stats saved, but the TrueGold level could not be updated.')
           setSaving(false)
           return
         }
@@ -221,7 +258,7 @@ function QuickEditModal({ member, href, onClose, onSaved }: any) {
         power: powerNum,
         march_size: marchNum,
         rally_capacity: rallyNum,
-        troopType,
+        tgLevel: tgNum,
       })
     } catch {
       setError('Network error — please check your connection and try again.')
@@ -279,23 +316,19 @@ function QuickEditModal({ member, href, onClose, onSaved }: any) {
           ))}
 
           <div>
-            <label className="text-xs text-slate-400 block mb-1">Primary Troop Type</label>
-            <div className="flex gap-2 flex-wrap">
-              {TROOP_TYPES.map(t => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setTroopType(t)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${
-                    troopType === t
-                      ? 'bg-amber-500 text-slate-900'
-                      : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
+            <label className="text-xs text-slate-400 block mb-1">TrueGold Level</label>
+            <Input
+              type="number"
+              min={0}
+              max={8}
+              value={tgLevel}
+              onChange={e => {
+                const v = e.target.value
+                if (v === '') { setTgLevel(''); return }
+                setTgLevel(String(Math.max(0, Math.min(8, parseInt(v) || 0))))
+              }}
+            />
+            <p className="text-[11px] text-slate-500 mt-1">Applies globally to all troop types (0–8).</p>
           </div>
 
           <a
