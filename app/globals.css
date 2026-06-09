@@ -22,3 +22,50 @@ body {
     text-wrap: balance;
   }
 }
+
+/* ── Google Translate widget — dark-theme integration ─────────────────────
+   The widget injects its own banner frame (which pushes the page down via
+   body{top}) and a light-styled dropdown. Hide the banner, cancel the push,
+   and restyle the dropdown to match the dark UI. */
+.goog-te-banner-frame.skiptranslate,
+.goog-te-gadget-icon {
+  display: none !important;
+}
+body {
+  top: 0 !important;
+}
+#google_translate_element .goog-te-gadget {
+  font-size: 0 !important;          /* hides the "Powered by Google" caption */
+  line-height: 0;
+  color: transparent;
+}
+#google_translate_element .goog-te-gadget-simple {
+  background-color: #0f172a;        /* slate-900 */
+  border: 1px solid #334155;        /* slate-700 */
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+  display: inline-block;
+  cursor: pointer;
+  white-space: nowrap;
+}
+#google_translate_element .goog-te-gadget-simple .goog-te-menu-value,
+#google_translate_element .goog-te-gadget-simple .goog-te-menu-value span,
+#google_translate_element .goog-te-gadget-simple span {
+  color: #e2e8f0 !important;        /* slate-200 */
+  border: none !important;
+  font-size: 12px !important;
+  text-decoration: none !important;
+}
+#google_translate_element img {
+  display: none !important;         /* Google's own icon — we render our own 🌐 */
+}
+.goog-tooltip,
+.goog-tooltip:hover {
+  display: none !important;
+}
+.goog-text-highlight {
+  background: none !important;
+  box-shadow: none !important;
+}

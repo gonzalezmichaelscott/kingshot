@@ -3,6 +3,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import { Sword, ArrowLeft } from 'lucide-react'
 import { ReportImpersonationForm } from '@/components/impersonation/ReportImpersonationForm'
+import { GoogleTranslate } from '@/components/ui/GoogleTranslate'
 
 export const metadata: Metadata = {
   title: 'Report Impersonation — KS Command',
@@ -19,9 +20,12 @@ export default function ReportImpersonationPage() {
             <Sword className="text-amber-500" size={22} />
             <span className="font-bold text-amber-500">KS Command</span>
           </div>
-          <Link href="/login" className="text-sm text-slate-400 hover:text-amber-400 flex items-center gap-1">
-            <ArrowLeft size={14} /> Back to sign in
-          </Link>
+          <div className="flex items-center gap-3">
+            <GoogleTranslate />
+            <Link href="/login" className="text-sm text-slate-400 hover:text-amber-400 flex items-center gap-1">
+              <ArrowLeft size={14} /> Back to sign in
+            </Link>
+          </div>
         </div>
         <ReportImpersonationForm />
       </div>

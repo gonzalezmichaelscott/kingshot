@@ -16,6 +16,7 @@ import { WillingToMoveToggle } from '@/components/members/WillingToMoveToggle'
 import { PreferredLanguageSelect } from '@/components/members/PreferredLanguageSelect'
 import { GiftCodeRedeemer } from '@/components/gift-codes/GiftCodeRedeemer'
 import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
+import { GoogleTranslate } from '@/components/ui/GoogleTranslate'
 import { TransferAllianceFlow } from '@/components/members/TransferAllianceFlow'
 import { CheckCircle2, ArrowRightLeft } from 'lucide-react'
 
@@ -161,6 +162,8 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
               )}
             </div>
           </div>
+          {/* Translate widget — top right of the header for international members */}
+          <GoogleTranslate className="flex-shrink-0" />
         </div>
 
         {/* Tabs */}
