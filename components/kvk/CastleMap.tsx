@@ -4,9 +4,10 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   CITY_SLOTS, SLOT_BY_ID, TURRETS,
-  CASTLE_MIN, CASTLE_MAX, OUTER_MIN, OUTER_MAX, SLOT_SIZE,
+  CASTLE_POINTS, OUTER_POINTS, CASTLE_CENTER,
+  SLOT_SIZE, TURRET_SIZE, MAP_VIEWBOX,
 } from '@/lib/castle-map'
-import { X, Loader2, Crown, Users } from 'lucide-react'
+import { Loader2, Users } from 'lucide-react'
 
 interface CityMember { id: string; player_name: string; game_id?: string | null; tag?: string | null }
 interface RoleInfo { role: string; squad: string; rally_number: number | null }
@@ -36,7 +37,7 @@ function colorForTag(tag?: string | null): string {
 function initials(name: string): string {
   return (name || '??').slice(0, 2).toUpperCase()
 }
-function trunc(name: string, n = 7): string {
+function trunc(name: string, n = 8): string {
   return name.length > n ? name.slice(0, n - 1) + '…' : name
 }
 function roleCategory(info?: RoleInfo | null): string {
@@ -50,6 +51,8 @@ function roleCategory(info?: RoleInfo | null): string {
   return 'joiner'
 }
 const SIDE_NAMES: Record<string, string> = { n: 'North', e: 'East', s: 'South', w: 'West' }
+
+const pts = (...p: { x: number; y: number }[]) => p.map(q => `${q.x},${q.y}`).join(' ')
 
 export function CastleMap({ eventId, members, initialAssignments, roleByMember, canManage }: Props) {
   const [list, setList] = useState(initialAssignments)
@@ -139,131 +142,168 @@ export function CastleMap({ eventId, members, initialAssignments, roleByMember, 
   const selectedMemberId = selected ? bySlot[selected] : null
   const selectedMember = selectedMemberId ? memberById[selectedMemberId] : null
   const selectedSlot = selected ? SLOT_BY_ID[selected] : null
+  const half = SLOT_SIZE / 2
+  const tHalf = TURRET_SIZE / 2
+
+  // Popup box geometry (authored in viewBox units, counter-rotated to read upright).
+  const POP_W = 280
+  const POP_H = 168
 
   return (
     <div className="space-y-4">
       {/* The diamond map */}
-      <div className="relative w-full max-w-[420px] mx-auto aspect-square">
+      <div className="relative w-full max-w-[460px] mx-auto aspect-square">
         <div className="absolute inset-0 flex items-center justify-center">
           <svg
-            viewBox="0 0 100 100"
-            className="w-full h-full"
-            style={{ transform: 'rotate(45deg) scale(0.72)' }}
+            viewBox={`0 0 ${MAP_VIEWBOX} ${MAP_VIEWBOX}`}
+            className="w-full h-full overflow-visible"
+            style={{ transform: 'rotate(45deg) scale(0.68)' }}
           >
             <defs>
-              <pattern id="cm-grid" width="5" height="5" patternUnits="userSpaceOnUse">
-                <rect width="5" height="5" fill="#14321f" />
-                <path d="M5 0 L0 0 L0 5" fill="none" stroke="#1f4d30" strokeWidth="0.4" />
+              <pattern id="cm-grid" width="28" height="28" patternUnits="userSpaceOnUse">
+                <path d="M28 0 L0 0 L0 28" fill="none" stroke="#9bd5a0" strokeWidth="1" opacity="0.15" />
               </pattern>
+              <clipPath id="cm-clip">
+                <polygon points={pts(OUTER_POINTS.top, OUTER_POINTS.right, OUTER_POINTS.bottom, OUTER_POINTS.left)} />
+              </clipPath>
             </defs>
 
-            {/* Muted green grid backdrop */}
-            <rect x="0" y="0" width="100" height="100" fill="url(#cm-grid)" />
+            {/* Dark-green diamond play area + subtle grid texture (clipped to boundary) */}
+            <g clipPath="url(#cm-clip)">
+              <rect x="0" y="0" width={MAP_VIEWBOX} height={MAP_VIEWBOX} fill="#1a3a1a" />
+              <rect x="0" y="0" width={MAP_VIEWBOX} height={MAP_VIEWBOX} fill="url(#cm-grid)" />
+            </g>
+
+            {/* Click-away backdrop (clears selection) */}
+            {selected && (
+              <polygon
+                points={pts(OUTER_POINTS.top, OUTER_POINTS.right, OUTER_POINTS.bottom, OUTER_POINTS.left)}
+                fill="transparent" onClick={() => { setSelected(null); setPendingMember('') }}
+              />
+            )}
 
             {/* Outer battle boundary (dashed diamond) */}
-            <rect
-              x={OUTER_MIN} y={OUTER_MIN} width={OUTER_MAX - OUTER_MIN} height={OUTER_MAX - OUTER_MIN}
-              fill="none" stroke="#64748b" strokeWidth="0.6" strokeDasharray="2 1.6"
+            <polygon
+              points={pts(OUTER_POINTS.top, OUTER_POINTS.right, OUTER_POINTS.bottom, OUTER_POINTS.left)}
+              fill="none" stroke="#94a3b8" strokeWidth="2.5" strokeDasharray="10 8"
             />
+
+            {/* King's Castle — orange/brown diamond with "K" */}
+            <polygon
+              points={pts(CASTLE_POINTS.top, CASTLE_POINTS.right, CASTLE_POINTS.bottom, CASTLE_POINTS.left)}
+              fill="#b45309" stroke="#f59e0b" strokeWidth="3"
+            />
+            <g transform={`rotate(-45 ${CASTLE_CENTER} ${CASTLE_CENTER})`}>
+              <text x={CASTLE_CENTER} y={CASTLE_CENTER - 2} textAnchor="middle" fontSize="34" fontWeight="bold" fill="#fff7ed">K</text>
+              <text x={CASTLE_CENTER} y={CASTLE_CENTER + 22} textAnchor="middle" fontSize="13" fill="#fde68a">King&apos;s Castle</text>
+            </g>
 
             {/* City slots */}
             {CITY_SLOTS.map(slot => {
               const memberId = bySlot[slot.id]
               const m = memberId ? memberById[memberId] : null
               const cat = m ? roleCategory(roleByMember[memberId]) : null
-              const stroke = cat ? CAT_COLORS[cat] : '#475569'
-              const fill = m ? colorForTag(m.tag) + '55' : 'rgba(15,23,42,0.55)'
+              const stroke = cat ? CAT_COLORS[cat] : '#3f6b46'
+              const fill = m ? colorForTag(m.tag) + '55' : 'rgba(15,40,20,0.55)'
               const isLeaderCat = cat === 'castle1' || cat === 'castle2' || cat === 'turretLeader'
-              const half = SLOT_SIZE / 2
               return (
-                <g key={slot.id} onClick={() => canManage && setSelected(slot.id)} style={{ cursor: canManage ? 'pointer' : 'default' }}>
+                <g key={slot.id} onClick={(e) => { if (canManage) { e.stopPropagation(); setSelected(slot.id); setPendingMember('') } }} style={{ cursor: canManage ? 'pointer' : 'default' }}>
                   <rect
-                    x={slot.x - half} y={slot.y - half} width={SLOT_SIZE} height={SLOT_SIZE} rx="1"
-                    fill={fill} stroke={stroke} strokeWidth={isLeaderCat ? 1 : 0.5}
+                    x={slot.x - half} y={slot.y - half} width={SLOT_SIZE} height={SLOT_SIZE} rx="6"
+                    fill={fill} stroke={stroke} strokeWidth={isLeaderCat ? 3 : 1.5}
                     opacity={selected === slot.id ? 1 : 0.96}
                   />
                   <g transform={`rotate(-45 ${slot.x} ${slot.y})`}>
                     {m ? (
                       <>
-                        <circle cx={slot.x} cy={slot.y - 1.3} r="1.9" fill={colorForTag(m.tag)} />
-                        <text x={slot.x} y={slot.y - 0.7} textAnchor="middle" fontSize="1.7" fontWeight="bold" fill="#fff">{initials(m.player_name)}</text>
-                        {m.tag && <text x={slot.x} y={slot.y + 2} textAnchor="middle" fontSize="1.4" fill="#fcd34d">[{trunc(m.tag, 4)}]</text>}
-                        <text x={slot.x} y={slot.y + 3.9} textAnchor="middle" fontSize="1.5" fill="#e2e8f0">{trunc(m.player_name)}</text>
+                        <circle cx={slot.x} cy={slot.y - 8} r="9" fill={colorForTag(m.tag)} />
+                        <text x={slot.x} y={slot.y - 4.5} textAnchor="middle" fontSize="8.5" fontWeight="bold" fill="#fff">{initials(m.player_name)}</text>
+                        {m.tag && <text x={slot.x} y={slot.y + 8} textAnchor="middle" fontSize="7.5" fill="#fcd34d">[{trunc(m.tag, 4)}]</text>}
+                        <text x={slot.x} y={slot.y + 18} textAnchor="middle" fontSize="8" fill="#e2e8f0">{trunc(m.player_name)}</text>
                       </>
                     ) : (
-                      <text x={slot.x} y={slot.y + 1.4} textAnchor="middle" fontSize="4.5" fill="#475569">+</text>
+                      <text x={slot.x} y={slot.y + 7} textAnchor="middle" fontSize="22" fill="#3f6b46">+</text>
                     )}
                   </g>
                 </g>
               )
             })}
 
-            {/* Turrets — purple squares with "T" at the four diamond tips (corners
-                of the square become the top/right/bottom/left tips after rotation) */}
+            {/* Turrets — purple squares with "T" sitting on the four castle corner tips */}
             {TURRETS.map(t => (
-              <g key={t.side}>
-                <rect x={t.x - 4.5} y={t.y - 4.5} width="9" height="9" rx="1" fill="#7c3aed" stroke="#a855f7" strokeWidth="0.6" />
+              <g key={t.side} style={{ pointerEvents: 'none' }}>
+                <rect x={t.x - tHalf} y={t.y - tHalf} width={TURRET_SIZE} height={TURRET_SIZE} rx="4" fill="#7c3aed" stroke="#a855f7" strokeWidth="2" />
                 <g transform={`rotate(-45 ${t.x} ${t.y})`}>
-                  <text x={t.x} y={t.y + 0.3} textAnchor="middle" fontSize="3.4" fontWeight="bold" fill="#fff">T</text>
-                  <text x={t.x} y={t.y + 3} textAnchor="middle" fontSize="1.8" fill="#ddd6fe">{t.label}</text>
+                  <text x={t.x} y={t.y - 1} textAnchor="middle" fontSize="13" fontWeight="bold" fill="#fff">T</text>
+                  <text x={t.x} y={t.y + 9} textAnchor="middle" fontSize="7" fill="#ddd6fe">{t.label}</text>
                 </g>
               </g>
             ))}
 
-            {/* King's Castle — large orange/brown diamond with "K" */}
-            <rect
-              x={CASTLE_MIN} y={CASTLE_MIN} width={CASTLE_MAX - CASTLE_MIN} height={CASTLE_MAX - CASTLE_MIN} rx="2"
-              fill="#b45309" stroke="#f59e0b" strokeWidth="1"
-            />
-            <g transform={`rotate(-45 50 50)`}>
-              <text x="50" y="52.5" textAnchor="middle" fontSize="9" fontWeight="bold" fill="#fff7ed">K</text>
-              <text x="50" y="58" textAnchor="middle" fontSize="2.4" fill="#fde68a">King&apos;s Castle</text>
-            </g>
+            {/* Slot editor popup — counter-rotated −45° so it reads upright, anchored
+                above the selected slot. */}
+            {canManage && selected && selectedSlot && (
+              <g transform={`rotate(-45 ${selectedSlot.x} ${selectedSlot.y})`}>
+                <foreignObject
+                  x={selectedSlot.x - POP_W / 2}
+                  y={selectedSlot.y - half - 12 - POP_H}
+                  width={POP_W}
+                  height={POP_H}
+                  style={{ overflow: 'visible' }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div
+                    xmlns="http://www.w3.org/1999/xhtml"
+                    style={{
+                      background: 'rgba(15,23,42,0.97)', border: '2px solid rgba(245,158,11,0.6)',
+                      borderRadius: 14, padding: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.6)',
+                      fontFamily: 'system-ui, sans-serif', color: '#e2e8f0',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <span style={{ fontSize: 16, fontWeight: 600 }}>
+                        {SIDE_NAMES[selectedSlot.side]} · {selectedSlot.row === 1 ? 'front line' : 'rear'} · C{selectedSlot.col}
+                      </span>
+                      <button onClick={() => { setSelected(null); setPendingMember('') }}
+                        style={{ background: 'transparent', border: 'none', color: '#94a3b8', fontSize: 20, cursor: 'pointer', lineHeight: 1 }}>×</button>
+                    </div>
+
+                    {selectedMember && (
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 15 }}>
+                          {selectedMember.tag ? <span style={{ color: '#fbbf24', fontSize: 13 }}>[{selectedMember.tag}] </span> : ''}{selectedMember.player_name}
+                        </span>
+                        <button onClick={() => removeFromSlot(selected)} disabled={busy}
+                          style={{ fontSize: 13, background: '#dc2626', color: '#fff', border: 'none', padding: '6px 10px', borderRadius: 8, cursor: 'pointer', opacity: busy ? 0.5 : 1 }}>
+                          {busy ? '…' : 'Remove'}
+                        </button>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <select value={pendingMember} onChange={e => setPendingMember(e.target.value)}
+                        style={{ flex: 1, minWidth: 0, height: 36, padding: '0 8px', background: '#1e293b', color: '#f1f5f9', border: '1px solid #334155', borderRadius: 8, fontSize: 14 }}>
+                        <option value="">{selectedMember ? 'Reassign to…' : 'Assign a member…'}</option>
+                        {unassigned.map(p => (
+                          <option key={p.id} value={p.id}>{p.tag ? `[${p.tag}] ` : ''}{p.player_name}</option>
+                        ))}
+                      </select>
+                      <button onClick={() => assignToSlot(selected, pendingMember)} disabled={!pendingMember || busy}
+                        style={{ fontSize: 14, fontWeight: 600, background: '#f59e0b', color: '#0f172a', border: 'none', padding: '0 14px', borderRadius: 8, cursor: 'pointer', opacity: (!pendingMember || busy) ? 0.5 : 1 }}>
+                        {busy ? '…' : 'Set'}
+                      </button>
+                    </div>
+                  </div>
+                </foreignObject>
+              </g>
+            )}
           </svg>
         </div>
       </div>
 
       <p className="text-[11px] text-slate-500 text-center -mt-1">
-        Front 2 rows shown — 6 positions per row per face. Turrets sit at the four diamond tips (N/E/S/W).
+        2 rows × 6 positions per face. Turrets (N/E/S/W) sit at the four castle corner tips. Inner row is front line.
       </p>
-
-      {/* Selected slot editor */}
-      {canManage && selected && selectedSlot && (
-        <div className="rounded-xl border border-amber-500/40 bg-slate-900/70 p-3 space-y-2 max-w-md mx-auto">
-          <div className="flex items-center justify-between">
-            <p className="text-sm font-semibold text-slate-200">
-              {SIDE_NAMES[selectedSlot.side]} face · {selectedSlot.depth === 0 ? 'front line' : 'rear'}
-            </p>
-            <button onClick={() => { setSelected(null); setPendingMember('') }} className="text-slate-400 hover:text-slate-200"><X size={16} /></button>
-          </div>
-
-          {selectedMember ? (
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <span className="text-sm text-slate-200">
-                {selectedMember.tag ? <span className="text-amber-400 text-xs">[{selectedMember.tag}] </span> : ''}{selectedMember.player_name}
-              </span>
-              <button onClick={() => removeFromSlot(selected)} disabled={busy}
-                className="text-xs bg-red-600/80 hover:bg-red-600 text-white px-2.5 py-1.5 rounded-lg disabled:opacity-50">
-                {busy ? <Loader2 size={12} className="animate-spin" /> : 'Remove'}
-              </button>
-            </div>
-          ) : null}
-
-          <div className="flex gap-2">
-            <select value={pendingMember} onChange={e => setPendingMember(e.target.value)}
-              className="flex-1 min-w-0 h-9 px-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 text-sm focus:outline-none focus:ring-1 focus:ring-amber-500">
-              <option value="">{selectedMember ? 'Reassign to…' : 'Assign a member…'}</option>
-              {unassigned.map(p => (
-                <option key={p.id} value={p.id}>{p.tag ? `[${p.tag}] ` : ''}{p.player_name}</option>
-              ))}
-            </select>
-            <button onClick={() => assignToSlot(selected, pendingMember)} disabled={!pendingMember || busy}
-              className="text-sm bg-amber-500 hover:bg-amber-600 text-slate-900 font-semibold px-3 rounded-lg disabled:opacity-50">
-              {busy ? <Loader2 size={14} className="animate-spin" /> : 'Set'}
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* Legend */}
       <div className="flex flex-wrap gap-x-4 gap-y-1.5 justify-center text-xs text-slate-400">
@@ -272,7 +312,7 @@ export function CastleMap({ eventId, members, initialAssignments, roleByMember, 
         <LegendDot color={CAT_COLORS.turretLeader} label="Turret Leader" />
         <LegendDot color={CAT_COLORS.joiner} label="Rally Joiner" />
         <LegendDot color={CAT_COLORS.support} label="Support" />
-        <LegendDot color="#475569" label="Unassigned" outline />
+        <LegendDot color="#3f6b46" label="Unassigned" outline />
       </div>
 
       {/* Support / Gathering Behind */}

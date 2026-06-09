@@ -7,7 +7,7 @@
 // auto-populate all agree on where assignments live.
 import { createServiceClient } from '@/lib/supabase/server'
 import { getKvkContext } from '@/lib/kvk'
-import { slotIdsForSide, ALL_SLOTS_NEAREST_FIRST, preferredFaceForSquad } from '@/lib/castle-map'
+import { slotQueueForStructure, ALL_SLOTS_NEAREST_FIRST } from '@/lib/castle-map'
 
 /** Deterministic anchor event for a kingdom's shared city map. */
 export function primaryEventIdFrom(activeEventIds: string[]): string | null {
@@ -83,10 +83,9 @@ export async function autoPopulateCityAssignments(kingdomId: string): Promise<{ 
   for (const key of STRUCTURE_ORDER) {
     const g = groups[key]
     if (!g) continue
-    const sampleSquad = (g.leaders[0] || g.joiners[0])?.squad || 'castle'
-    const rallyNumber = key === 'castle-2' ? 2 : 1
-    const face = preferredFaceForSquad(sampleSquad, rallyNumber)
-    const faceQueue = slotIdsForSide(face)
+    // Leader takes the centred slot of the structure's target row; joiners fill
+    // outward along that face, then spill globally to the nearest free slot.
+    const faceQueue = slotQueueForStructure(key)
     const ordered = [
       ...g.leaders,
       ...g.joiners.sort((a, b) => (b.march || 0) - (a.march || 0)),
