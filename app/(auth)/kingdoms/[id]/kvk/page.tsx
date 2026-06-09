@@ -105,7 +105,7 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
   }
   const hasPlan = assignments.length > 0
 
-  // Transfer recommendations from the most recent stored Plan B (if any).
+  // Transfer recommendations from the most recent stored battle plan (if any).
   let transferRecommendations: any[] = []
   for (const a of activeAlliances) {
     const recs = (a.activeEvent?.battle_plan as any)?.transfer_recommendations
@@ -297,7 +297,7 @@ export default async function KvkPage({ params }: { params: { id: string } }) {
 
       {participating.length > 0 && (
         <>
-          {/* Generate Kingdom Battle Plan — Plan A / Plan B + Transfer Recommendations */}
+          {/* Generate Kingdom Battle Plan + Transfer Recommendations */}
           {(canGeneratePlan && activeAlliances.length > 0) || transferRecommendations.length > 0 ? (
             <KvkPlanModePanel
               kingdomId={params.id}

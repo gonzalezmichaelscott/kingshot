@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Sword, Loader2, ArrowLeftRight, Shield } from 'lucide-react'
+import { Sword, Loader2, ArrowLeftRight } from 'lucide-react'
 
 interface TransferRecommendation {
   player_name: string
@@ -15,11 +15,10 @@ interface TransferRecommendation {
 }
 
 /**
- * Plan A / Plan B selector for the kingdom KVK battle plan, plus the Plan B
- * "Transfer Recommendations" panel.
- *
- *  - Plan A — Alliance Only: strict same-alliance rule, no cross-alliance joiners.
- *  - Plan B — Optimal: willing-to-move members may be assigned across alliances.
+ * Kingdom KVK battle-plan generator (single optimal plan) plus the "Transfer
+ * Recommendations" panel. The plan combines every attending member across the
+ * participating alliances and may assign willing-to-move members across alliances,
+ * flagging each as a KVK Transfer.
  */
 export function KvkPlanModePanel({
   kingdomId,
@@ -30,7 +29,6 @@ export function KvkPlanModePanel({
   canGenerate: boolean
   transferRecommendations?: TransferRecommendation[]
 }) {
-  const [planMode, setPlanMode] = useState<'A' | 'B'>('A')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
@@ -44,7 +42,7 @@ export function KvkPlanModePanel({
       const res = await fetch('/api/kvk/battle-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kingdomId, planMode }),
+        body: JSON.stringify({ kingdomId }),
       })
       if (!res.ok) {
         const data = await res.json()
@@ -59,21 +57,6 @@ export function KvkPlanModePanel({
     }
   }
 
-  const options = [
-    {
-      key: 'A' as const,
-      icon: Shield,
-      title: 'Plan A — Alliance Only',
-      desc: 'Strict same-alliance rule. Joiners only join rally leaders from their own alliance.',
-    },
-    {
-      key: 'B' as const,
-      icon: ArrowLeftRight,
-      title: 'Plan B — Optimal (includes willing transfers)',
-      desc: 'Willing-to-move members may join a stronger rally in another alliance for better coordination.',
-    },
-  ]
-
   return (
     <div className="space-y-4">
       {canGenerate && (
@@ -85,47 +68,25 @@ export function KvkPlanModePanel({
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            <div className="grid sm:grid-cols-2 gap-3">
-              {options.map(({ key, icon: Icon, title, desc }) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setPlanMode(key)}
-                  className={
-                    'text-left rounded-xl border p-3 transition-colors ' +
-                    (planMode === key
-                      ? 'border-amber-500 bg-amber-500/10'
-                      : 'border-slate-700 bg-slate-800 hover:border-slate-600')
-                  }
-                >
-                  <p className="flex items-center gap-1.5 font-semibold text-sm text-slate-100">
-                    <Icon size={14} className="text-amber-400" />
-                    {title}
-                  </p>
-                  <p className="text-xs text-slate-400 mt-1 leading-relaxed">{desc}</p>
-                </button>
-              ))}
-            </div>
             <Button onClick={generate} disabled={loading} size="lg" className="w-full sm:w-auto">
               {loading ? <Loader2 size={18} className="mr-2 animate-spin" /> : <Sword size={18} className="mr-2" />}
               {loading
                 ? 'Generating Kingdom Plan...'
                 : success
                 ? 'Plan Generated!'
-                : planMode === 'A'
-                ? 'Generate Plan A — Alliance Only'
-                : 'Generate Plan B — Optimal with Transfers'}
+                : 'Generate Kingdom Battle Plan'}
             </Button>
             <p className="text-xs text-slate-500">
               Combines every attending member across participating alliances and assigns them to the castle,
               four turrets, and support — castle is staffed first with the strongest leaders and joiners.
+              Willing-to-move members may be placed in a stronger cross-alliance rally and flagged as a KVK Transfer.
             </p>
             {error && <p className="text-red-400 text-sm">{error}</p>}
           </CardContent>
         </Card>
       )}
 
-      {/* Plan B — Transfer Recommendations panel */}
+      {/* Transfer Recommendations panel */}
       {transferRecommendations.length > 0 && (
         <Card className="border-amber-500/40">
           <CardHeader>

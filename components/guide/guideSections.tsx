@@ -169,7 +169,7 @@ export const SECTIONS: Section[] = [
         <Note>Manual overrides: you can edit assignments and re-generate. Re-generating replaces the current plan, so finalize attendance first.</Note>
         <H3>KVK cooperation</H3>
         <UL>
-          <li>Enable KVK mode to coordinate cross-alliance. Plan A keeps joiners in-alliance; Plan B allows willing-to-move transfers.</li>
+          <li>Enable KVK mode to coordinate cross-alliance. The battle plan keeps joiners in-alliance where possible and may place willing-to-move members in a stronger cross-alliance rally (flagged as a KVK Transfer).</li>
         </UL>
       </>
     ),
@@ -182,7 +182,7 @@ export const SECTIONS: Section[] = [
         <UL>
           <li>Enable KVK mode from the Alliance Hub (R5).</li>
           <li>The KVK hub combines the member pool across allied alliances and adds a cross-alliance command chat.</li>
-          <li><span className="font-medium">Plan A</span> = alliance-only joiners. <span className="font-medium">Plan B</span> = include members flagged “willing to move” for stronger rallies.</li>
+          <li>The battle plan combines all attending members and may include those flagged “willing to move” in stronger cross-alliance rallies (each marked as a KVK Transfer).</li>
           <li>Add voice channel links so squads can jump straight into comms.</li>
           <li>Use the Rally Timer to land rallies together during the castle fight.</li>
         </UL>
@@ -226,7 +226,7 @@ export const SECTIONS: Section[] = [
         <UL>
           <li>Collect combat stats and hero data for your top 30 players before any major event.</li>
           <li>Refresh stats every couple of weeks, and always before KVK.</li>
-          <li>During KVK, flag movers with “willing to move” so Plan B can build the strongest rallies.</li>
+          <li>During KVK, flag movers with “willing to move” so the battle plan can build the strongest cross-alliance rallies.</li>
           <li>Keep attendance current — sync it right before generating the final plan.</li>
         </UL>
         <Note>Garbage in, garbage out: the battle plan is only as good as the member data behind it. Data first, plans second.</Note>

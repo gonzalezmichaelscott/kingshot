@@ -271,8 +271,8 @@ CASTLE RALLY ASSIGNMENT ORDER:
 6. All remaining → Support
 
 SAME-ALLIANCE JOIN RULE:
-- Joiners can ONLY join rally leaders from their OWN alliance
-- Plan B (Optimal transfers) allows willing-to-move members to join cross-alliance
+- Joiners normally join rally leaders from their OWN alliance
+- Willing-to-move members may be assigned to a stronger rally in a DIFFERENT alliance (flagged as a KVK Transfer so they move alliances before the battle)
 - Only recommend transfer when joiner and rally leader are in DIFFERENT alliances
 - NEVER recommend transfer for same-alliance assignments
 - When the joiner and rally leader are ALREADY in the same alliance, set kvk_transfer = false, no transfer_alliance, and DO NOT add a transfer_recommendation
@@ -392,7 +392,7 @@ export interface BattlePlanAssignment {
   time_window?: string
   time_window_start?: string
   time_window_end?: string
-  // Cross-alliance KVK transfer (Plan B / willing-to-move joiners)
+  // Cross-alliance KVK transfer (willing-to-move joiners crossing alliance lines)
   kvk_transfer?: boolean
   transfer_alliance?: string
   transfer_rally_leader?: string
@@ -582,11 +582,10 @@ function sanitizeJoinerWidgetMentions(plan: BattlePlan): void {
 // members from the tail until it fits and tell the model the list was truncated.
 const MAX_PROMPT_CHARS = 80000
 
-function buildPlanningPrompt(members: any[], event: any, kvkOptions?: { planMode?: 'A' | 'B'; simplify?: boolean }): string {
+function buildPlanningPrompt(members: any[], event: any, kvkOptions?: { simplify?: boolean }): string {
   const eventType = event.event_types
   const rules = eventType.rules
   const objectives = eventType.objectives
-  const planMode = kvkOptions?.planMode
   // FIX 2 — when retrying after a truncated reply, emit a slimmer member block
   // (power, march_size, rally_capacity, lead hero / first skill only) so the JSON
   // reply fits inside the output token limit.
@@ -597,16 +596,8 @@ function buildPlanningPrompt(members: any[], event: any, kvkOptions?: { planMode
     ? `\nCASTLE BATTLE PRIORITY: This is a single-alliance Castle Battle. Castle is top priority — assign the 2 strongest rally leaders and best joiners to castle first. If insufficient players for all 5 structures, fill castle completely first, then assign remaining capacity to turrets starting with North, then East, South, West. Never leave castle understaffed to fill turrets. Use squad values: castle, north_turret, east_turret, south_turret, west_turret, support. The battle window is 12:00–17:00 UTC.\n`
     : ''
 
-  const planModeBlock = planMode === 'A'
-    ? `\nKVK PLAN MODE: PLAN A — ALLIANCE ONLY.
-STRICT rule: every rally joiner MUST be from the SAME alliance as their rally leader. Do NOT assign any cross-alliance joiners even if a member is willing to move. Set kvk_transfer = false on every assignment and return an empty transfer_recommendations array.\n`
-    : planMode === 'B'
-    ? `\nKVK PLAN MODE: PLAN B — OPTIMAL (INCLUDES WILLING TRANSFERS).
-You MAY assign willing-to-move members (kvk_willing_to_move = true) to join a rally leader from a DIFFERENT alliance when it meaningfully improves rally strength. For each such cross-alliance joiner set kvk_transfer = true, transfer_alliance = the rally leader's alliance, and transfer_rally_leader = the rally leader's player name. Also populate transfer_recommendations with one entry per transferred player: { player_name, home_alliance, recommended_alliance, rally_leader, strength_improvement }. Members who are NOT willing to move must still only join same-alliance rally leaders.\n`
-    : ''
-
   const header = `You are a battle planning assistant for the mobile strategy game Kingshot.
-${planModeBlock}${castleBattleBlock}
+${castleBattleBlock}
 
 EVENT: ${eventType.name}
 DESCRIPTION: ${eventType.description}
@@ -1105,8 +1096,8 @@ async function storeKvkAssignments(
  * Then joiners fill each structure to capacity (rally_capacity - march_size,
  * largest march first, max 15 when data is missing) BEFORE moving to the next:
  *   Castle 1 → Castle 2 → North → East → South → West → everyone else to Support.
- * Plan A: joiners must match their leader's alliance. Plan B: any alliance (a
- * cross-alliance joiner is flagged kvk_transfer + a transfer recommendation).
+ * Joiners may come from any alliance; a cross-alliance joiner is flagged
+ * kvk_transfer + a transfer recommendation so they move alliances before battle.
  */
 const KVK_LEADER_SLOTS: { squad: string; rally_number: number; label: string; formation: string }[] = [
   { squad: 'castle', rally_number: 1, label: 'Castle Rally 1', formation: '60% Infantry / 20% Cavalry / 20% Archer (garrison)' },
@@ -1267,7 +1258,6 @@ function parseRankedJoiners(text: string): RankedJoiner[] | null {
 export async function assignJoinersWithAI(
   leaders: KvkLeaderRef[],
   availableMembers: any[],
-  planMode: 'A' | 'B',
   _eventType?: any,
 ): Promise<RankedJoiner[]> {
   if (!availableMembers || availableMembers.length === 0) return []
@@ -1296,17 +1286,15 @@ export async function assignJoinersWithAI(
  * missing) before the next one starts. A member lands in exactly one structure and
  * is removed from the pool the moment it is placed.
  *
- * Plan A: only same-alliance joiners may fill a structure (a structure is left
- *   partially filled rather than cross-alliance filled).
- * Plan B: any remaining joiner may fill; a cross-alliance placement is flagged as a
- *   transfer with a transfer recommendation.
+ * Any remaining joiner may fill a structure regardless of alliance; a cross-alliance
+ * placement is flagged as a KVK Transfer with a transfer recommendation so the player
+ * knows to physically move alliances before the battle.
  *
  * Returns the joiner + support assignments (NOT the leaders) and any transfers.
  */
 function fillStructuresInOrder(
   rankedMembers: any[],
   leaders: KvkLeaderRef[],
-  planMode: 'A' | 'B',
 ): { assignments: BattlePlanAssignment[]; transfers: TransferRecommendation[] } {
   const assignments: BattlePlanAssignment[] = []
   const transfers: TransferRecommendation[] = []
@@ -1341,9 +1329,6 @@ function fillStructuresInOrder(
       const m = pool[k]
       const sameAlliance = m.alliance_id === leader.alliance_id
 
-      // Plan A: same-alliance only. Plan B: any (cross-alliance flagged below).
-      if (planMode === 'A' && !sameAlliance) { k++; continue }
-
       const js: JoinerSkill = m.joiner_skill || { hero: null, skill: null, code: 'NONE', tier: 'F', chance: false }
       // No duplicate chance-based skill codes within one rally.
       const code = js.code
@@ -1360,8 +1345,7 @@ function fillStructuresInOrder(
       count++
       if (js.chance && code) usedChanceCodes.add(code)
 
-      const crossAlliance = !sameAlliance             // only reachable in Plan B
-      const transfer = planMode === 'B' && crossAlliance
+      const transfer = !sameAlliance                  // cross-alliance → KVK Transfer
       const sc = structure
       const skillNote = js.hero && js.tier !== 'F'
         ? `${js.hero}${js.skill ? ` ${js.skill}` : ''} (${js.tier}-tier ${js.code}${js.chance ? ', chance-based' : ''})`
@@ -1457,7 +1441,6 @@ Return raw JSON only (no code fences):
 
 export function enforceKvkAssignmentOrder(
   attendingMembers: any[],
-  planMode: 'A' | 'B' = 'A',
 ): { assignments: BattlePlanAssignment[]; transfer_recommendations: TransferRecommendation[] } {
   const ranked = [...attendingMembers].sort(
     (a, b) => memberRankScore(b) - memberRankScore(a) || (Number(b.power) || 0) - (Number(a.power) || 0)
@@ -1509,7 +1492,6 @@ export function enforceKvkAssignmentOrder(
       let idx = -1
       for (let k = 0; k < pool.length; k++) {
         const j = pool[k]
-        if (planMode === 'A' && j.alliance_id !== leader.alliance_id) continue
         const jm = Number(j.march_size) || MARCH_ESTIMATE
         if (!incomplete && jm > space) continue
         idx = k
@@ -1522,7 +1504,7 @@ export function enforceKvkAssignmentOrder(
       space -= Number(j.march_size) || MARCH_ESTIMATE
       count++
 
-      const crossAlliance = planMode === 'B' && j.alliance_id !== leader.alliance_id
+      const crossAlliance = j.alliance_id !== leader.alliance_id
       const isTurret = slot.squad !== 'castle'
       assignments.push({
         member_id: j.member_id,
@@ -1574,7 +1556,7 @@ export function enforceKvkAssignmentOrder(
  * honouring each member's availability window. Each assignment is stored on the
  * member's own alliance event. Returns the plan and the affected event ids.
  */
-export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 'A' | 'B' = 'A'): Promise<{ plan: BattlePlan; eventIds: string[] }> {
+export async function generateKingdomKvkBattlePlan(kingdomId: string): Promise<{ plan: BattlePlan; eventIds: string[] }> {
   const { eventType, alliances } = await getKvkContext(kingdomId)
   if (!eventType) throw new Error('KVK Castle Battle event type is not configured. Run the schema seed data.')
 
@@ -1623,7 +1605,7 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 
   // ranks every member by score and locks the top 6 as structure leaders in strict
   // order (Castle 1, Castle 2, N, E, S, W). We take ONLY its leader assignments;
   // joiners are (re)assigned by the AI in Phase 2.
-  const phase1 = enforceKvkAssignmentOrder(members, planMode)
+  const phase1 = enforceKvkAssignmentOrder(members)
   const memberById: Record<string, any> = {}
   for (const m of members) memberById[m.member_id] = m
 
@@ -1639,7 +1621,7 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 
   const availableMembers = members.filter(m => !leaderIds.has(m.member_id))
 
   // ── PHASE 2A — AI RANKS the joiners by rally value (no structure decisions).
-  const ranked = await assignJoinersWithAI(leaders, availableMembers, planMode, eventType)
+  const ranked = await assignJoinersWithAI(leaders, availableMembers, eventType)
 
   // Resolve the ranking into an ordered list of member objects (best first),
   // consuming duplicate names. Members the AI omitted (or, if ranking failed,
@@ -1666,7 +1648,7 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 
   orderedMembers.push(...leftover)
 
   // ── PHASE 2B — CODE fills structures in strict order with capacity math.
-  const { assignments: joinerAssignments, transfers } = fillStructuresInOrder(orderedMembers, leaders, planMode)
+  const { assignments: joinerAssignments, transfers } = fillStructuresInOrder(orderedMembers, leaders)
   const assignments: BattlePlanAssignment[] = [...leaderAssignments, ...joinerAssignments]
 
   // ── Narrative — a small, separate AI call (best-effort). Per-player instructions
@@ -1686,7 +1668,7 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string, planMode: 
     coverage_gaps: narrative.coverage_gaps || [],
     warnings: narrative.warnings || [],
     backup_plan: narrative.backup_plan,
-    transfer_recommendations: planMode === 'B' ? transfers : [],
+    transfer_recommendations: transfers,
   }
 
   // FIX 1 — scrub any joiner widget mentions from narrative before storing.

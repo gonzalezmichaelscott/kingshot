@@ -5,12 +5,12 @@ import { generateKingdomKvkBattlePlan } from '@/lib/ai-planner'
 import { z } from 'zod'
 import { rateLimitResponse, HOUR_MS } from '@/lib/rate-limit'
 
-const schema = z.object({ kingdomId: z.string().uuid(), planMode: z.enum(['A', 'B']).optional().default('A') })
+const schema = z.object({ kingdomId: z.string().uuid() })
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { kingdomId, planMode } = schema.parse(body)
+    const { kingdomId } = schema.parse(body)
 
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     const limited = rateLimitResponse(`kvk-battle-plan:${user.id}`, 10, HOUR_MS)
     if (limited) return limited
 
-    const { plan, eventIds } = await generateKingdomKvkBattlePlan(kingdomId, planMode)
+    const { plan, eventIds } = await generateKingdomKvkBattlePlan(kingdomId)
     return NextResponse.json({ plan, eventIds })
   } catch (error: any) {
     console.error('Kingdom KVK plan error:', error)
