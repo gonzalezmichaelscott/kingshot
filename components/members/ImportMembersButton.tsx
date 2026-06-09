@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Upload, Download, X, CheckCircle2, AlertCircle, AlertTriangle, Loader2 } from 'lucide-react'
+import { Upload, Download, X, CheckCircle2, AlertCircle, AlertTriangle, Loader2, Search } from 'lucide-react'
 
 // FIX 6 — bulk import accepts Player IDs ONLY. The CSV template is a single
 // column (no header) and players can also be pasted into a textarea.
@@ -105,79 +105,67 @@ export function ImportMembersButton({ allianceId }: Props) {
   const errorRows = rows.filter(r => r.error)
   const tooMany = validRows.length > MAX_ROWS
 
-  // Resolve the fetched name for an ID (blank with a warning if the lookup failed).
-  function resolveName(id: string): { name: string; fetching: boolean; warning: boolean } {
+  // Resolve the fetched name for an ID. `pending` = not looked up yet (the fetch is
+  // manual now), `fetching` = lookup in flight, `warning` = lookup failed/blank.
+  function resolveName(id: string): { name: string; fetching: boolean; warning: boolean; pending: boolean } {
     const f = nameFetch[id]
-    if (!f || f.status === 'fetching') return { name: '', fetching: true, warning: false }
-    if (f.status === 'done' && f.name) return { name: f.name, fetching: false, warning: false }
-    return { name: '', fetching: false, warning: true }
+    if (!f) return { name: '', fetching: false, warning: false, pending: true }
+    if (f.status === 'fetching') return { name: '', fetching: true, warning: false, pending: false }
+    if (f.status === 'done' && f.name) return { name: f.name, fetching: false, warning: false, pending: false }
+    return { name: '', fetching: false, warning: true, pending: false }
   }
 
   const isFetchingNames = fetchProgress !== null && fetchProgress.done < fetchProgress.total
 
-  // Fetch player names from the game API (rate-limited) whenever the IDs change.
-  useEffect(() => {
-    let cancelled = false
-
+  // Fetch player names from the game API (rate-limited). Triggered manually by the
+  // "Fetch Player Names" button — never automatically when the IDs change.
+  async function fetchNames() {
     const idsToFetch = Array.from(new Set(validRows.map(r => r.raw.game_id)))
-
-    if (idsToFetch.length === 0) {
-      setNameFetch({})
-      setFetchProgress(null)
-      return
-    }
+    if (idsToFetch.length === 0) return
 
     setNameFetch(Object.fromEntries(idsToFetch.map(id => [id, { status: 'fetching' as const }])))
     setFetchProgress({ done: 0, total: idsToFetch.length })
     setRateLimitedNames(false)
 
     const callTimes: number[] = []
-    ;(async () => {
-      let done = 0
-      let rateLimitHit = false
-      for (const id of idsToFetch) {
-        if (cancelled) return
-
-        if (rateLimitHit) {
-          setNameFetch(prev => ({ ...prev, [id]: { status: 'failed' } }))
-          done++
-          setFetchProgress({ done, total: idsToFetch.length })
-          continue
-        }
-
-        // Throttle: never exceed RATE_LIMIT_PER_MIN calls in any rolling minute.
-        const now = Date.now()
-        while (callTimes.length && now - callTimes[0] > 60000) callTimes.shift()
-        if (callTimes.length >= RATE_LIMIT_PER_MIN) {
-          const waitMs = 60000 - (Date.now() - callTimes[0]) + 50
-          await new Promise(res => setTimeout(res, waitMs))
-        }
-        callTimes.push(Date.now())
-
-        let name = ''
-        try {
-          const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(id)}`)
-          if (res.status === 429) {
-            rateLimitHit = true
-            setRateLimitedNames(true)
-          } else if (res.ok) {
-            const json = await res.json()
-            name = (json.data?.name || '').trim()
-          }
-        } catch {
-          // network error — treated as a failed lookup
-        }
-        if (cancelled) return
-
-        setNameFetch(prev => ({ ...prev, [id]: name ? { status: 'done', name } : { status: 'failed' } }))
+    let done = 0
+    let rateLimitHit = false
+    for (const id of idsToFetch) {
+      if (rateLimitHit) {
+        setNameFetch(prev => ({ ...prev, [id]: { status: 'failed' } }))
         done++
         setFetchProgress({ done, total: idsToFetch.length })
+        continue
       }
-    })()
 
-    return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows])
+      // Throttle: never exceed RATE_LIMIT_PER_MIN calls in any rolling minute.
+      const now = Date.now()
+      while (callTimes.length && now - callTimes[0] > 60000) callTimes.shift()
+      if (callTimes.length >= RATE_LIMIT_PER_MIN) {
+        const waitMs = 60000 - (Date.now() - callTimes[0]) + 50
+        await new Promise(res => setTimeout(res, waitMs))
+      }
+      callTimes.push(Date.now())
+
+      let name = ''
+      try {
+        const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(id)}`)
+        if (res.status === 429) {
+          rateLimitHit = true
+          setRateLimitedNames(true)
+        } else if (res.ok) {
+          const json = await res.json()
+          name = (json.data?.name || '').trim()
+        }
+      } catch {
+        // network error — treated as a failed lookup
+      }
+
+      setNameFetch(prev => ({ ...prev, [id]: name ? { status: 'done', name } : { status: 'failed' } }))
+      done++
+      setFetchProgress({ done, total: idsToFetch.length })
+    }
+  }
 
   function handleFile(file: File) {
     setResult(null)
@@ -337,9 +325,9 @@ export function ImportMembersButton({ allianceId }: Props) {
             <>
               {/* Instructions */}
               <p className="text-sm text-slate-400">
-                Enter one Player ID per line, up to {MAX_ROWS} players. Player names are fetched
-                automatically from the game — if a lookup fails, the member is created with an empty
-                name you can fill in later.
+                Enter one Player ID per line, up to {MAX_ROWS} players. Click <span className="text-slate-200 font-medium">Fetch Player Names</span> to
+                look up names from the game (optional) — any Player ID without a fetched name is imported
+                with an empty name you can fill in later.
               </p>
 
               {/* Textarea input */}
@@ -391,6 +379,19 @@ export function ImportMembersButton({ allianceId }: Props) {
                     </p>
                   )}
 
+                  {/* Manual name lookup — only runs when the user clicks it */}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="border border-slate-700 text-sm"
+                    onClick={fetchNames}
+                    disabled={isFetchingNames || validRows.length === 0 || tooMany}
+                  >
+                    {isFetchingNames
+                      ? <><Loader2 size={14} className="mr-1 animate-spin" /> Fetching names…</>
+                      : <><Search size={14} className="mr-1" /> Fetch Player Names</>}
+                  </Button>
+
                   {/* Name-fetch progress (rate-limited) */}
                   {isFetchingNames && (
                     <div className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2">
@@ -430,6 +431,8 @@ export function ImportMembersButton({ allianceId }: Props) {
                                   <span className="text-amber-400 flex items-center gap-1"><Loader2 size={10} className="animate-spin" />Fetching name…</span>
                                 ) : res!.name ? (
                                   res!.name
+                                ) : res!.pending ? (
+                                  <em className="text-slate-500">—</em>
                                 ) : (
                                   <em className="text-slate-500">no name</em>
                                 )}
@@ -439,6 +442,8 @@ export function ImportMembersButton({ allianceId }: Props) {
                                   <span className="text-red-400 flex items-center gap-1"><AlertCircle size={10} />{r.error}</span>
                                 ) : res!.fetching ? (
                                   <span className="text-amber-400">Fetching…</span>
+                                ) : res!.pending ? (
+                                  <span className="text-slate-500">Not fetched</span>
                                 ) : res!.warning ? (
                                   <span className="text-amber-400 flex items-center gap-1" title={fetchWarning(id)}>
                                     <AlertTriangle size={10} />Name not found — add later

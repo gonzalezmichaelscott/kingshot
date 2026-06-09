@@ -1,9 +1,9 @@
 // @ts-nocheck
 'use client'
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Plus, X, Loader2, Check, AlertTriangle } from 'lucide-react'
+import { Plus, X, Loader2, Check, AlertTriangle, Search } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { addableMemberRanks, isElevatedRank, roleLabel } from '@/lib/access'
 
@@ -20,33 +20,27 @@ export function AddMemberButton({ allianceId, actorRole }: { allianceId: string;
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const router = useRouter()
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // FIX 2 — auto-fetch the player name from the game whenever the Player ID
-  // changes (debounced). The name is never entered manually.
-  useEffect(() => {
+  // Fetch the player name from the game on demand. Triggered by the Search button
+  // or by pressing Enter in the Player ID field — never automatically on keystroke.
+  // The name is never entered manually.
+  async function fetchName() {
     const id = gameId.trim()
     if (!id) { setFetchStatus('idle'); setFetchedName(''); return }
     setFetchStatus('fetching')
     setFetchedName('')
-    if (debounceRef.current) clearTimeout(debounceRef.current)
-    let cancelled = false
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(id)}`)
-        if (cancelled) return
-        if (res.ok) {
-          const json = await res.json()
-          const name = (json.data?.name || '').trim()
-          if (name) { setFetchedName(name); setFetchStatus('found'); return }
-        }
-        setFetchStatus('failed')
-      } catch {
-        if (!cancelled) setFetchStatus('failed')
+    try {
+      const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(id)}`)
+      if (res.ok) {
+        const json = await res.json()
+        const name = (json.data?.name || '').trim()
+        if (name) { setFetchedName(name); setFetchStatus('found'); return }
       }
-    }, 500)
-    return () => { cancelled = true; if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [gameId])
+      setFetchStatus('failed')
+    } catch {
+      setFetchStatus('failed')
+    }
+  }
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
@@ -108,14 +102,33 @@ export function AddMemberButton({ allianceId, actorRole }: { allianceId: string;
             <label className="text-xs text-slate-400 block mb-1">
               Player ID <span className="text-red-400">*</span> — in-game numeric ID shown under governor name
             </label>
-            <Input
-              autoFocus
-              type="text"
-              inputMode="numeric"
-              placeholder="e.g. 123456789"
-              value={gameId}
-              onChange={e => setGameId(e.target.value.replace(/[^0-9]/g, ''))}
-            />
+            <div className="flex gap-2">
+              <Input
+                autoFocus
+                type="text"
+                inputMode="numeric"
+                placeholder="e.g. 123456789"
+                value={gameId}
+                onChange={e => {
+                  setGameId(e.target.value.replace(/[^0-9]/g, ''))
+                  // Editing the ID invalidates any previously fetched name.
+                  setFetchStatus('idle')
+                  setFetchedName('')
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); fetchName() } }}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                size="sm"
+                onClick={fetchName}
+                disabled={!gameId.trim() || fetchStatus === 'fetching'}
+              >
+                {fetchStatus === 'fetching'
+                  ? <Loader2 size={14} className="animate-spin" />
+                  : <><Search size={14} className="mr-1" /> Search</>}
+              </Button>
+            </div>
 
             {/* Name fetch status */}
             {fetchStatus === 'fetching' && (

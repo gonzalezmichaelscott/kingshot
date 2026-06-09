@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   Play, Square, RotateCcw, Volume2, VolumeX, Plus, Share2,
   Clock, Timer, Crown, Loader2, Copy, Check, Layers, Target,
-  GripVertical, Trash2, AlertTriangle, Flag
+  GripVertical, Trash2, AlertTriangle, Flag, Search
 } from 'lucide-react'
 import {
   DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors,
@@ -155,7 +155,6 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
   const allLandedSpokenRef = useRef(false)                // final "all landed" announcement
   const autoResetFiredRef = useRef(false)                 // guard so auto-reset fires once
   const spokenCountdownRef = useRef<Set<number>>(new Set())
-  const playerFetchTimerRef = useRef<NodeJS.Timeout | null>(null)
   const broadcastRef = useRef<any>(null)
   const nameRef = useRef(name)
   const supabase = createClient()
@@ -173,8 +172,10 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
     }
   }, [session.id])
 
-  // Debounced player lookup when playerId changes
-  useEffect(() => {
+  // Player lookup on demand — triggered by the Search button or pressing Enter in
+  // the Player ID field, never automatically on keystroke. Caches the result and
+  // fills the name field if it is still empty.
+  async function lookupPlayerId() {
     const trimmed = playerId.trim()
     if (!trimmed) return
     if (playerCache.has(trimmed)) {
@@ -182,27 +183,22 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
       if (!nameRef.current.trim() && cached.name) setName(cached.name)
       return
     }
-    if (playerFetchTimerRef.current) clearTimeout(playerFetchTimerRef.current)
-    playerFetchTimerRef.current = setTimeout(async () => {
-      setFetchingPlayer(true)
-      try {
-        const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(trimmed)}`)
-        if (res.ok) {
-          const json = await res.json()
-          if (json.data) {
-            setPlayerCache(prev => new Map(prev).set(trimmed, json.data as PlayerInfo))
-            if (!nameRef.current.trim() && json.data.name) setName(json.data.name)
-          }
+    setFetchingPlayer(true)
+    try {
+      const res = await fetch(`/api/player-lookup?playerId=${encodeURIComponent(trimmed)}`)
+      if (res.ok) {
+        const json = await res.json()
+        if (json.data) {
+          setPlayerCache(prev => new Map(prev).set(trimmed, json.data as PlayerInfo))
+          if (!nameRef.current.trim() && json.data.name) setName(json.data.name)
         }
-      } catch {
-        /* ignore */
-      } finally {
-        setFetchingPlayer(false)
       }
-    }, 600)
-    return () => { if (playerFetchTimerRef.current) clearTimeout(playerFetchTimerRef.current) }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [playerId])
+    } catch {
+      /* ignore */
+    } finally {
+      setFetchingPlayer(false)
+    }
+  }
 
   function clearRoundRefs() {
     alertedRef.current.clear()
@@ -700,17 +696,26 @@ export function RallyTimerSession({ session, canEdit, allianceId, onUpdate }: Pr
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <input value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addPlayer()}
               placeholder="Player name *" className="min-w-0 w-full px-3 h-11 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500" />
-            <div className="relative min-w-0">
-              <input value={playerId} onChange={e => setPlayerId(e.target.value)} placeholder="Player ID (optional)"
-                className="w-full px-3 pr-8 h-11 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500" />
-              {fetchingPlayer && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
-                  <Loader2 size={14} className="animate-spin text-amber-400" />
-                </div>
-              )}
-              {!fetchingPlayer && playerId.trim() && playerCache.has(playerId.trim()) && (
-                <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"><span className="text-green-400 text-xs">✓</span></div>
-              )}
+            <div className="flex gap-2 min-w-0">
+              <div className="relative flex-1 min-w-0">
+                <input value={playerId} onChange={e => setPlayerId(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); lookupPlayerId() } }}
+                  placeholder="Player ID (optional)"
+                  className="w-full px-3 pr-8 h-11 bg-slate-800 border border-slate-700 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-amber-500" />
+                {fetchingPlayer && (
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none">
+                    <Loader2 size={14} className="animate-spin text-amber-400" />
+                  </div>
+                )}
+                {!fetchingPlayer && playerId.trim() && playerCache.has(playerId.trim()) && (
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none"><span className="text-green-400 text-xs">✓</span></div>
+                )}
+              </div>
+              <button type="button" onClick={lookupPlayerId} disabled={fetchingPlayer || !playerId.trim()}
+                title="Fetch player name &amp; avatar"
+                className="flex items-center justify-center px-3 h-11 flex-shrink-0 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-100 rounded-lg text-sm transition-colors">
+                <Search size={14} />
+              </button>
             </div>
           </div>
           <div className="flex gap-2">
