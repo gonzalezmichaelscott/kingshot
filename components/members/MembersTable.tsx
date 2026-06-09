@@ -217,7 +217,7 @@ function QuickEditModal({ member, href, onClose, onSaved }: any) {
     const powerNum = parseInt(power) || 0
     const marchNum = parseInt(marchSize) || 0
     const rallyNum = parseInt(rallyCapacity) || 0
-    const tgNum = Math.max(0, Math.min(8, parseInt(tgLevel) || 0))
+    const tgNum = Math.max(0, Math.min(10, parseInt(tgLevel) || 0))
 
     try {
       // Power / march / rally via the existing member stats route.
@@ -320,15 +320,15 @@ function QuickEditModal({ member, href, onClose, onSaved }: any) {
             <Input
               type="number"
               min={0}
-              max={8}
+              max={10}
               value={tgLevel}
               onChange={e => {
                 const v = e.target.value
                 if (v === '') { setTgLevel(''); return }
-                setTgLevel(String(Math.max(0, Math.min(8, parseInt(v) || 0))))
+                setTgLevel(String(Math.max(0, Math.min(10, parseInt(v) || 0))))
               }}
             />
-            <p className="text-[11px] text-slate-500 mt-1">Applies globally to all troop types (0–8).</p>
+            <p className="text-[11px] text-slate-500 mt-1">Applies globally to all troop types (0–10).</p>
           </div>
 
           <a
