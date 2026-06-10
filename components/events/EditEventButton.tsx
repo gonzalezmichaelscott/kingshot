@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { UtcDateTimePicker } from '@/components/ui/UtcDateTimePicker'
-import { Edit2, X, Save } from 'lucide-react'
+import { Edit2, X, Save, Trash2 } from 'lucide-react'
 
 interface Props {
   event: any
@@ -37,6 +37,8 @@ export function EditEventButton({ event, compact }: Props) {
 
   const [open, setOpen] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const [error, setError] = useState('')
   const [form, setForm] = useState({
     name: event.name || '',
@@ -58,7 +60,35 @@ export function EditEventButton({ event, compact }: Props) {
       status: event.status || 'planning',
       notes: event.notes || '',
     })
+    setConfirmDelete(false)
     setError('')
+  }
+
+  async function remove() {
+    setDeleting(true)
+    setError('')
+    let res: Response
+    try {
+      res = await fetch('/api/events/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_id: event.id }),
+      })
+    } catch {
+      setDeleting(false)
+      setError('Network error — the event was not deleted. Please try again.')
+      return
+    }
+    setDeleting(false)
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      setError(d.error || 'Delete failed')
+      return
+    }
+    setOpen(false)
+    // Works from both the list page and the event detail page (which no longer exists).
+    router.push(`/alliances/${event.alliance_id}/events`)
+    router.refresh()
   }
 
   async function save() {
@@ -189,12 +219,45 @@ export function EditEventButton({ event, compact }: Props) {
 
               {error && <p className="text-red-400 text-sm">{error}</p>}
 
-              <div className="flex gap-2">
-                <Button size="sm" onClick={save} disabled={saving}>
+              <div className="flex items-center gap-2 flex-wrap">
+                <Button size="sm" onClick={save} disabled={saving || deleting}>
                   <Save size={14} className="mr-1" />
                   {saving ? 'Saving…' : 'Save Changes'}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+                <div className="ml-auto">
+                  {confirmDelete ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-red-300">Delete permanently?</span>
+                      <button
+                        type="button"
+                        onClick={remove}
+                        disabled={deleting}
+                        className="flex items-center gap-1 bg-red-600 hover:bg-red-700 text-white text-xs font-medium px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-60"
+                      >
+                        <Trash2 size={13} />
+                        {deleting ? 'Deleting…' : 'Yes, delete'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDelete(false)}
+                        disabled={deleting}
+                        className="text-xs text-slate-400 hover:text-slate-200 px-2 py-1.5"
+                      >
+                        Keep
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setConfirmDelete(true)}
+                      className="flex items-center gap-1 text-xs text-red-400/80 hover:text-red-400 px-2 py-1.5 rounded-lg hover:bg-red-500/10 transition-colors"
+                    >
+                      <Trash2 size={13} />
+                      Delete Event
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
