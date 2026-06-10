@@ -305,7 +305,7 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
                     />
                   )
                 }
-                if (ev.event_types?.slug === 'swordland_showdown') {
+                if (ev.event_types?.slug === 'swordland_showdown' || ev.event_types?.slug === 'tri_alliance_clash') {
                   return (
                     <SwordlandLegionCard
                       key={ev.id}
@@ -830,7 +830,7 @@ function SwordlandLegionCard({ event, accessToken, existing, memberTimezone }: {
       <CardHeader>
         <CardTitle className="text-base flex items-center gap-2">
           <Sword size={16} className="text-amber-500" />
-          {event.name || 'Swordland Showdown'}
+          {event.name || event.event_types?.name || 'Swordland Showdown'}
         </CardTitle>
         <p className="text-xs text-slate-400">Choose which Legion you&apos;ll fight with. Times shown in your timezone ({memberTimezone}).</p>
       </CardHeader>

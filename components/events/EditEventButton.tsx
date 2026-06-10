@@ -30,6 +30,9 @@ export function EditEventButton({ event, compact }: Props) {
   const router = useRouter()
   const slug = event.event_types?.slug
   const isSwordland = slug === 'swordland_showdown'
+  const isTriAlliance = slug === 'tri_alliance_clash'
+  // Events that run two Legions with separate battle times (Swordland structure).
+  const isTwoLegion = isSwordland || isTriAlliance
   const isKvk = slug === 'kvk_castle_battle'
 
   const [open, setOpen] = useState(false)
@@ -62,7 +65,7 @@ export function EditEventButton({ event, compact }: Props) {
     setSaving(true)
     setError('')
 
-    if (isSwordland && (!form.legion1_start_utc || !form.legion2_start_utc)) {
+    if (isTwoLegion && (!form.legion1_start_utc || !form.legion2_start_utc)) {
       setError('Both Legion 1 and Legion 2 battle times are required.')
       setSaving(false)
       return
@@ -75,7 +78,7 @@ export function EditEventButton({ event, compact }: Props) {
       status: form.status,
       notes: form.notes,
     }
-    if (isSwordland) {
+    if (isTwoLegion) {
       payload.legion1_start_utc = form.legion1_start_utc
       payload.legion2_start_utc = form.legion2_start_utc
     } else {
@@ -133,7 +136,7 @@ export function EditEventButton({ event, compact }: Props) {
                 <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Event name" />
               </div>
 
-              {isSwordland ? (
+              {isTwoLegion ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 overflow-visible">
                   <div className="min-w-0">
                     <label className="text-xs text-slate-400 block mb-1">Legion 1 Battle Time (UTC) <span className="text-red-400">*</span></label>

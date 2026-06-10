@@ -1,7 +1,7 @@
 import { EventHeader } from './EventHeader'
-import { AvailabilityPanel } from './AvailabilityPanel'
 import { AssignmentsTable } from './AssignmentsTable'
 import { BattlePlanButton } from './BattlePlanButton'
+import { SwordlandLegionBoard } from './SwordlandLegionBoard'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AlertTriangle } from 'lucide-react'
@@ -19,6 +19,8 @@ interface Props {
 export function TriAllianceEvent({ event, availability, assignments, members, allianceId, canManage }: Props) {
   const rules = event.event_types?.rules || {}
   const stages = rules.stages || []
+  const legion1Start = event.legion1_start_utc || event.battle_start_utc
+  const legion2Start = event.legion2_start_utc
   const plan = event.battle_plan as any
   const gaps = plan?.coverage_gaps || []
   const recommendations = plan?.recommendations || []
@@ -72,8 +74,16 @@ export function TriAllianceEvent({ event, availability, assignments, members, al
         </Card>
       )}
 
-      {/* Availability */}
-      <AvailabilityPanel members={members} availability={availability} allianceId={allianceId} eventId={event.id} />
+      {/* Dual-legion board: rosters, readiness, and manual assignment (same structure as Swordland) */}
+      <SwordlandLegionBoard
+        eventId={event.id}
+        members={members}
+        availability={availability}
+        assignments={assignments}
+        legion1Start={legion1Start}
+        legion2Start={legion2Start}
+        canManage={canManage}
+      />
 
       {/* Generate Plan */}
       {canManage && (
