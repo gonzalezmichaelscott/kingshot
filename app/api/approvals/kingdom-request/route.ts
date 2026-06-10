@@ -1,6 +1,7 @@
 // @ts-nocheck
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
+import { seedStarterHeroes } from '@/lib/starter-heroes'
 import { z } from 'zod'
 
 const schema = z.object({
@@ -54,12 +55,13 @@ export async function POST(request: NextRequest) {
       id: req.user_id, alliance_id: alliance.id, role: finalRole, display_name: req.governor_name,
     })
 
-    await svc.from('members').insert({
+    const { data: newMember } = await svc.from('members').insert({
       alliance_id: alliance.id,
       player_name: req.governor_name,
       game_id: req.player_id || null,
       linked_user_id: req.user_id,
-    })
+    }).select('id').single()
+    await seedStarterHeroes(svc, [newMember?.id])
 
     await svc.from('kingdom_creation_requests').update({
       status: 'approved', reviewed_by: user.id,

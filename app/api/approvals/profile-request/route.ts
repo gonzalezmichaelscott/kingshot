@@ -71,6 +71,8 @@ export async function POST(request: NextRequest) {
       }).select('id').single()
       if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 })
 
+      await seedStarterHeroes(svc, [newMember.id])
+
       await svc.from('user_member_profiles').upsert(
         { user_id: req.user_id, member_id: newMember.id },
         { onConflict: 'user_id,member_id', ignoreDuplicates: true }
@@ -129,15 +131,17 @@ export async function POST(request: NextRequest) {
           is_active: true,
           updated_at: new Date().toISOString(),
         }).eq('id', targetId)
+        await seedStarterHeroes(svc, [targetId])
       } else {
         // Defensive: the original record is gone (e.g. deleted before approval).
         // Insert one so the approved member still exists.
-        await svc.from('members').insert({
+        const { data: fallbackMember } = await svc.from('members').insert({
           alliance_id: req.alliance_id,
           player_name: req.governor_name,
           game_id: req.player_id || null,
           role: finalRole,
-        })
+        }).select('id').single()
+        await seedStarterHeroes(svc, [fallbackMember?.id])
       }
 
       await svc.from('profile_requests').update({
@@ -222,6 +226,7 @@ export async function POST(request: NextRequest) {
 
     // This becomes the user's active profile; mirror it and keep the switcher in sync.
     if (resultMemberId) {
+      await seedStarterHeroes(svc, [resultMemberId])
       await svc.from('user_profiles').update({ active_member_id: resultMemberId }).eq('id', req.user_id)
       await ensureUserProfileLinks(svc, req.user_id)
     }

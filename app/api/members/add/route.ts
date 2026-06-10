@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { addableMemberRanks, isElevatedRank } from '@/lib/access'
+import { seedStarterHeroes } from '@/lib/starter-heroes'
 import { z } from 'zod'
 
 // FIX 3 — manually add a roster member with a starting rank that follows the
@@ -65,6 +66,8 @@ export async function POST(request: NextRequest) {
     .select('id')
     .single()
   if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 })
+
+  await seedStarterHeroes(svc, [insertedMember?.id])
 
   if (!elevated) {
     return NextResponse.json({ ok: true, pendingApproval: false })

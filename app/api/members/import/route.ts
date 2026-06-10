@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient, createServiceClient } from '@/lib/supabase/server'
 import { isBackendRole } from '@/lib/access'
+import { seedStarterHeroes } from '@/lib/starter-heroes'
 import { rateLimitResponse, HOUR_MS } from '@/lib/rate-limit'
 import { z } from 'zod'
 
@@ -77,6 +78,7 @@ export async function POST(request: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || ''
     const imported: { player_name: string; game_id: string; self_service_link: string }[] = []
     const skipped: { player_name: string; reason: string }[] = []
+    const importedMemberIds: string[] = []
 
     for (const rawRow of body.rows) {
       // Normalize keys to lowercase
@@ -131,12 +133,15 @@ export async function POST(request: NextRequest) {
       }
 
       existingIds.add(gameId)
+      importedMemberIds.push(newMember.id)
       imported.push({
         player_name: parsed.data.player_name || '',
         game_id: parsed.data.game_id,
         self_service_link: `${appUrl}/member/${newMember.access_token}`,
       })
     }
+
+    await seedStarterHeroes(svc, importedMemberIds)
 
     return NextResponse.json({ imported, skipped })
   } catch (error: any) {
