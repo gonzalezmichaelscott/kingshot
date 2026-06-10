@@ -115,7 +115,7 @@ export function assignTriAllianceRoles(
   const sorted = [...attendingMembers].sort((a, b) => (b.power || 0) - (a.power || 0))
 
   // Step 1 — cap at 30 combatants.
-  let combatants = sorted.slice(0, 30)
+  const combatants = sorted.slice(0, 30)
   let substitutes = sorted.slice(30)
 
   // A designated Commander outside the top 30 is promoted into the combatant
