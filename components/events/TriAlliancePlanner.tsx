@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Swords, Shield, Zap, RefreshCw, Megaphone, Repeat, Loader2 } from 'lucide-react'
 import { formatPower } from '@/lib/utils'
+import { findSquadTypeConflict } from '@/lib/hero-troop-types'
 
 interface Props {
   eventId: string
@@ -221,6 +222,15 @@ function MemberRow({ row, allianceTag, supporterOf }: any) {
             {row.hero_squad_3 && <> | {row.hero_squad_3}</>}
           </p>
         )}
+        {(() => {
+          const conflict = [row.hero_squad_1, row.hero_squad_2, row.hero_squad_3]
+            .filter(Boolean)
+            .map((s: string) => findSquadTypeConflict(s.split(' + ').map(n => n.trim())))
+            .find(Boolean)
+          return conflict ? (
+            <p className="text-amber-400">⚠ Two {conflict} heroes share a squad — regenerate the plan (1 hero per troop type per march).</p>
+          ) : null
+        })()}
       </div>
     </div>
   )

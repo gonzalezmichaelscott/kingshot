@@ -255,8 +255,9 @@ export default async function MemberProfilePage({ params }: { params: { id: stri
         <RoleAssigner
           memberId={member.id}
           linkedUserId={member.linked_user_id}
-          currentRole={linkedProfile?.role || null}
+          currentRole={linkedProfile?.role || member.role || null}
           actorRole={profile?.role || null}
+          actorUserId={profile?.id || null}
         />
       )}
 

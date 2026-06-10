@@ -8,6 +8,7 @@
  *           then applyInstructionTemplate() fills them in per member.
  */
 import Anthropic from '@anthropic-ai/sdk'
+import { resolveTroopType } from '@/lib/hero-troop-types'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -64,7 +65,15 @@ export interface TriAssignment {
   hero_recommendation: string | null
 }
 
-/** Step 7 — rank combat heroes and split them into three squads of 3. */
+/**
+ * Step 7 — rank combat heroes and split them into three squads of 3.
+ *
+ * MARCH RULE: a squad may contain at most ONE hero of each troop type, so every
+ * squad is built as 1 infantry + 1 cavalry + 1 archer. Heroes are ranked by
+ * generation then star level WITHIN their troop type; Squad 1 gets the best of
+ * each type, Squad 2 the next best, Squad 3 the rest. Heroes with troop type
+ * 'all' fill whichever slot is missing.
+ */
 function buildHeroSquads(heroRows: any[] | undefined) {
   const combat = (heroRows || []).filter((row) => {
     const h = row?.heroes || row?.hero
@@ -88,13 +97,45 @@ function buildHeroSquads(heroRows: any[] | undefined) {
     return (b.star_level || 0) - (a.star_level || 0)
   })
 
-  const names = combat.map((row) => (row.heroes || row.hero).name)
+  // Partition by troop type (verified overrides win over stale DB values).
+  const pools: Record<string, string[]> = { infantry: [], cavalry: [], archer: [], flex: [] }
+  for (const row of combat) {
+    const h = row.heroes || row.hero
+    const type = resolveTroopType(h)
+    if (type === 'infantry' || type === 'cavalry' || type === 'archer') pools[type].push(h.name)
+    else pools.flex.push(h.name) // 'all' or unknown — can fill any slot
+  }
+
+  const squads: string[][] = []
+  const missingByType: Record<string, number> = {}
+  for (let i = 0; i < 3; i++) {
+    const squad: string[] = []
+    for (const type of ['infantry', 'cavalry', 'archer']) {
+      const pick = pools[type].shift() || pools.flex.shift()
+      if (pick) squad.push(pick)
+      else missingByType[type] = (missingByType[type] || 0) + 1
+    }
+    squads.push(squad)
+  }
+
+  // Note roster gaps only for squads that actually have heroes — a completely
+  // empty Squad 3 just means a small roster, not a problem worth flagging.
+  const filledSquads = squads.filter(s => s.length > 0).length
+  const gaps = Object.entries(missingByType)
+    .map(([type, count]) => ({ type, count: count - (3 - filledSquads) }))
+    .filter(g => g.count > 0)
+    .map(g => `missing ${g.count} ${g.type} hero${g.count > 1 ? 'es' : ''}`)
+  const recommendation = gaps.length > 0
+    ? `March rule: max 1 hero of each troop type per squad (1 infantry + 1 cavalry + 1 archer). Your roster is ${gaps.join(', ')} — fill those squad slots with your best available hero of that type.`
+    : null
+
   const join = (list: string[]) => (list.length ? list.join(' + ') : null)
+
   return {
-    squad1: join(names.slice(0, 3)),
-    squad2: join(names.slice(3, 6)),
-    squad3: join(names.slice(6, 9)),
-    recommendation: null,
+    squad1: join(squads[0]),
+    squad2: join(squads[1]),
+    squad3: join(squads[2]),
+    recommendation,
   }
 }
 
@@ -214,6 +255,8 @@ BUILDING VALUES: Sea God Temple +1800/min + 50k end bonus | Garrison +1800/min (
 ENERGY: Powers all movement. Captains (R4/R5 designated) regenerate faster. Save 30-40% for Stage 4. Heal at a secured building NOT at HQ (HQ respawn = 2-minute walk). Use Conscript button to heal between battles.
 
 SKIP RULE: 5 squads needed to bypass a building without capturing — key mechanic for Special Force
+
+MARCH RULE: Each squad/march can only contain 1 hero of each troop type (1 infantry, 1 cavalry, 1 archer). Never recommend 2 heroes of the same type in the same squad or march.
 
 DIPLOMACY: 3-way match — if one alliance is dominating, the other two may informally coordinate against them. Account for betrayal in Stage 4.
 

@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     // Hero data for squad recommendations.
     const memberIds = attending.map(m => m.id)
     const { data: heroRows } = await svc.from('member_heroes')
-      .select('member_id, star_level, heroes(name, generation, rarity, is_economy_hero)')
+      .select('member_id, star_level, heroes(name, generation, rarity, troop_type, is_economy_hero)')
       .in('member_id', memberIds)
     const heroesByMember = new Map<string, any[]>()
     for (const row of heroRows || []) {

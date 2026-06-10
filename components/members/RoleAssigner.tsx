@@ -13,20 +13,25 @@ interface Props {
   currentRole: string | null
   /** The acting user's role (drives promotion/demotion permissions). */
   actorRole: string | null
+  /** The acting user's id — enables voluntary self step-down on own record. */
+  actorUserId?: string | null
 }
 
 const STANDARD_ROLES = ['r1', 'r2', 'r3', 'r4', 'r5']
 const NO_PERMISSION = "You don't have permission to assign this role"
 
-export function RoleAssigner({ memberId, linkedUserId, currentRole, actorRole }: Props) {
+export function RoleAssigner({ memberId, linkedUserId, currentRole, actorRole, actorUserId }: Props) {
   const router = useRouter()
+
+  // Acting user editing their own record: step-down allowed, promotion never.
+  const isSelf = !!linkedUserId && !!actorUserId && linkedUserId === actorUserId
 
   // All roles to surface, including the member's current role if it's outside the
   // standard set (e.g. system_admin) so it shows as the disabled current value.
   const options = Array.from(new Set([...(currentRole ? [currentRole] : []), ...STANDARD_ROLES]))
 
   // Default to the first role the actor is actually allowed to assign.
-  const firstAssignable = STANDARD_ROLES.find(r => r !== currentRole && canChangeRole(actorRole, currentRole, r))
+  const firstAssignable = STANDARD_ROLES.find(r => r !== currentRole && canChangeRole(actorRole, currentRole, r, isSelf))
   const [role, setRole] = useState(firstAssignable || currentRole || 'r3')
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
@@ -34,7 +39,7 @@ export function RoleAssigner({ memberId, linkedUserId, currentRole, actorRole }:
 
   function isDisabled(r: string) {
     if (r === currentRole) return true // can't "assign" the current role
-    return !canChangeRole(actorRole, currentRole, r)
+    return !canChangeRole(actorRole, currentRole, r, isSelf)
   }
 
   async function save() {
@@ -58,12 +63,17 @@ export function RoleAssigner({ memberId, linkedUserId, currentRole, actorRole }:
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {!linkedUserId ? (
-          <p className="text-sm text-slate-400">
-            Member has not created an account yet — role can be assigned once they log in.
+        {!linkedUserId && (
+          <p className="text-xs text-slate-500 mb-3">
+            Unclaimed profile — the rank is stored now and inherited when the member claims their profile.
           </p>
-        ) : (
-          <div className="flex items-end gap-2 flex-wrap">
+        )}
+        {isSelf && (
+          <p className="text-xs text-slate-500 mb-3">
+            This is your own profile — you can step down to a lower rank, but not promote yourself.
+          </p>
+        )}
+        <div className="flex items-end gap-2 flex-wrap">
             <div>
               <label className="text-xs text-slate-400 block mb-1">Assign in-game rank</label>
               <select
@@ -92,8 +102,7 @@ export function RoleAssigner({ memberId, linkedUserId, currentRole, actorRole }:
             </Button>
             {msg && <span className="text-green-400 text-sm">{msg}</span>}
             {error && <span className="text-red-400 text-sm">{error}</span>}
-          </div>
-        )}
+        </div>
       </CardContent>
     </Card>
   )

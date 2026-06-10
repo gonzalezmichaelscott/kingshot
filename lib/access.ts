@@ -83,18 +83,31 @@ export function roleRank(role: string | null | undefined): number {
  *
  * Demotion (newRank < currentRank):
  *  - No one but System Admin can demote a System Admin.
- *  - Only System Admin can demote an R5.
+ *  - Only System Admin can demote an R5 — EXCEPT an R5 may demote THEMSELVES
+ *    (voluntary step-down, `isSelf`).
  *  - Only R5 or System Admin can demote an R4.
  *  - R4 and R5 can demote R1/R2/R3.
  *  - R3 and below: no access.
  * Promotion / same level: the assignableRoles ceiling applies
  *  (R5 → up to R5, R4 → up to R4).
+ * Self-changes (`isSelf` — actor IS the member being changed):
+ *  - Any rank below the current one is allowed (voluntary step-down).
+ *  - Self-promotion is NEVER allowed, for anyone.
  */
 export function canChangeRole(
   actorRole: UserRole,
   currentRole: string | null | undefined,
-  newRole: string
+  newRole: string,
+  isSelf = false
 ): boolean {
+  if (isSelf) {
+    const cur = roleRank(currentRole)
+    const next = roleRank(newRole)
+    if (next > cur) return false // no one can promote themselves
+    if (next < cur) return true  // voluntary step-down to any lower rank
+    return false                 // same rank — nothing to change
+  }
+
   if (actorRole === 'system_admin') return true
 
   // Nobody but a System Admin (handled above) may touch a System Admin.

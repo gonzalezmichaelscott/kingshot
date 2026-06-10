@@ -20,27 +20,36 @@ export async function POST(request: NextRequest) {
 
     const svc = createServiceClient()
     const { data: member } = await svc.from('members')
-      .select('id, alliance_id, linked_user_id').eq('id', body.member_id).single()
+      .select('id, alliance_id, linked_user_id, role').eq('id', body.member_id).single()
     if (!member) return NextResponse.json({ error: 'Member not found' }, { status: 404 })
 
-    if (!member.linked_user_id) {
-      return NextResponse.json({ error: 'Member has not created an account yet — role can be assigned once they log in' }, { status: 400 })
+    // Current role of the member being changed (drives demotion protection).
+    // Unclaimed profiles (no linked account) use the in-game rank on members.role;
+    // when the member later claims the profile they inherit this role.
+    let currentRole: string | null = member.role || null
+    if (member.linked_user_id) {
+      const { data: targetProfile } = await svc
+        .from('user_profiles')
+        .select('role')
+        .eq('id', member.linked_user_id)
+        .maybeSingle()
+      currentRole = targetProfile?.role || currentRole
     }
 
-    // Current role of the member being changed (drives demotion protection).
-    const { data: targetProfile } = await svc
-      .from('user_profiles')
-      .select('role')
-      .eq('id', member.linked_user_id)
-      .maybeSingle()
-    const currentRole = targetProfile?.role || null
+    // Actor editing their OWN record: may step down to any lower rank, never up.
+    const isSelf = !!member.linked_user_id && member.linked_user_id === user.id
 
     // Permission: demotion-aware. Same alliance required for non-admins.
     const sameAlliance = actor?.alliance_id === member.alliance_id
-    const allowed = actor?.role === 'system_admin'
-      || (sameAlliance && canChangeRole(actor?.role, currentRole, body.new_role))
+    const allowed = isSelf
+      ? canChangeRole(actor?.role, currentRole, body.new_role, true)
+      : (actor?.role === 'system_admin'
+        || (sameAlliance && canChangeRole(actor?.role, currentRole, body.new_role)))
     if (!allowed) {
-      return NextResponse.json({ error: "You don't have permission to assign this role" }, { status: 403 })
+      const reason = isSelf && body.new_role !== currentRole
+        ? 'You cannot promote yourself'
+        : "You don't have permission to assign this role"
+      return NextResponse.json({ error: reason }, { status: 403 })
     }
 
     // Always update the member's IN-GAME rank.
@@ -52,8 +61,9 @@ export async function POST(request: NextRequest) {
     // SECURITY — `system_admin` is a platform-level role. If the target user is a
     // system_admin, NEVER overwrite their user_profiles.role: they keep platform
     // access while their in-game rank (members.role) changes freely. Non-admins
-    // update both, as before.
-    if (currentRole !== 'system_admin') {
+    // update both, as before. Unclaimed profiles have no user_profiles row — the
+    // role stored on members.role is inherited when the profile is claimed.
+    if (member.linked_user_id && currentRole !== 'system_admin') {
       const { error } = await svc.from('user_profiles').upsert({
         id: member.linked_user_id,
         alliance_id: member.alliance_id,

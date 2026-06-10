@@ -19,6 +19,7 @@ import { PlayerAvatar } from '@/components/ui/PlayerAvatar'
 import { GoogleTranslate } from '@/components/ui/GoogleTranslate'
 import { TransferAllianceFlow } from '@/components/members/TransferAllianceFlow'
 import { CheckCircle2, ArrowRightLeft } from 'lucide-react'
+import { findSquadTypeConflict } from '@/lib/hero-troop-types'
 
 class SectionErrorBoundary extends Component<
   { children: React.ReactNode; label?: string },
@@ -874,6 +875,24 @@ const TRI_CHECKLIST = [
   'Know Temple opens at minute 40',
 ]
 
+/**
+ * Squad line with a MARCH RULE check: flags two heroes of the same troop type
+ * in one squad (only possible on plans generated before the rule existed).
+ */
+function SquadLine({ label, squad }: { label: string; squad: string }) {
+  const conflict = findSquadTypeConflict(squad.split(' + ').map((s: string) => s.trim()))
+  return (
+    <div>
+      <p><span className="text-slate-400">{label}:</span> {squad}</p>
+      {conflict && (
+        <p className="text-[11px] text-amber-400">
+          ⚠ Two {conflict} heroes in one squad — a march allows only 1 hero per troop type. Ask your leader to regenerate the plan.
+        </p>
+      )}
+    </div>
+  )
+}
+
 function TriAllianceAssignmentCard({ assignment }: { assignment: any }) {
   const ev = assignment.events
   const roleLabel = assignment.role === 'reaction_team'
@@ -895,13 +914,14 @@ function TriAllianceAssignmentCard({ assignment }: { assignment: any }) {
       <CardContent className="space-y-4">
         {assignment.hero_squad_1 ? (
           <div className="text-sm space-y-1">
-            <p><span className="text-slate-400">Squad 1 (Primary):</span> {assignment.hero_squad_1}</p>
-            {assignment.hero_squad_2 && <p><span className="text-slate-400">Squad 2 (Secondary):</span> {assignment.hero_squad_2}</p>}
-            {assignment.hero_squad_3 && <p><span className="text-slate-400">Squad 3 (Reserve):</span> {assignment.hero_squad_3}</p>}
+            <SquadLine label="Squad 1 (Primary)" squad={assignment.hero_squad_1} />
+            {assignment.hero_squad_2 && <SquadLine label="Squad 2 (Secondary)" squad={assignment.hero_squad_2} />}
+            {assignment.hero_squad_3 && <SquadLine label="Squad 3 (Reserve)" squad={assignment.hero_squad_3} />}
           </div>
-        ) : assignment.hero_recommendation ? (
-          <p className="text-xs text-slate-400 bg-slate-800 rounded-lg p-2.5">{assignment.hero_recommendation}</p>
         ) : null}
+        {assignment.hero_recommendation && (
+          <p className="text-xs text-slate-400 bg-slate-800 rounded-lg p-2.5">{assignment.hero_recommendation}</p>
+        )}
 
         {assignment.stage_instructions && (
           <div>

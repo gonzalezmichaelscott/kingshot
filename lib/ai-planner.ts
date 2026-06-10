@@ -6,6 +6,7 @@ import type { MemberHeroData, MemberProfile, TroopData } from '@/lib/scoring'
 import { generateMemberInstructions } from '@/lib/member-instructions'
 import { getKvkContext } from '@/lib/kvk'
 import { MAX_JOINERS_PER_RALLY, MARCH_ESTIMATE, DEFAULT_CAPACITY } from '@/lib/rally-fill'
+import { resolveTroopType } from '@/lib/hero-troop-types'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -21,7 +22,7 @@ function buildHeroDetail(heroData: any[]): { detail: string[]; hasCombat: boolea
     const stars = h.star_level || 0
     const sh = h.star_shards ? `+${h.star_shards}sh` : ''
     const wid = h.widget_unlocked ? `, widget Lv${h.widget_level || 0}` : ''
-    return `${h.hero?.name || 'Unknown'} (${h.hero?.troop_type || '?'}, ${stars}★${sh}, +${bonus.toFixed(2)}% ATK/DEF${wid})`
+    return `${h.hero?.name || 'Unknown'} (${resolveTroopType(h.hero) || '?'}, ${stars}★${sh}, +${bonus.toFixed(2)}% ATK/DEF${wid})`
   })
   return { detail, hasCombat: combat.length > 0 }
 }
@@ -106,6 +107,8 @@ function deriveJoinerSkill(heroData: any[]): JoinerSkill {
 const BATTLE_PLANNER_SYSTEM_PROMPT = `You are an expert battle planner for the mobile strategy game Kingshot. Apply the following verified Kingshot combat mechanics to ALL event plans (KVK, Castle Battle, Swordland Showdown, Tri-Alliance Clash, and Bear Hunt).
 
 === VERIFIED KINGSHOT COMBAT MECHANICS — APPLY TO ALL BATTLE PLANS ===
+
+MARCH RULE: Each squad/march can only contain 1 hero of each troop type (1 infantry, 1 cavalry, 1 archer). Never recommend 2 heroes of the same type in the same squad or march. A full squad of 3 heroes must have one of each type. This applies to rally leader hero slots too: up to 3 heroes, each a different troop type.
 
 COMBAT SIMULATION OVERVIEW:
 - Expedition combat is fully simulated in multiple rounds under the hood
