@@ -43,6 +43,8 @@ interface Props {
   heroes: any[]
   upcomingEvents: any[]
   memberAssignments?: any[]
+  /** Tri-Alliance Clash role assignments from tri_alliance_assignments. */
+  triAssignments?: any[]
   /** Viewer is the logged-in owner of this claimed profile (enables transfer). */
   canTransfer?: boolean
   /** Viewer has an active account session (enables "Back to Dashboard"). */
@@ -51,7 +53,7 @@ interface Props {
   wasRedirected?: boolean
 }
 
-export function MemberPortal({ member, memberHeroes, memberAvailability, heroes, upcomingEvents, memberAssignments = [], canTransfer = false, isLoggedIn = false, wasRedirected = false }: Props) {
+export function MemberPortal({ member, memberHeroes, memberAvailability, heroes, upcomingEvents, memberAssignments = [], triAssignments = [], canTransfer = false, isLoggedIn = false, wasRedirected = false }: Props) {
   const alliance = member.alliances
   const router = useRouter()
 
@@ -288,6 +290,15 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
               <div className="space-y-3">
                 {memberAssignments.map((a: any) => (
                   <AssignmentCard key={a.id} assignment={a} leaderConfirmed={leaderSetEventIds.has(a.event_id)} />
+                ))}
+              </div>
+            )}
+
+            {/* Tri-Alliance Clash role assignments */}
+            {triAssignments.length > 0 && (
+              <div className="space-y-3">
+                {triAssignments.map((a: any) => (
+                  <TriAllianceAssignmentCard key={a.id} assignment={a} />
                 ))}
               </div>
             )}
@@ -840,6 +851,77 @@ function SwordlandLegionCard({ event, accessToken, existing, memberTimezone }: {
         <Option value="none" label="I cannot attend either" time={null} />
         {error && <p className="text-red-400 text-sm">{error}</p>}
         {saved && <p className="text-green-400 text-sm">Saved! ✓</p>}
+      </CardContent>
+    </Card>
+  )
+}
+
+const TRI_ROLE_LABELS: Record<string, string> = {
+  main_player: 'Main Player',
+  supporter: 'Supporter',
+  special_force: 'Special Commander Force',
+  reaction_team: 'Reaction Team',
+  commander: 'Commander',
+  substitute: 'Substitute',
+}
+
+const TRI_CHECKLIST = [
+  'Recall all troops before battle',
+  'Heal all injured troops',
+  'Set formation presets per your role',
+  'Start with full energy',
+  'Join Discord/voice chat',
+  'Know Temple opens at minute 40',
+]
+
+function TriAllianceAssignmentCard({ assignment }: { assignment: any }) {
+  const ev = assignment.events
+  const roleLabel = assignment.role === 'reaction_team'
+    ? `Reaction Team ${assignment.reaction_team_letter || ''}`
+    : TRI_ROLE_LABELS[assignment.role] || assignment.role
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sword size={16} className="text-amber-500" />
+          {ev?.name || ev?.event_types?.name || 'Tri-Alliance Clash'} — Legion {assignment.legion}
+        </CardTitle>
+        <p className="text-sm text-amber-400 font-medium">Role: {roleLabel}</p>
+        {assignment.formation && (
+          <p className="text-xs text-slate-400">Formation: {assignment.formation}</p>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {assignment.hero_squad_1 ? (
+          <div className="text-sm space-y-1">
+            <p><span className="text-slate-400">Squad 1 (Primary):</span> {assignment.hero_squad_1}</p>
+            {assignment.hero_squad_2 && <p><span className="text-slate-400">Squad 2 (Secondary):</span> {assignment.hero_squad_2}</p>}
+            {assignment.hero_squad_3 && <p><span className="text-slate-400">Squad 3 (Reserve):</span> {assignment.hero_squad_3}</p>}
+          </div>
+        ) : assignment.hero_recommendation ? (
+          <p className="text-xs text-slate-400 bg-slate-800 rounded-lg p-2.5">{assignment.hero_recommendation}</p>
+        ) : null}
+
+        {assignment.stage_instructions && (
+          <div>
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1.5">Stage by Stage Instructions</p>
+            <div className="text-sm text-slate-300 whitespace-pre-line bg-slate-800/60 border border-slate-700 rounded-lg p-3">
+              {assignment.stage_instructions}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1.5">Pre-Battle Checklist</p>
+          <ul className="text-sm text-slate-300 space-y-1">
+            {TRI_CHECKLIST.map((item, i) => (
+              <li key={i} className="flex items-center gap-2">
+                <span className="text-slate-500">☐</span> {item}
+              </li>
+            ))}
+          </ul>
+        </div>
       </CardContent>
     </Card>
   )

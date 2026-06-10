@@ -132,6 +132,15 @@ export default async function MemberTokenPage({
     .select('*, events(name, battle_start_utc, event_types(name, slug))')
     .eq('member_id', member.id)
 
+  // Tri-Alliance Clash role assignment (only for events that are still live)
+  const { data: triAssignmentsRaw } = await supabase
+    .from('tri_alliance_assignments')
+    .select('*, events(name, battle_start_utc, status, event_types(name, slug))')
+    .eq('member_id', member.id)
+  const triAssignments = (triAssignmentsRaw || []).filter(
+    a => a.events && ['planning', 'registration', 'active'].includes(a.events.status)
+  )
+
   return (
     <>
       {loggedInUserId && (
@@ -148,6 +157,7 @@ export default async function MemberTokenPage({
         heroes={heroes || []}
         upcomingEvents={upcomingEvents || []}
         memberAssignments={memberAssignments || []}
+        triAssignments={triAssignments}
         canTransfer={viewerIsOwner}
         isLoggedIn={viewerIsLoggedIn}
         wasRedirected={wasRedirected}

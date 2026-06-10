@@ -45,6 +45,11 @@ export default async function EventDetailPage({ params }: { params: { id: string
   const slug = (event.event_types as any)?.slug
   const eventName = event.name || (event.event_types as any)?.name
 
+  // Tri-Alliance Clash role plan (separate table from generic event_assignments)
+  const { data: triAssignments } = slug === 'tri_alliance_clash'
+    ? await supabase.from('tri_alliance_assignments').select('*, members(id, player_name, power)').eq('event_id', params.eventId)
+    : { data: [] }
+
   const breadcrumbs = [
     { label: 'Kingdoms', href: '/kingdoms' },
     ...(kingdom ? [{ label: `${kingdom.name}${kingdom.server_number ? ` #${kingdom.server_number}` : ''}`, href: `/kingdoms/${kingdom.id}` }] : []),
@@ -93,7 +98,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
     slug === 'swordland_showdown' ? <SwordlandEvent {...props} /> :
     slug === 'kvk_castle_battle' ? <KvkCastleEvent {...props} /> :
     slug === 'castle_battle' ? <CastleBattleEvent {...props} /> :
-    slug === 'tri_alliance_clash' ? <TriAllianceEvent {...props} /> :
+    slug === 'tri_alliance_clash' ? <TriAllianceEvent {...props} triAssignments={triAssignments || []} /> :
     <GenericEventPage {...props} />
 
   return (

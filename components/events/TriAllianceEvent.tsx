@@ -1,7 +1,7 @@
 import { EventHeader } from './EventHeader'
 import { AssignmentsTable } from './AssignmentsTable'
-import { BattlePlanButton } from './BattlePlanButton'
 import { SwordlandLegionBoard } from './SwordlandLegionBoard'
+import { TriAlliancePlanner } from './TriAlliancePlanner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AlertTriangle } from 'lucide-react'
@@ -14,9 +14,10 @@ interface Props {
   allianceId: string
   canManage: boolean
   userId?: string
+  triAssignments?: any[]
 }
 
-export function TriAllianceEvent({ event, availability, assignments, members, allianceId, canManage }: Props) {
+export function TriAllianceEvent({ event, availability, assignments, members, allianceId, canManage, triAssignments = [] }: Props) {
   const rules = event.event_types?.rules || {}
   const stages = rules.stages || []
   const legion1Start = event.legion1_start_utc || event.battle_start_utc
@@ -85,14 +86,14 @@ export function TriAllianceEvent({ event, availability, assignments, members, al
         canManage={canManage}
       />
 
-      {/* Generate Plan */}
-      {canManage && (
-        <Card>
-          <CardContent className="py-4">
-            <BattlePlanButton eventId={event.id} />
-          </CardContent>
-        </Card>
-      )}
+      {/* Role-based battle planner: commander designation, generation, rosters */}
+      <TriAlliancePlanner
+        eventId={event.id}
+        allianceTag={event.alliances?.tag || ''}
+        availability={availability}
+        triAssignments={triAssignments}
+        canManage={canManage}
+      />
 
       {/* Coverage Gaps */}
       {gaps.length > 0 && (
