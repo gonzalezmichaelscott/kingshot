@@ -2,6 +2,7 @@ import { EventHeader } from './EventHeader'
 import { AssignmentsTable } from './AssignmentsTable'
 import { SwordlandLegionBoard } from './SwordlandLegionBoard'
 import { TriAlliancePlanner } from './TriAlliancePlanner'
+import { TriAllianceFullPlan } from './TriAllianceFullPlan'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AlertTriangle } from 'lucide-react'
@@ -86,11 +87,21 @@ export function TriAllianceEvent({ event, availability, assignments, members, al
         canManage={canManage}
       />
 
-      {/* Role-based battle planner: commander designation, generation, rosters */}
+      {/* Role-based battle planner: commander designation + plan generation */}
       <TriAlliancePlanner
         eventId={event.id}
         allianceTag={event.alliances?.tag || ''}
         availability={availability}
+        triAssignments={triAssignments}
+        canManage={canManage}
+      />
+
+      {/* Full generated battle plan per legion: collapsible roster grouped by
+          role, shared stage instructions, per-member instruction cards.
+          Renders nothing for a legion until its plan exists. */}
+      <TriAllianceFullPlan
+        eventId={event.id}
+        allianceTag={event.alliances?.tag || ''}
         triAssignments={triAssignments}
         canManage={canManage}
       />

@@ -47,7 +47,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
 
   // Tri-Alliance Clash role plan (separate table from generic event_assignments)
   const { data: triAssignments } = slug === 'tri_alliance_clash'
-    ? await supabase.from('tri_alliance_assignments').select('*, members(id, player_name, power)').eq('event_id', params.eventId)
+    ? await supabase.from('tri_alliance_assignments').select('*, members(id, player_name, power, game_id, avatar_url)').eq('event_id', params.eventId)
     : { data: [] }
 
   const breadcrumbs = [
