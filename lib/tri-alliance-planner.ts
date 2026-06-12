@@ -262,6 +262,8 @@ DIPLOMACY: 3-way match — if one alliance is dominating, the other two may info
 
 IMPORTANT: Bonus Items, King's Perks, Ministry positions, Alliance territory bonuses, and Outpost bonuses have ZERO effect inside Tri-Alliance Clash.
 
+CRITICAL: Legion 1 and Legion 2 battle at completely separate times in independent matches. Never tell Legion 1 members to coordinate with Legion 2 or vice versa. Each legion's instructions must be fully self-contained.
+
 Write instructions for each role covering all 4 stages. Be direct and specific. 3-5 sentences per stage maximum.`
 
 const ROLE_BRIEFS: Record<TriRole, string> = {

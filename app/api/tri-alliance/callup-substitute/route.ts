@@ -36,8 +36,10 @@ export async function POST(request: NextRequest) {
     const isLeader = ['r4', 'r5'].includes(actor?.role || '') && actor?.alliance_id === event.alliance_id
     if (!isAdmin && !isLeader) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
+    // Two FKs to members (member_id + assigned_to) — bare members(...) embed is
+    // ambiguous (PGRST201) and would null the whole query. Use the explicit FK.
     const { data: rowsData } = await svc.from('tri_alliance_assignments')
-      .select('*, members(player_name)')
+      .select('*, members!tri_alliance_assignments_member_id_fkey(player_name)')
       .eq('event_id', eventId)
       .in('member_id', [absentMemberId, substituteMemberId])
     const absent = (rowsData || []).find(r => r.member_id === absentMemberId)

@@ -5,12 +5,17 @@ import { generateBattlePlan } from '@/lib/ai-planner'
 import { z } from 'zod'
 import { rateLimitResponse, HOUR_MS } from '@/lib/rate-limit'
 
-const schema = z.object({ eventId: z.string().uuid() })
+// `legion` (Swordland only): generate a plan for just that legion, leaving the
+// other legion's plan untouched — the legions battle at independent times.
+const schema = z.object({
+  eventId: z.string().uuid(),
+  legion: z.enum(['legion1', 'legion2']).optional(),
+})
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { eventId } = schema.parse(body)
+    const { eventId, legion } = schema.parse(body)
 
     const supabase = createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -25,7 +30,7 @@ export async function POST(request: NextRequest) {
     const limited = rateLimitResponse(`battle-plan:${user.id}`, 10, HOUR_MS)
     if (limited) return limited
 
-    const plan = await generateBattlePlan(eventId)
+    const plan = await generateBattlePlan(eventId, legion)
     return NextResponse.json({ plan })
   } catch (error: any) {
     console.error('Battle plan generation error:', error)

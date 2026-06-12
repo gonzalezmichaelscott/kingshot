@@ -1,7 +1,7 @@
 import { EventHeader } from './EventHeader'
-import { AssignmentsTable } from './AssignmentsTable'
 import { BattlePlanButton } from './BattlePlanButton'
 import { SwordlandLegionBoard } from './SwordlandLegionBoard'
+import { SwordlandFullPlan } from './SwordlandFullPlan'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { AlertTriangle, Users, Shield } from 'lucide-react'
@@ -21,9 +21,10 @@ export function SwordlandEvent({ event, availability, assignments, members, alli
   const attending = availability.filter(a => a.will_attend)
   const legion1Start = event.legion1_start_utc || event.battle_start_utc
   const legion2Start = event.legion2_start_utc
-  const legion1Assignments = assignments.filter(a => a.squad === 'legion1')
-  const legion2Assignments = assignments.filter(a => a.squad === 'legion2')
-  const backups = assignments.filter(a => a.is_backup)
+  // Same split as the plan generator: members without a chosen legion fold into
+  // Legion 1 so they still receive an assignment.
+  const legion1Attending = attending.filter(a => a.squad_preference !== 'legion2')
+  const legion2Attending = attending.filter(a => a.squad_preference === 'legion2')
 
   const plan = event.battle_plan as any
   const gaps = plan?.coverage_gaps || []
@@ -65,11 +66,40 @@ export function SwordlandEvent({ event, availability, assignments, members, alli
         canManage={canManage}
       />
 
-      {/* Generate Plan */}
+      {/* Generate Plan — one button per legion. The legions battle at completely
+          different times in independent matches, so each plan is generated and
+          stored on its own; generating one never touches the other. */}
       {canManage && (
         <Card>
-          <CardContent className="py-4">
-            <BattlePlanButton eventId={event.id} />
+          <CardContent className="py-4 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <BattlePlanButton
+                  eventId={event.id}
+                  legion="legion1"
+                  label="Generate Legion 1 Battle Plan"
+                  disabled={legion1Attending.length === 0}
+                />
+                <p className="text-xs text-slate-500">
+                  {legion1Attending.length === 0
+                    ? 'No attending members for Legion 1 yet.'
+                    : `${legion1Attending.length} attending (includes members without a chosen legion).`}
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <BattlePlanButton
+                  eventId={event.id}
+                  legion="legion2"
+                  label="Generate Legion 2 Battle Plan"
+                  disabled={legion2Attending.length === 0}
+                />
+                <p className="text-xs text-slate-500">
+                  {legion2Attending.length === 0
+                    ? 'No attending members for Legion 2 yet.'
+                    : `${legion2Attending.length} attending.`}
+                </p>
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
@@ -136,20 +166,16 @@ export function SwordlandEvent({ event, availability, assignments, members, alli
         </Card>
       )}
 
-      {/* Legion 1 plan */}
-      {legion1Assignments.length > 0 && (
-        <AssignmentsTable assignments={legion1Assignments} title="Legion 1 — Battle Plan" />
-      )}
-
-      {/* Legion 2 plan */}
-      {legion2Assignments.length > 0 && (
-        <AssignmentsTable assignments={legion2Assignments} title="Legion 2 — Battle Plan" />
-      )}
-
-      {/* Backups */}
-      {backups.length > 0 && (
-        <AssignmentsTable assignments={backups} title="Substitutes" />
-      )}
+      {/* Full battle plan per legion: collapsible roster (rally leaders with their
+          joiners, support, substitutes), shared stage instructions, per-member
+          instruction cards. Renders nothing for a legion until its plan exists. */}
+      <SwordlandFullPlan
+        eventId={event.id}
+        allianceTag={event.alliances?.tag || ''}
+        assignments={assignments}
+        battlePlan={plan}
+        canManage={canManage}
+      />
 
       {assignments.length === 0 && attending.length > 0 && canManage && (
         <p className="text-slate-400 text-sm text-center">

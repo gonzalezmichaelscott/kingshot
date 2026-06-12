@@ -38,17 +38,27 @@ export default async function EventDetailPage({ params }: { params: { id: string
     { data: members },
   ] = await Promise.all([
     supabase.from('event_availability').select('*, members(id, player_name, power, march_size, rally_capacity)').eq('event_id', params.eventId),
-    supabase.from('event_assignments').select('*, members(player_name)').eq('event_id', params.eventId),
+    supabase.from('event_assignments').select('*, members(id, player_name, power, march_size, game_id, avatar_url)').eq('event_id', params.eventId),
     supabase.from('members').select('id, player_name, power, march_size, rally_capacity, troop_count, member_scores(overall_score, rally_leader_score, joiner_score)').eq('alliance_id', params.id).order('power', { ascending: false }),
   ])
 
   const slug = (event.event_types as any)?.slug
   const eventName = event.name || (event.event_types as any)?.name
 
-  // Tri-Alliance Clash role plan (separate table from generic event_assignments)
-  const { data: triAssignments } = slug === 'tri_alliance_clash'
-    ? await supabase.from('tri_alliance_assignments').select('*, members(id, player_name, power, game_id, avatar_url)').eq('event_id', params.eventId)
-    : { data: [] }
+  // Tri-Alliance Clash role plan (separate table from generic event_assignments).
+  // NOTE: tri_alliance_assignments has TWO FKs to members (member_id + assigned_to),
+  // so a bare `members(...)` embed is ambiguous and fails the whole query with
+  // PGRST201 (data=null → plan invisible). Disambiguate with the explicit FK name.
+  const { data: triAssignments, error: triError } = slug === 'tri_alliance_clash'
+    ? await supabase.from('tri_alliance_assignments')
+        .select('*, members!tri_alliance_assignments_member_id_fkey(id, player_name, power, game_id, avatar_url)')
+        .eq('event_id', params.eventId)
+    : { data: [], error: null }
+  if (triError) {
+    console.error('[TriAlliance] assignments load FAILED:', triError.message, triError.details || '', triError.hint || '')
+  } else if (slug === 'tri_alliance_clash') {
+    console.log(`[TriAlliance] loaded ${triAssignments?.length ?? 0} assignment rows for event ${params.eventId}`)
+  }
 
   const breadcrumbs = [
     { label: 'Kingdoms', href: '/kingdoms' },

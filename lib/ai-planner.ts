@@ -316,12 +316,14 @@ LEGION RULES:
 - Two legions per alliance at different time slots
 - Legion 1 results determine alliance tier advancement and top rewards
 - Legion 2 personal rewards determined by that match's win/loss
+- CRITICAL: Legion 1 and Legion 2 battle at completely separate times in independent matches. Never tell Legion 1 members to coordinate with Legion 2 or vice versa. Each legion's instructions must be fully self-contained.
 
 === TRI-ALLIANCE CLASH SPECIFIC MECHANICS ===
 
 WIN CONDITION: Most POINTS (not specific territory)
 THREE ALLIANCES compete simultaneously
 LEGIONS: Two per alliance — only Legion 1 affects alliance ranking rewards
+CRITICAL: Legion 1 and Legion 2 battle at completely separate times in independent matches. Never tell Legion 1 members to coordinate with Legion 2 or vice versa. Each legion's instructions must be fully self-contained.
 REWARD BRACKETS: THREE (1st/2nd/3rd), unlike Swordland's two
 CONSUMABLE BUFFS: WORTH using here — 2hr duration, use within 1 hour of match start
 GUERILLA TACTICS: Back-capturing enemy lanes is highly effective
@@ -399,6 +401,9 @@ export interface BattlePlanAssignment {
   kvk_transfer?: boolean
   transfer_alliance?: string
   transfer_rally_leader?: string
+  // Swordland: the rally leader (player_name) this joiner is assigned to — used by
+  // the full plan view to group joiners under their leader.
+  rally_leader?: string
   // Rally-fill helpers (FIX 3) populated server-side from member data so member
   // instructions can show "filling ~X of Y march slots". Not produced by the AI.
   _march_size?: number
@@ -423,6 +428,9 @@ export interface BattlePlan {
   backup_plan?: string
   warnings?: string[]
   transfer_recommendations?: TransferRecommendation[]
+  // Swordland: each legion's standalone plan, kept so one legion can be
+  // regenerated without losing the other (FIX: separate per-legion generation).
+  legion_plans?: { legion1?: BattlePlan | null; legion2?: BattlePlan | null }
   // legacy field retained for older stored plans
   recommendations?: string[]
 }
@@ -723,14 +731,25 @@ Respond ONLY with valid JSON in this exact schema (raw JSON, no code fences):
   return prompt
 }
 
-async function storeAssignments(eventId: string, plan: BattlePlan, event: any, members: any[] = []) {
+async function storeAssignments(eventId: string, plan: BattlePlan, event: any, members: any[] = [], onlyLegions?: string[]) {
   const supabase = createServiceClient()
 
   // FIX 3 — annotate assignments with march/rally-fill data for member instructions.
   attachRallyFillData(plan, members)
 
-  // Clear existing assignments
-  await supabase.from('event_assignments').delete().eq('event_id', eventId)
+  // Clear existing assignments. When onlyLegions is given (Swordland per-legion
+  // regeneration) only that legion's rows are replaced — the other legion's stored
+  // plan is untouched. Also clear stale rows for the regenerated members themselves
+  // (a member may have switched legions since the last run).
+  if (onlyLegions?.length) {
+    await supabase.from('event_assignments').delete().eq('event_id', eventId).in('squad', onlyLegions)
+    const regeneratedIds = plan.assignments.filter(a => onlyLegions.includes(a.squad || '')).map(a => a.member_id)
+    if (regeneratedIds.length) {
+      await supabase.from('event_assignments').delete().eq('event_id', eventId).in('member_id', regeneratedIds)
+    }
+  } else {
+    await supabase.from('event_assignments').delete().eq('event_id', eventId)
+  }
 
   const eventName = event.name || event.event_types?.name || 'Battle Event'
   const eventStartUtc = event.battle_start_utc || null
@@ -739,7 +758,13 @@ async function storeAssignments(eventId: string, plan: BattlePlan, event: any, m
   // Insert new assignments. The model may return richer fields
   // (formation_recommendation, hero_recommendation, time_window) than the
   // event_assignments table has columns for — fold those into `reasoning`.
-  const rows = plan.assignments.map(a => {
+  // When scoped to specific legions, only those legions' rows are re-inserted;
+  // the merged plan is still passed to generateMemberInstructions so squad
+  // leader/joiner lookups see the full context.
+  const toStore = onlyLegions?.length
+    ? plan.assignments.filter(a => onlyLegions.includes(a.squad || ''))
+    : plan.assignments
+  const rows = toStore.map(a => {
     const extras = [
       a.hero_recommendation ? `Heroes: ${a.hero_recommendation}` : '',
       a.formation_recommendation ? `Formation: ${a.formation_recommendation}` : '',
@@ -1685,7 +1710,9 @@ export async function generateKingdomKvkBattlePlan(kingdomId: string): Promise<{
 async function planOneLegion(legion: 'legion1' | 'legion2', members: any[], event: any): Promise<BattlePlan | null> {
   if (members.length === 0) return null
   const label = legion === 'legion1' ? 'Legion 1' : 'Legion 2'
-  const legionSuffix = `\n\nIMPORTANT: This plan is for ${label} ONLY. These ${members.length} members all fight together in ${label}. Set "squad": "${legion}" on every assignment.`
+  const legionSuffix = `\n\nIMPORTANT: This plan is for ${label} ONLY. These ${members.length} members all fight together in ${label}. Set "squad": "${legion}" on every assignment.
+CRITICAL: Legion 1 and Legion 2 battle at completely separate times in independent matches. Never tell ${label} members to coordinate with the other legion or vice versa. Each legion's instructions must be fully self-contained.
+For every joiner assignment also include a "rally_leader" field: the exact player_name of the rally leader in THIS legion whose rally they join.`
   const prompt = buildPlanningPrompt(members, event) + legionSuffix
 
   const plan: BattlePlan = await runPlannerModel(
@@ -1702,15 +1729,32 @@ async function planOneLegion(legion: 'legion1' | 'legion2', members: any[], even
  * them into one stored plan. Members are split by their squad_preference
  * ('legion1' / 'legion2'); anyone attending without a chosen legion is folded into
  * Legion 1 so they still receive an assignment (leaders can move them after).
+ *
+ * When `only` is given, ONLY that legion is (re)generated and stored — the other
+ * legion's plan and assignments are preserved as-is. The legions battle at
+ * completely different times and are fully independent.
  */
-async function generateSwordlandPlan(members: any[], event: any, eventId: string): Promise<BattlePlan> {
+async function generateSwordlandPlan(
+  members: any[],
+  event: any,
+  eventId: string,
+  only?: 'legion1' | 'legion2',
+): Promise<BattlePlan> {
   const legion2 = members.filter(m => m.squad_preference === 'legion2')
   const legion1 = members.filter(m => m.squad_preference !== 'legion2') // includes legion1 + unspecified
 
-  const [p1, p2] = await Promise.all([
-    planOneLegion('legion1', legion1, event),
-    planOneLegion('legion2', legion2, event),
+  if (only === 'legion1' && legion1.length === 0) throw new Error('Legion 1 has no attending members.')
+  if (only === 'legion2' && legion2.length === 0) throw new Error('Legion 2 has no attending members.')
+
+  // The other legion's previously stored plan (preserved on single-legion runs).
+  const existing = (event.battle_plan as any)?.legion_plans || {}
+
+  const [gen1, gen2] = await Promise.all([
+    !only || only === 'legion1' ? planOneLegion('legion1', legion1, event) : Promise.resolve(undefined),
+    !only || only === 'legion2' ? planOneLegion('legion2', legion2, event) : Promise.resolve(undefined),
   ])
+  const p1: BattlePlan | null = gen1 !== undefined ? gen1 : (existing.legion1 || null)
+  const p2: BattlePlan | null = gen2 !== undefined ? gen2 : (existing.legion2 || null)
 
   const merged: BattlePlan = {
     summary: [
@@ -1726,22 +1770,26 @@ async function generateSwordlandPlan(members: any[], event: any, eventId: string
     ],
     backup_plan: [p1?.backup_plan, p2?.backup_plan].filter(Boolean).join(' | ') || undefined,
     warnings: [...(p1?.warnings || []), ...(p2?.warnings || [])],
+    // Keep each legion's standalone plan so a later single-legion regeneration
+    // can preserve the other, and so the full plan view can show per-legion data.
+    legion_plans: { legion1: p1, legion2: p2 },
   }
 
-  await storeAssignments(eventId, merged, event, members)
+  await storeAssignments(eventId, merged, event, members, only ? [only] : undefined)
   return merged
 }
 
-export async function generateBattlePlan(eventId: string): Promise<BattlePlan> {
+export async function generateBattlePlan(eventId: string, legion?: 'legion1' | 'legion2'): Promise<BattlePlan> {
   const { members, event } = await loadAttendingMembersWithScores(eventId)
 
   if (members.length === 0) {
     throw new Error('No attending members found for this event')
   }
 
-  // Swordland Showdown runs two legions at different times — plan each separately.
+  // Swordland Showdown runs two legions at completely different times in
+  // independent matches — plan each separately (and on request, only one).
   if (event.event_types?.slug === 'swordland_showdown') {
-    return generateSwordlandPlan(members, event, eventId)
+    return generateSwordlandPlan(members, event, eventId, legion)
   }
 
   const prompt = buildPlanningPrompt(members, event)

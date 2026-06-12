@@ -3,7 +3,14 @@ import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Sword, Loader2 } from 'lucide-react'
 
-export function BattlePlanButton({ eventId, onSuccess, label }: { eventId: string; onSuccess?: () => void; label?: string }) {
+export function BattlePlanButton({ eventId, onSuccess, label, legion, disabled = false }: {
+  eventId: string
+  onSuccess?: () => void
+  label?: string
+  /** Swordland: generate only this legion's plan (the other legion is untouched). */
+  legion?: 'legion1' | 'legion2'
+  disabled?: boolean
+}) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
@@ -15,7 +22,7 @@ export function BattlePlanButton({ eventId, onSuccess, label }: { eventId: strin
       const res = await fetch('/api/battle-plan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ eventId }),
+        body: JSON.stringify(legion ? { eventId, legion } : { eventId }),
       })
       if (!res.ok) {
         const data = await res.json()
@@ -33,7 +40,7 @@ export function BattlePlanButton({ eventId, onSuccess, label }: { eventId: strin
 
   return (
     <div className="space-y-2">
-      <Button onClick={generate} disabled={loading} size="lg" className="w-full sm:w-auto">
+      <Button onClick={generate} disabled={loading || disabled} size="lg" className="w-full sm:w-auto">
         {loading ? <Loader2 size={18} className="mr-2 animate-spin" /> : <Sword size={18} className="mr-2" />}
         {loading ? 'Generating AI Plan...' : success ? 'Plan Generated!' : (label || 'Generate Battle Plan')}
       </Button>
