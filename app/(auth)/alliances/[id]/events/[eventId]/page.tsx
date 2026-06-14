@@ -60,6 +60,19 @@ export default async function EventDetailPage({ params }: { params: { id: string
     console.log(`[TriAlliance] loaded ${triAssignments?.length ?? 0} assignment rows for event ${params.eventId}`)
   }
 
+  // Swordland Showdown team plan (separate table — team-based, not rally-based).
+  // Single FK to members so a bare embed is unambiguous.
+  const { data: swordlandAssignments, error: swordlandError } = slug === 'swordland_showdown'
+    ? await supabase.from('swordland_assignments')
+        .select('*, members(id, player_name, power, game_id, avatar_url)')
+        .eq('event_id', params.eventId)
+    : { data: [], error: null }
+  if (swordlandError) {
+    console.error('[Swordland] assignments load FAILED:', swordlandError.message, swordlandError.details || '', swordlandError.hint || '')
+  } else if (slug === 'swordland_showdown') {
+    console.log(`[Swordland] loaded ${swordlandAssignments?.length ?? 0} assignment rows for event ${params.eventId}`)
+  }
+
   const breadcrumbs = [
     { label: 'Kingdoms', href: '/kingdoms' },
     ...(kingdom ? [{ label: `${kingdom.name}${kingdom.server_number ? ` #${kingdom.server_number}` : ''}`, href: `/kingdoms/${kingdom.id}` }] : []),
@@ -105,7 +118,7 @@ export default async function EventDetailPage({ params }: { params: { id: string
 
   // Standard events: wrap with Battle Plans tab
   const eventComponent =
-    slug === 'swordland_showdown' ? <SwordlandEvent {...props} /> :
+    slug === 'swordland_showdown' ? <SwordlandEvent {...props} swordlandAssignments={swordlandAssignments || []} /> :
     slug === 'kvk_castle_battle' ? <KvkCastleEvent {...props} /> :
     slug === 'castle_battle' ? <CastleBattleEvent {...props} /> :
     slug === 'tri_alliance_clash' ? <TriAllianceEvent {...props} triAssignments={triAssignments || []} /> :

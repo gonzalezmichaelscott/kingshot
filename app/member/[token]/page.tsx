@@ -141,6 +141,15 @@ export default async function MemberTokenPage({
     a => a.events && ['planning', 'registration', 'active'].includes(a.events.status)
   )
 
+  // Swordland Showdown team assignment (only for events that are still live)
+  const { data: swordlandAssignmentsRaw } = await supabase
+    .from('swordland_assignments')
+    .select('*, events(name, battle_start_utc, status, event_types(name, slug))')
+    .eq('member_id', member.id)
+  const swordlandAssignments = (swordlandAssignmentsRaw || []).filter(
+    a => a.events && ['planning', 'registration', 'active'].includes(a.events.status)
+  )
+
   return (
     <>
       {loggedInUserId && (
@@ -158,6 +167,7 @@ export default async function MemberTokenPage({
         upcomingEvents={upcomingEvents || []}
         memberAssignments={memberAssignments || []}
         triAssignments={triAssignments}
+        swordlandAssignments={swordlandAssignments}
         canTransfer={viewerIsOwner}
         isLoggedIn={viewerIsLoggedIn}
         wasRedirected={wasRedirected}

@@ -287,36 +287,35 @@ KVK MEMBER SCORING (for ranking rally leaders vs joiners):
 - Hero generation multiplier: Gen6=1.8, Gen5=1.5, Gen4=1.3, Gen3=1.1, Gen2=1.05, Gen1=1.0
 - Economy/gathering heroes reduce score significantly
 
-=== SWORDLAND SHOWDOWN SPECIFIC MECHANICS ===
+=== SWORDLAND SHOWDOWN — COMPLETE VERIFIED MECHANICS ===
 
-WIN CONDITION: Alliance RELIC POINTS (not structure control duration, not specific buildings)
-PERSONAL REWARDS: Personal relic points (separate track from alliance points)
-REWARD BRACKETS: Top tier of losing bracket > bottom two tiers of winning bracket
-POINT SOURCES:
-- Capture a building: immediate personal + alliance relic points (sword shrine and sanctums worth most)
-- Hold a building: ongoing alliance relic points over time
-- Collect arsenal supply crates: spawn when attacking alliance captures a building, both personal + alliance
-- Defeat enemy troops: 80 pts/10k soldier power (attacker), 40 pts/10k (defender) — personal points only
-- Undercellars: appear later in match, personal points only, slower rate than other sources
+EVENT TYPE: Building CAPTURE and point accumulation — NOT a rally-fill event. DURATION: 60 minutes.
+CRITICAL RULE: Teams must DISPERSE to capture multiple buildings simultaneously. Stacking everyone on one rally leader is the WORST possible strategy in Phases 1-2. The ONLY time coordinated rallies are appropriate is the Phase 3 Swordshrine assault. Legions battle at COMPLETELY SEPARATE times in independent matches — never tell one legion to coordinate with the other; each legion's instructions must be fully self-contained.
 
-BUILDING PRIORITY:
-- Sword Shrine: highest point value but only ~25% of total occupation income — don't just turtle here
-- Both Sanctums: high point value
-- Royal Stables: lower points but reduces teleport recharge cooldown for entire team (very valuable)
-- Bell Tower: reduces building capture time — great early match
-- Hall of Reformation: 15% damage increase + 15% damage reduction — helps both winning and personal scoring
-- Mercenary Camp: LOWEST priority — no personal relic points, sends AI mercs to enemy
+SCORING (4 income streams):
+1. FIRST CONTROL BONUS (one-time, massive): the first alliance to fully occupy a building after its capture timer earns a large Alliance + Personal Relic Point bonus. Swordshrine first capture alone = 9,000 Alliance + 4,500 Personal. Claiming first-control on ALL Phase 1 buildings ≈ 26,400 Relic Points in the opening minutes. This is WHY teams disperse at battle start.
+2. ONGOING OCCUPATION (per minute, compounds): Swordshrine 1,800/900 per min | Sanctum (x2) 1,200/600 each | Abbey (x4) 600/300 each | Buff buildings (Bell Tower, Royal Stables, Hall of Reformation, Mercenary Camp) 240/120 each. 50% of accumulated alliance points are "banked" visibly above the building; if it is LOST those banked points drop as Baggage Trains, collectible by either side.
+3. BAGGAGE TRAINS (active income — must send marches): dropped as loot crates when an attacker captures a building from the enemy. Any player can collect them. Count toward BOTH Alliance and Personal points. Farm the moment a building changes hands.
+4. DEFEATING ENEMY TROOPS (Personal points only): attacker 80 Personal per 10,000 enemy soldier power defeated; defender 40 per 10,000.
+5. UNDERCELLARS: gathering nodes around the Swordshrine (first wave 15 min, second wave 20 min). March to gather. Both Alliance and Personal at a slower rate. Often ignored by enemies — safe points for support/F2P.
 
-ROLES IN SWORDLAND:
-- TANK ROLE: hold Sword Shrine + Sanctums with defensive heroes and widgets, send reinforcements
-- ATTACKER ROLE: capture weakly defended buildings, collect arsenal loot crates immediately
-- PERSONAL SCORING: use all march slots actively — don't sit in safe zone
+ALL 11 STRUCTURES:
+- Point buildings: Swordshrine (center, highest, LOCKED until 15 min), Sanctum x2 (Phase 1), Abbey x4 (Phase 1).
+- Buff buildings: Bell Tower (HIGHEST Phase 1 priority — halves capture time for every building), Royal Stables (cuts free Advanced Teleporter cooldown 12→6 min), Hall of Reformation (unlocks 15 min — +15% Squad Damage AND -15% Damage Taken), Mercenary Camp (unlocks 15 min — lowest priority, use as a pre-attack softener before a rally).
 
-LEGION RULES:
-- Two legions per alliance at different time slots
-- Legion 1 results determine alliance tier advancement and top rewards
-- Legion 2 personal rewards determined by that match's win/loss
-- CRITICAL: Legion 1 and Legion 2 battle at completely separate times in independent matches. Never tell Legion 1 members to coordinate with Legion 2 or vice versa. Each legion's instructions must be fully self-contained.
+PHASES:
+- PHASE 1 Opening Scramble (0:00-15:00): available = Sanctums x2, Abbeys x4, Bell Tower, Royal Stables. Priority order: 1) Royal Stables first (halves alliance teleport cooldown), 2) Bell Tower second (halves capture time), 3) both Sanctums, 4) all 4 Abbeys, 5) city harassment by the strongest players to force enemy retreats from garrisons.
+- PHASE 2 Midgame (15:00-20:00): Swordshrine, Hall of Reformation, Mercenary Camp unlock; Undercellars first wave at 15:00. Priorities: 1) Hall of Reformation immediately, 2) Swordshrine if holdable (NOT mandatory — pivot to Sanctums + Bell Tower + Reformation + Abbeys if too contested; tunneling everything into Swordshrine while surrendering Sanctums/Abbeys LOSES), 3) Mercenary Camp as a pre-attack softener.
+- PHASE 3 Late Game (20:00-End): Undercellars second wave at 20:00 — send support/excess marches to gather (often unchallenged). Last 5-10 min: if behind, flip buildings with large banked reserves to drop big Baggage Train clusters; concentrated aggression pays most in the final minutes.
+
+ROLES (split the legion roughly 1/3 each — Attacker / Support / Defender):
+- ATTACKER (strongest players minus the whale): capture buildings fast for first-control bonuses, burn enemy cities to force retreats, reduce enemy troops for personal points. GOLDEN RULE: Attackers CAPTURE AND MOVE ON — never sit in a garrison.
+- SUPPORT (anchored by the single strongest player, the "whale"): fill garrison slots to deny enemy solos, collect Baggage Trains the instant buildings change hands, gather Undercellars, reinforce with weaker marches. Cover the pressure when Attackers retreat to heal. Good role for F2P/mid-tier — can launch from the safe zone.
+- DEFENDER (split into Team A and Team B with fixed building targets): capture their buildings in Phase 1, garrison them, send secondary marches to reinforce, coordinate across the two teams. Defense-oriented heroes with latest-gen widgets; Howard + Quinn paired cut incoming damage up to ~40%.
+
+HEALING/ENERGY: EXIT-TO-HEAL — leaving the battlefield instantly heals ALL troops for FREE (12-min respawn cooldown). NEVER spend healing speedups inside when you can exit-to-heal. No Help button in Swordland. Free Advanced Teleporter recharges every 12 min (6 with Royal Stables) — never hoard. Activate all buffs, pet skills, and best gear before the battle.
+
+REWARDS: Alliance bracket = Legion 1 win/loss. Personal tier = individual Personal Relic Point ranking. Top personal tier of a LOSING bracket beats the bottom tiers of a WINNING bracket — always prioritize personal score. If winning easily, trade buildings to farm Baggage Trains. If outmatched, switch to personal farming (guerrilla hits on isolated enemies, welcome defensive fights, exit/re-enter cycle). NEVER sit passively in the safe zone.
 
 === TRI-ALLIANCE CLASH SPECIFIC MECHANICS ===
 
@@ -680,7 +679,7 @@ INSTRUCTIONS:
 2. Designate backup players for critical roles (rally leaders especially)
 3. Explain WHY each assignment was made — reference specific stats AND hero/effect_op synergy
 4. Identify coverage gaps (time windows with insufficient players, missing backups)
-5. For Swordland: fill Squad A and Squad B with 30 members each, 10 substitutes
+5. For Swordland: DISPERSE the legion into Attacker / Support / Defender teams (roughly 1/3 each) to capture multiple buildings at once — never stack everyone on one rally. (The Swordland event uses a dedicated team-based planner; this generic path is a fallback only.)
 6. For KVK Castle Battle: STAFF THE CASTLE FIRST — holding it 151 consecutive minutes wins instantly. Assign the strongest rally leader and the highest-scoring joiners to the castle before anyone else, then fill the 4 turret teams (N/E/S/W) by turret score, then support with whoever remains. Include a rotation schedule.
 6b. For (single-alliance) Castle Battle: STAFF THE CASTLE FIRST with the 2 strongest rally leaders and best joiners (2 full castle teams). Only after the castle is fully staffed, fill turrets in order North → East → South → West with remaining capacity, then support. Never leave the castle understaffed to fill a turret. Battle window is 12:00–17:00 UTC.
 7. For Tri Alliance Clash: assign by phase (Seize, Garrison, Temple) with defenders and assault teams

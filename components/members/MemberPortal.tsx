@@ -46,6 +46,8 @@ interface Props {
   memberAssignments?: any[]
   /** Tri-Alliance Clash role assignments from tri_alliance_assignments. */
   triAssignments?: any[]
+  /** Swordland Showdown team assignments from swordland_assignments. */
+  swordlandAssignments?: any[]
   /** Viewer is the logged-in owner of this claimed profile (enables transfer). */
   canTransfer?: boolean
   /** Viewer has an active account session (enables "Back to Dashboard"). */
@@ -54,7 +56,7 @@ interface Props {
   wasRedirected?: boolean
 }
 
-export function MemberPortal({ member, memberHeroes, memberAvailability, heroes, upcomingEvents, memberAssignments = [], triAssignments = [], canTransfer = false, isLoggedIn = false, wasRedirected = false }: Props) {
+export function MemberPortal({ member, memberHeroes, memberAvailability, heroes, upcomingEvents, memberAssignments = [], triAssignments = [], swordlandAssignments = [], canTransfer = false, isLoggedIn = false, wasRedirected = false }: Props) {
   const alliance = member.alliances
   const router = useRouter()
 
@@ -300,6 +302,15 @@ export function MemberPortal({ member, memberHeroes, memberAvailability, heroes,
               <div className="space-y-3">
                 {triAssignments.map((a: any) => (
                   <TriAllianceAssignmentCard key={a.id} assignment={a} />
+                ))}
+              </div>
+            )}
+
+            {/* Swordland Showdown team assignments */}
+            {swordlandAssignments.length > 0 && (
+              <div className="space-y-3">
+                {swordlandAssignments.map((a: any) => (
+                  <SwordlandAssignmentCard key={a.id} assignment={a} />
                 ))}
               </div>
             )}
@@ -936,6 +947,75 @@ function TriAllianceAssignmentCard({ assignment }: { assignment: any }) {
           <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1.5">Pre-Battle Checklist</p>
           <ul className="text-sm text-slate-300 space-y-1">
             {TRI_CHECKLIST.map((item, i) => (
+              <li key={i} className="flex items-center gap-2">
+                <span className="text-slate-500">☐</span> {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+const SWORDLAND_TEAM_LABELS: Record<string, string> = {
+  attacker: 'Attacker',
+  support: 'Support',
+  defender_a: 'Defender Team A',
+  defender_b: 'Defender Team B',
+  substitute: 'Substitute',
+}
+
+const SWORDLAND_CHECKLIST = [
+  'Recall all troops before battle',
+  'Clear infirmary (cannot enter with injured troops)',
+  'Activate buffs, pet skills, and best gear before battle starts',
+  'Start with full energy / free teleporters',
+  'Join Discord/voice chat',
+  'Know your building targets (Defenders) or enemy targets (Attackers)',
+]
+
+function SwordlandAssignmentCard({ assignment }: { assignment: any }) {
+  const ev = assignment.events
+  const teamLabel = SWORDLAND_TEAM_LABELS[assignment.team] || assignment.team
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <Sword size={16} className="text-amber-500" />
+          {ev?.name || ev?.event_types?.name || 'Swordland Showdown'} — Legion {assignment.legion}
+        </CardTitle>
+        <p className="text-sm text-amber-400 font-medium">Team: {teamLabel}</p>
+        {assignment.building_targets && (
+          <p className="text-xs text-slate-400">Targets: {assignment.building_targets}</p>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {assignment.hero_squad_1 ? (
+          <div className="text-sm space-y-1">
+            <SquadLine label="Squad 1 (Primary)" squad={assignment.hero_squad_1} />
+            {assignment.hero_squad_2 && <SquadLine label="Squad 2 (Secondary)" squad={assignment.hero_squad_2} />}
+            {assignment.hero_squad_3 && <SquadLine label="Squad 3 (Reserve)" squad={assignment.hero_squad_3} />}
+          </div>
+        ) : null}
+        {assignment.hero_recommendation && (
+          <p className="text-xs text-slate-400 bg-slate-800 rounded-lg p-2.5">{assignment.hero_recommendation}</p>
+        )}
+
+        {assignment.stage_instructions && (
+          <div>
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1.5">Phase by Phase Instructions</p>
+            <div className="text-sm text-slate-300 whitespace-pre-line bg-slate-800/60 border border-slate-700 rounded-lg p-3">
+              {assignment.stage_instructions}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1.5">Pre-Battle Checklist</p>
+          <ul className="text-sm text-slate-300 space-y-1">
+            {SWORDLAND_CHECKLIST.map((item, i) => (
               <li key={i} className="flex items-center gap-2">
                 <span className="text-slate-500">☐</span> {item}
               </li>
